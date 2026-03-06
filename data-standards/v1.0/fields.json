@@ -1,0 +1,130 @@
+
+[
+  {
+    "id": "org_name",
+    "entity": "organization",
+    "label": "Organization Name",
+    "description": "Legal name of the entity.",
+    "type": "text",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "org_description",
+    "entity": "organization",
+    "label": "Description",
+    "description": "Short summary of the organization's mission or activities.",
+    "type": "textarea",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "org_tax_status",
+    "entity": "organization",
+    "label": "Tax Status",
+    "description": "IRS designation for the entity.",
+    "type": "enum",
+    "enum_ref": "TaxStatus",
+    "required": true,
+    "scope": "detailed"
+  },
+  {
+    "id": "org_roles",
+    "entity": "organization",
+    "label": "Ecosystem Roles",
+    "description": "Functions performed by the organization within the network.",
+    "type": "multiselect",
+    "enum_ref": "OrganizationRole",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "org_naics",
+    "entity": "organization",
+    "label": "NAICS Code",
+    "description": "North American Industry Classification System code.",
+    "type": "text",
+    "validation_regex": "^[0-9]{6}$",
+    "required": false,
+    "scope": "detailed"
+  },
+  {
+    "id": "org_visibility",
+    "entity": "organization",
+    "label": "Visibility",
+    "description": "Controls whether the profile is visible to the broader network.",
+    "type": "enum",
+    "enum_ref": "Visibility",
+    "required": true,
+    "scope": "admin"
+  },
+  {
+    "id": "person_first_name",
+    "entity": "person",
+    "label": "First Name",
+    "type": "text",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "person_last_name",
+    "entity": "person",
+    "label": "Last Name",
+    "type": "text",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "person_email",
+    "entity": "person",
+    "label": "Email Address",
+    "type": "email",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "person_system_role",
+    "entity": "person",
+    "label": "System Role",
+    "description": "Permissions level within the platform.",
+    "type": "enum",
+    "enum_ref": "SystemRole",
+    "required": true,
+    "scope": "admin"
+  },
+  {
+    "id": "interaction_date",
+    "entity": "interaction",
+    "label": "Date",
+    "type": "date",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "interaction_type",
+    "entity": "interaction",
+    "label": "Interaction Type",
+    "type": "enum",
+    "enum_ref": "InteractionType",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "interaction_notes",
+    "entity": "interaction",
+    "label": "Notes",
+    "type": "textarea",
+    "required": true,
+    "scope": "basic"
+  },
+  {
+    "id": "interaction_visibility",
+    "entity": "interaction",
+    "label": "Privacy Setting",
+    "description": "Determines who can see this interaction log.",
+    "type": "enum",
+    "enum_ref": "InteractionVisibility",
+    "required": true,
+    "scope": "basic"
+  }
+]

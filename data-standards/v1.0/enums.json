@@ -1,0 +1,58 @@
+
+{
+  "TaxStatus": [
+    { "id": "non_profit", "label": "Non-Profit (501c3 etc)" },
+    { "id": "for_profit", "label": "For Profit" },
+    { "id": "government", "label": "Government / Public Sector" },
+    { "id": "other", "label": "Other / Unspecified" }
+  ],
+  "OrganizationRole": [
+    { "id": "startup", "label": "Startup / Entrepreneur" },
+    { "id": "funder", "label": "Funder / Investor" },
+    { "id": "eso", "label": "Entrepreneur Support Org (ESO)" }
+  ],
+  "Visibility": [
+    { "id": "public", "label": "Network Visible" },
+    { "id": "private", "label": "Private / Hidden" }
+  ],
+  "SystemRole": [
+    { "id": "platform_admin", "label": "Platform Super Admin" },
+    { "id": "ecosystem_manager", "label": "Ecosystem Manager" },
+    { "id": "eso_admin", "label": "ESO Administrator" },
+    { "id": "eso_staff", "label": "ESO Staff" },
+    { "id": "eso_coach", "label": "ESO Coach / Mentor" },
+    { "id": "entrepreneur", "label": "Entrepreneur / Client" }
+  ],
+  "InteractionType": [
+    { "id": "meeting", "label": "Meeting (In-Person/Virtual)" },
+    { "id": "email", "label": "Email Correspondence" },
+    { "id": "call", "label": "Phone Call" },
+    { "id": "event", "label": "Event Attendance" },
+    { "id": "note", "label": "General Note" }
+  ],
+  "InteractionVisibility": [
+    { "id": "network_shared", "label": "Shared with Network (Trusted ESOs)" },
+    { "id": "eso_private", "label": "Private to My Organization" }
+  ],
+  "ReferralStatus": [
+    { "id": "pending", "label": "Pending Review" },
+    { "id": "accepted", "label": "Accepted" },
+    { "id": "rejected", "label": "Rejected / Declined" },
+    { "id": "completed", "label": "Completed" }
+  ],
+  "InitiativeStatus": [
+    { "id": "active", "label": "Active" },
+    { "id": "paused", "label": "Paused" },
+    { "id": "completed", "label": "Completed" },
+    { "id": "abandoned", "label": "Abandoned" }
+  ],
+  "MetricType": [
+    { "id": "revenue", "label": "Revenue" },
+    { "id": "jobs_ft", "label": "Full-Time Jobs" },
+    { "id": "jobs_pt", "label": "Part-Time Jobs" }
+  ],
+  "MetricSource": [
+    { "id": "self_reported", "label": "Self Reported by Client" },
+    { "id": "verified", "label": "Verified by Staff" }
+  ]
+}

@@ -1,0 +1,14 @@
+
+// Re-export specific domains
+export * from './interactions/types';
+export * from './advisor/types';
+export * from './todos/types';
+export * from './organizations/types';
+export * from './people/types';
+export * from './ecosystems/types';
+export * from './pipelines/types';
+export * from './metrics/types';
+export * from './referrals/types';
+export * from './services/types';
+export * from './shared/types';
+export * from './audit/types';
