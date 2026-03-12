@@ -118,6 +118,51 @@ const getBearerToken = (req: any) => {
   return header.slice('Bearer '.length).trim();
 };
 
+const validateApiKey = async (apiKey: string) => {
+  if (!apiKey) return null;
+  
+  // In a real system, we might use a hash or a separate collection for performance.
+  // For the MVP, we scan organizations for the matching key prefix.
+  // Note: This is simplified. Proper implementation should use a hashed lookup.
+  const snapshot = await db.collection('organizations').get();
+  for (const doc of snapshot.docs) {
+    const apiKeys = (doc.get('api_keys') || []) as any[];
+    const match = apiKeys.find(k => k.status === 'active' && (k.prefix === apiKey || apiKey.startsWith(k.prefix.replace('...', ''))));
+    if (match) {
+      return {
+        organization_id: doc.id,
+        key_id: match.id,
+        label: match.label
+      };
+    }
+  }
+  return null;
+};
+
+const requireAuthOrApiKey = async (req: any, res: any) => {
+  const token = getBearerToken(req);
+  const apiKey = req.get('X-Nexus-API-Key');
+
+  if (token) {
+    try {
+      const decoded = await admin.auth().verifyIdToken(token);
+      return { type: 'user', uid: decoded.uid };
+    } catch {
+      // Fall through to API key check
+    }
+  }
+
+  if (apiKey) {
+    const apiContext = await validateApiKey(apiKey);
+    if (apiContext) {
+      return { type: 'api_key', ...apiContext };
+    }
+  }
+
+  res.status(401).json({ error: 'Authentication or valid API key required' });
+  return null;
+};
+
 const requirePlatformAdmin = async (req: any, res: any) => {
   const token = getBearerToken(req);
   if (!token) {
@@ -704,6 +749,9 @@ export const resolvePerson = onRequest(async (req, res) => {
     return;
   }
 
+  const context = await requireAuthOrApiKey(req, res);
+  if (!context) return;
+
   const email = normalize(req.body?.email);
   const fullName = normalize(req.body?.full_name);
   const organizationName = normalize(req.body?.organization_name);
@@ -772,6 +820,9 @@ export const resolveOrganization = onRequest(async (req, res) => {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
+
+  const context = await requireAuthOrApiKey(req, res);
+  if (!context) return;
 
   const name = (req.body?.name || '').trim();
   const domain = normalize(req.body?.domain);
@@ -1437,6 +1488,68 @@ export const approveAccountRequest = onRequest(async (req, res) => {
   });
 
   res.json({ ok: true, request_id: requestId });
+});
+
+export const pushInteraction = onRequest(async (req, res) => {
+  if (handlePreflight(req, res)) {
+    return;
+  }
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const context = await requireAuthOrApiKey(req, res);
+  if (!context) return;
+
+  const {
+    ecosystem_id,
+    organization_id,
+    person_id,
+    date,
+    type,
+    notes,
+    recorded_by,
+    attendees
+  } = req.body;
+
+  if (!ecosystem_id || !organization_id || !notes) {
+    res.status(400).json({ error: 'ecosystem_id, organization_id, and notes are required' });
+    return;
+  }
+
+  const interactionRef = db.collection('interactions').doc();
+  const now = new Date().toISOString();
+  
+  const interaction = {
+    id: interactionRef.id,
+    ecosystem_id,
+    organization_id,
+    person_id: person_id || null,
+    date: date || now.split('T')[0],
+    type: type || 'other',
+    notes,
+    recorded_by: recorded_by || (context.type === 'api_key' ? context.label : 'System'),
+    attendees: attendees || [],
+    author_org_id: context.type === 'api_key' ? context.organization_id : (req.body.author_org_id || null),
+    visibility: 'network_shared',
+    note_confidential: false,
+    created_at: now,
+    source: context.type === 'api_key' ? 'api' : 'manual'
+  };
+
+  await interactionRef.set(interaction);
+
+  await logAudit('interaction_pushed', context.type === 'user' ? context.uid : context.organization_id, {
+    interaction_id: interactionRef.id,
+    ecosystem_id,
+    organization_id,
+    source: context.type
+  });
+
+  res.json({ ok: true, interaction_id: interactionRef.id });
 });
 
 export const rejectAccountRequest = onRequest(async (req, res) => {

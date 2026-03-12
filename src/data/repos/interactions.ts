@@ -10,7 +10,7 @@ export class InteractionsRepo {
   constructor(private consentRepo: ConsentRepo) {}
 
   // Get all interactions visible to the viewer within the scoped ecosystem
-  getAll(viewer: ViewerContext, ecosystemId?: string): Interaction[] {
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<Interaction[]> {
     const scope = validateEcosystemScope(viewer, ecosystemId);
     
     // 0. Filter by Ecosystem Scope
@@ -22,11 +22,12 @@ export class InteractionsRepo {
 
     // 2. Redact Content if necessary
     // This enforces the 'note_confidential' rule via canViewInteractionContent
-    return visibleMetadata.map(int => this.applySecurity(viewer, int));
+    const results = visibleMetadata.map(int => this.applySecurity(viewer, int));
+    return Promise.resolve(results);
   }
 
   // List specifically for an org context (e.g. Org Detail View)
-  listForOrgForViewer(viewer: ViewerContext, orgId: string): Interaction[] {
+  async listForOrgForViewer(viewer: ViewerContext, orgId: string): Promise<Interaction[]> {
       // 1. Enforce Ecosystem Scope: Ensure we only return interactions for the viewer's active ecosystem
       const scope = validateEcosystemScope(viewer);
 
@@ -35,11 +36,12 @@ export class InteractionsRepo {
           i.ecosystem_id === scope
       );
       
-      return orgInteractions.map(int => this.applySecurity(viewer, int));
+      const results = orgInteractions.map(int => this.applySecurity(viewer, int));
+      return Promise.resolve(results);
   }
 
   // List specifically for an initiative context
-  listForInitiative(viewer: ViewerContext, initiativeId: string): Interaction[] {
+  async listForInitiative(viewer: ViewerContext, initiativeId: string): Promise<Interaction[]> {
       // 1. Enforce Ecosystem Scope
       const scope = validateEcosystemScope(viewer);
 
@@ -48,11 +50,13 @@ export class InteractionsRepo {
           i.ecosystem_id === scope
       );
       
-      return initInteractions.map(int => this.applySecurity(viewer, int));
+      const results = initInteractions.map(int => this.applySecurity(viewer, int));
+      return Promise.resolve(results);
   }
 
-  add(interaction: Interaction): void {
+  async add(interaction: Interaction): Promise<void> {
     MOCK_INTERACTIONS.push(interaction);
+    return Promise.resolve();
   }
 
   // Helper to centralize redaction logic

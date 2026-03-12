@@ -33,27 +33,29 @@ const MOCK_INBOUND_PARSE_RESULTS: InboundParseResult[] = [];
 const normalize = (value?: string | null) => (value || '').trim().toLowerCase();
 
 export class InboundMessagesRepo {
-  getRoutes() {
-    return MOCK_INBOUND_ROUTES;
+  async getRoutes(): Promise<InboundRoute[]> {
+    return Promise.resolve(MOCK_INBOUND_ROUTES);
   }
 
-  getMessages() {
-    return MOCK_INBOUND_MESSAGES;
+  async getMessages(): Promise<InboundMessage[]> {
+    return Promise.resolve(MOCK_INBOUND_MESSAGES);
   }
 
-  getParseResults() {
-    return MOCK_INBOUND_PARSE_RESULTS;
+  async getParseResults(): Promise<InboundParseResult[]> {
+    return Promise.resolve(MOCK_INBOUND_PARSE_RESULTS);
   }
 
-  addMessage(message: InboundMessage) {
+  async addMessage(message: InboundMessage): Promise<void> {
     MOCK_INBOUND_MESSAGES.push(message);
+    return Promise.resolve();
   }
 
-  addParseResult(result: InboundParseResult) {
+  async addParseResult(result: InboundParseResult): Promise<void> {
     MOCK_INBOUND_PARSE_RESULTS.push(result);
+    return Promise.resolve();
   }
 
-  resolvePerson(request: ResolvePersonRequest): ResolvePersonResult {
+  async resolvePerson(request: ResolvePersonRequest): Promise<ResolvePersonResult> {
     const email = normalize(request.email);
     const organizationName = normalize(request.organization_name);
     const fullName = normalize(request.full_name);
@@ -63,13 +65,13 @@ export class InboundMessagesRepo {
       : undefined;
 
     if (emailMatch) {
-      return {
+      return Promise.resolve({
         match_found: true,
         confidence: 0.98,
         person_id: emailMatch.id,
         organization_id: emailMatch.organization_id,
         network_profile_url: `/people/${emailMatch.id}`,
-      };
+      });
     }
 
     const nameMatch = fullName
@@ -79,32 +81,32 @@ export class InboundMessagesRepo {
     if (nameMatch) {
       const org = ALL_ORGANIZATIONS.find((candidate) => candidate.id === nameMatch.organization_id);
       const orgBoost = org && organizationName && normalize(org.name) === organizationName ? 0.12 : 0;
-      return {
+      return Promise.resolve({
         match_found: true,
         confidence: Math.min(0.85 + orgBoost, 0.95),
         person_id: nameMatch.id,
         organization_id: nameMatch.organization_id,
         network_profile_url: `/people/${nameMatch.id}`,
-      };
+      });
     }
 
-    return {
+    return Promise.resolve({
       match_found: false,
       confidence: 0,
-    };
+    });
   }
 
-  resolveOrganization(request: ResolveOrganizationRequest): ResolveOrganizationResult {
+  async resolveOrganization(request: ResolveOrganizationRequest): Promise<ResolveOrganizationResult> {
     const name = normalize(request.name);
     const domain = normalize(request.domain);
 
     const exactNameMatch = ALL_ORGANIZATIONS.find((organization) => normalize(organization.name) === name);
     if (exactNameMatch) {
-      return {
+      return Promise.resolve({
         match_found: true,
         confidence: 0.97,
         organization_id: exactNameMatch.id,
-      };
+      });
     }
 
     const domainMatch = domain
@@ -112,16 +114,16 @@ export class InboundMessagesRepo {
       : undefined;
 
     if (domainMatch) {
-      return {
+      return Promise.resolve({
         match_found: true,
         confidence: 0.8,
         organization_id: domainMatch.id,
-      };
+      });
     }
 
-    return {
+    return Promise.resolve({
       match_found: false,
       confidence: 0,
-    };
+    });
   }
 }

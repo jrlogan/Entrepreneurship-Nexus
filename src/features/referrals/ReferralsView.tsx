@@ -9,18 +9,23 @@ import { CreateReferralModal } from './CreateReferralModal';
 
 export const ReferralsView = ({
     currentUser,
+    allReferrals = [],
+    organizations = [],
+    people = [],
     onSelectOrganization,
-    onSelectPerson
+    onSelectPerson,
+    onRefresh
 }: {
     currentUser: Person;
+    allReferrals?: Referral[];
+    organizations?: any[];
+    people?: Person[];
     onSelectOrganization?: (id: string, tab?: string) => void;
     onSelectPerson?: (id: string) => void;
+    onRefresh?: () => void;
 }) => {
     const repos = useRepos();
     const viewer = useViewer();
-    const allReferrals = repos.referrals.getAll(viewer);
-    const organizations = repos.organizations.getAll(viewer);
-    const people = repos.people.getAll();
     
     const [activeTab, setActiveTab] = useState<'incoming' | 'outgoing' | 'all'>('incoming');
     const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -35,6 +40,7 @@ export const ReferralsView = ({
     const [assignedOwnerId, setAssignedOwnerId] = useState('');
     const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
     const [feedbackTone, setFeedbackTone] = useState<'success' | 'error'>('success');
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // Interaction Log State (within Referral Modal)
     const [intDate, setIntDate] = useState('');
@@ -63,12 +69,23 @@ export const ReferralsView = ({
         return true;
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const handleCreateReferral = (newReferral: Partial<Referral>) => {
-        repos.referrals.add({
-            id: `ref_${Date.now()}`,
-            ...newReferral
-        } as Referral);
-        setIsCreateModalOpen(false);
+    const handleCreateReferral = async (newReferral: Partial<Referral>) => {
+        setIsProcessing(true);
+        try {
+            await repos.referrals.add({
+                id: `ref_${Date.now()}`,
+                ecosystem_id: viewer.ecosystemId,
+                source: 'manual_ui',
+                date: new Date().toISOString(),
+                ...newReferral
+            } as Referral);
+            setIsCreateModalOpen(false);
+            onRefresh?.();
+        } catch (error) {
+            console.error('Failed to create referral:', error);
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     const handleOpen = (ref: Referral) => {
@@ -86,71 +103,111 @@ export const ReferralsView = ({
         setIntNotes('');
     };
 
-    const handleAccept = () => {
+    const handleAccept = async () => {
         if (selectedReferral) {
-            repos.referrals.accept(selectedReferral.id, responseNote, assignedOwnerId || undefined);
-            if (followUpDate) {
-                repos.referrals.updateFollowUp(selectedReferral.id, followUpDate);
+            setIsProcessing(true);
+            try {
+                await repos.referrals.accept(selectedReferral.id, responseNote, assignedOwnerId || undefined);
+                if (followUpDate) {
+                    await repos.referrals.updateFollowUp(selectedReferral.id, followUpDate);
+                }
+                setSelectedReferral(null); 
+                onRefresh?.();
+            } catch (error) {
+                console.error('Failed to accept referral:', error);
+            } finally {
+                setIsProcessing(false);
             }
-            setSelectedReferral(null); 
         }
     };
 
-    const handleDecline = () => {
+    const handleDecline = async () => {
         if (selectedReferral) {
-            repos.referrals.decline(selectedReferral.id, responseNote);
-            setSelectedReferral(null);
+            setIsProcessing(true);
+            try {
+                await repos.referrals.decline(selectedReferral.id, responseNote);
+                setSelectedReferral(null);
+                onRefresh?.();
+            } catch (error) {
+                console.error('Failed to decline referral:', error);
+            } finally {
+                setIsProcessing(false);
+            }
         }
     };
 
-    const handleClose = () => {
+    const handleClose = async () => {
         if (selectedReferral) {
             if (!outcome) {
                 setFeedbackTone('error');
                 setFeedbackMessage('Select a final outcome before closing the referral.');
                 return;
             }
-            const tags = outcomeTags.split(',').map(s => s.trim()).filter(Boolean);
-            repos.referrals.close(selectedReferral.id, outcome, tags, responseNote);
-            setSelectedReferral(null);
+            setIsProcessing(true);
+            try {
+                const tags = outcomeTags.split(',').map(s => s.trim()).filter(Boolean);
+                await repos.referrals.close(selectedReferral.id, outcome, tags, responseNote);
+                setSelectedReferral(null);
+                onRefresh?.();
+            } catch (error) {
+                console.error('Failed to close referral:', error);
+            } finally {
+                setIsProcessing(false);
+            }
         }
     };
 
-    const handleUpdateFollowUp = () => {
+    const handleUpdateFollowUp = async () => {
         if (selectedReferral && followUpDate) {
-            if (assignedOwnerId) {
-                repos.referrals.assignOwner(selectedReferral.id, assignedOwnerId);
+            setIsProcessing(true);
+            try {
+                if (assignedOwnerId) {
+                    await repos.referrals.assignOwner(selectedReferral.id, assignedOwnerId);
+                }
+                await repos.referrals.updateFollowUp(selectedReferral.id, followUpDate);
+                setFeedbackTone('success');
+                setFeedbackMessage('Referral owner and next follow-up date saved.');
+                onRefresh?.();
+            } catch (error) {
+                console.error('Failed to update follow-up:', error);
+            } finally {
+                setIsProcessing(false);
             }
-            repos.referrals.updateFollowUp(selectedReferral.id, followUpDate);
-            setFeedbackTone('success');
-            setFeedbackMessage('Referral owner and next follow-up date saved.');
         }
     }
 
-    const handleLogInteraction = () => {
+    const handleLogInteraction = async () => {
         if (selectedReferral && intNotes) {
-            const subjectPerson = people.find(p => p.id === selectedReferral.subject_person_id);
-            const attendees = subjectPerson ? [`${subjectPerson.first_name} ${subjectPerson.last_name}`] : [];
-            
-            // If subject_org_id is missing, try to resolve from person
-            const orgId = selectedReferral.subject_org_id || subjectPerson?.organization_id || 'unknown_org';
+            setIsProcessing(true);
+            try {
+                const subjectPerson = people.find(p => p.id === selectedReferral.subject_person_id);
+                const attendees = subjectPerson ? [`${subjectPerson.first_name} ${subjectPerson.last_name}`] : [];
+                
+                // If subject_org_id is missing, try to resolve from person
+                const orgId = selectedReferral.subject_org_id || subjectPerson?.organization_id || 'unknown_org';
 
-            repos.interactions.add({
-                id: `int_ref_${Date.now()}`,
-                organization_id: orgId,
-                ecosystem_id: viewer.ecosystemId,
-                author_org_id: viewer.orgId,
-                date: intDate,
-                type: intType as any,
-                visibility: 'network_shared',
-                note_confidential: false,
-                notes: `[Referral Follow-up] ${intNotes}`,
-                recorded_by: `${currentUser.first_name} ${currentUser.last_name}`,
-                attendees
-            });
-            setFeedbackTone('success');
-            setFeedbackMessage('Follow-up interaction logged.');
-            setIntNotes('');
+                await repos.interactions.add({
+                    id: `int_ref_${Date.now()}`,
+                    organization_id: orgId,
+                    ecosystem_id: viewer.ecosystemId,
+                    author_org_id: viewer.orgId,
+                    date: intDate,
+                    type: intType as any,
+                    visibility: 'network_shared',
+                    note_confidential: false,
+                    notes: `[Referral Follow-up] ${intNotes}`,
+                    recorded_by: `${currentUser.first_name} ${currentUser.last_name}`,
+                    attendees
+                });
+                setFeedbackTone('success');
+                setFeedbackMessage('Follow-up interaction logged.');
+                setIntNotes('');
+                onRefresh?.();
+            } catch (error) {
+                console.error('Failed to log interaction:', error);
+            } finally {
+                setIsProcessing(false);
+            }
         }
     };
 

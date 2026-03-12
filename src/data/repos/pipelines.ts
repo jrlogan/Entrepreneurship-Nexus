@@ -20,28 +20,29 @@ export class PipelinesRepo {
   
   constructor(private consentRepo: ConsentRepo) {}
 
-  getPipelines(ecosystemId?: string): PipelineDefinition[] {
+  async getPipelines(ecosystemId?: string): Promise<PipelineDefinition[]> {
     const all = [...NEW_HAVEN_ECOSYSTEM.pipelines, ...CT_MAKERSPACES_ECOSYSTEM.pipelines];
     
-    if (ecosystemId === NEW_HAVEN_ECOSYSTEM.id) return NEW_HAVEN_ECOSYSTEM.pipelines;
-    if (ecosystemId === CT_MAKERSPACES_ECOSYSTEM.id) return CT_MAKERSPACES_ECOSYSTEM.pipelines;
+    let result = all;
+    if (ecosystemId === NEW_HAVEN_ECOSYSTEM.id) result = NEW_HAVEN_ECOSYSTEM.pipelines;
+    else if (ecosystemId === CT_MAKERSPACES_ECOSYSTEM.id) result = CT_MAKERSPACES_ECOSYSTEM.pipelines;
     
-    return all;
+    return Promise.resolve(result);
   }
 
   // Legacy: Returns all (Admin View)
-  getInitiatives(ecosystemId?: string): Initiative[] {
+  async getInitiatives(ecosystemId?: string): Promise<Initiative[]> {
     return this.getInitiativesForViewer(ADMIN_VIEWER, ecosystemId);
   }
 
   // Viewer-Aware: Returns redacted list if access is restricted, scoped to ecosystem
-  getInitiativesForViewer(viewer: ViewerContext, ecosystemId?: string): Initiative[] {
+  async getInitiativesForViewer(viewer: ViewerContext, ecosystemId?: string): Promise<Initiative[]> {
     const scope = validateEcosystemScope(viewer, ecosystemId);
     
     // Filter to current ecosystem scope
     const scopedInitiatives = INITIAL_INITIATIVES.filter(i => i.ecosystem_id === scope);
 
-    return scopedInitiatives.map(init => {
+    const results = scopedInitiatives.map(init => {
         const org = ALL_ORGANIZATIONS.find(o => o.id === init.organization_id);
         if (!org) return init; // Should not happen
 
@@ -52,9 +53,12 @@ export class PipelinesRepo {
         }
         return redactInitiative(init);
     });
+
+    return Promise.resolve(results);
   }
 
-  addInitiative(initiative: Initiative): void {
+  async addInitiative(initiative: Initiative): Promise<void> {
     INITIAL_INITIATIVES.push(initiative);
+    return Promise.resolve();
   }
 }

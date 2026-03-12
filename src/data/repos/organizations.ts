@@ -27,7 +27,7 @@ export class OrganizationsRepo {
    * Simulates receiving a payload from an external system (Salesforce, HubSpot, etc).
    * Handles ID matching and optimistic updates.
    */
-  upsertFromExternal(source: string, payload: any): IngestionResult {
+  async upsertFromExternal(source: string, payload: any): Promise<IngestionResult> {
       // 1. Try to find match by External ID
       const externalId = payload.external_id;
       let existing = ALL_ORGANIZATIONS.find(o => 
@@ -48,13 +48,13 @@ export class OrganizationsRepo {
               version: (existing.version || 1) + 1
           };
           
-          this.update(existing.id, updates, { id: `sys_sync_${source}`, label: `${source} Integration`, type: 'system' });
+          await this.update(existing.id, updates, { id: `sys_sync_${source}`, label: `${source} Integration`, type: 'system' });
           
-          return {
+          return Promise.resolve({
               status: 'updated',
               entity: { ...existing, ...updates },
               message: `Updated record ${existing.id} (v${updates.version}) from ${source}.`
-          };
+          });
       } else {
           // CREATE
           // Note: If this is a duplicate name, the Data Quality Engine (DataQualityView) will catch it later.
@@ -74,21 +74,22 @@ export class OrganizationsRepo {
               operational_visibility: 'open',
               authorized_eso_ids: [],
               ecosystem_ids: ['eco_new_haven'], // Defaulting for demo
-              version: 1
+              version: 1,
+              external_ids: {}
           };
 
-          this.add(newOrg);
+          await this.add(newOrg);
           
-          return {
+          return Promise.resolve({
               status: 'created',
               entity: newOrg,
               message: `Created new record ${newOrg.id} from ${source}.`
-          };
+          });
       }
   }
 
   // Viewer-Aware Method
-  getAll(viewer: ViewerContext, ecosystemId?: string): (Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[] {
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]> {
     let orgs = ALL_ORGANIZATIONS;
     
     if (ecosystemId) {
@@ -96,7 +97,7 @@ export class OrganizationsRepo {
     }
 
     // Map each org to include its access explanation and redact if necessary
-    return orgs.map(org => {
+    const results = orgs.map(org => {
       const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
       const access = explainOrgAccess(viewer, org, hasConsent);
       let safeOrg = org;
@@ -112,11 +113,13 @@ export class OrganizationsRepo {
 
       return { ...safeOrg, _access: access };
     });
+
+    return Promise.resolve(results);
   }
 
   // Viewer-Aware Detail Fetch
-  getByIdForViewer(viewer: ViewerContext, id: string): Organization | undefined {
-      const org = this.getById(id); // Internal fetch
+  async getByIdForViewer(viewer: ViewerContext, id: string): Promise<Organization | undefined> {
+      const org = await this.getById(id); // Internal fetch
       if (!org) return undefined;
 
       const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
@@ -135,28 +138,24 @@ export class OrganizationsRepo {
   }
 
   // Legacy/Internal: Returns raw data (effectively Admin access)
-  getById(id: string): Organization | undefined {
-    return ALL_ORGANIZATIONS.find(o => o.id === id);
+  async getById(id: string): Promise<Organization | undefined> {
+    return Promise.resolve(ALL_ORGANIZATIONS.find(o => o.id === id));
   }
 
-  add(org: Organization): void {
+  async add(org: Organization): Promise<void> {
     ALL_ORGANIZATIONS.push(org);
     this.logChange(org, 'create', { id: 'user_current', label: 'Current User', type: 'user' }, 'Created new organization');
+    return Promise.resolve();
   }
 
   /**
    * Update with Audit Logging
    * @param actor - Identify who made the change (API Key ID or User ID)
    */
-  update(id: string, updates: Partial<Organization>, actor?: { id: string, label: string, type: 'user'|'api_key'|'system' }): void {
+  async update(id: string, updates: Partial<Organization>, actor?: { id: string, label: string, type: 'user'|'api_key'|'system' }): Promise<void> {
     const orgIndex = ALL_ORGANIZATIONS.findIndex(o => o.id === id);
     if (orgIndex >= 0) {
         const oldOrg = ALL_ORGANIZATIONS[orgIndex];
-        
-        // 1. Snapshot the OLD state before updating (so we can revert TO this)
-        // Or alternatively, log the NEW state. Standard practice is usually to log the state *resulting* from the action.
-        // Let's log the NEW state, but we need to keep a history chain. 
-        // Actually, to rollback, we need the state BEFORE the change.
         
         // Strategy: We save the object AS IT WAS before the update.
         this.logChange(oldOrg, 'update', actor, `Updated fields: ${Object.keys(updates).join(', ')}`);
@@ -165,13 +164,14 @@ export class OrganizationsRepo {
         const updatedOrg = { ...oldOrg, ...updates, version: (oldOrg.version || 1) + 1 };
         ALL_ORGANIZATIONS[orgIndex] = updatedOrg;
     }
+    return Promise.resolve();
   }
 
   /**
    * Rollback to a specific revision
    */
-  rollback(id: string, revisionId: string, actor: { id: string, label: string }): boolean {
-      const org = this.getById(id);
+  async rollback(id: string, revisionId: string, actor: { id: string, label: string }): Promise<boolean> {
+      const org = await this.getById(id);
       if (!org) return false;
 
       const revision = this.history.find(r => r.id === revisionId);
@@ -192,13 +192,14 @@ export class OrganizationsRepo {
       const index = ALL_ORGANIZATIONS.findIndex(o => o.id === id);
       ALL_ORGANIZATIONS[index] = restoredOrg;
       
-      return true;
+      return Promise.resolve(true);
   }
 
-  getHistory(id: string): Revision<Organization>[] {
-      return this.history
+  async getHistory(id: string): Promise<Revision<Organization>[]> {
+      const history = this.history
         .filter(h => h.entityId === id)
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return Promise.resolve(history);
   }
 
   // --- Internal Audit Helper ---
@@ -281,14 +282,14 @@ export class OrganizationsRepo {
   }
 
   // API Key Management (Strictly Owner/Admin)
-  getApiKeys(orgId: string): ApiKey[] {
-    const org = this.getById(orgId);
-    return org?.api_keys || [];
+  async getApiKeys(orgId: string): Promise<ApiKey[]> {
+    const org = await this.getById(orgId);
+    return Promise.resolve(org?.api_keys || []);
   }
 
-  generateApiKey(orgId: string, label: string): ApiKey | null {
-    const org = this.getById(orgId);
-    if (!org) return null;
+  async generateApiKey(orgId: string, label: string): Promise<ApiKey | null> {
+    const org = await this.getById(orgId);
+    if (!org) return Promise.resolve(null);
 
     if (!org.api_keys) org.api_keys = [];
 
@@ -306,28 +307,29 @@ export class OrganizationsRepo {
     };
 
     org.api_keys.push(newKey);
-    return { ...newKey, prefix: fullKey }; 
+    return Promise.resolve({ ...newKey, prefix: fullKey }); 
   }
 
-  revokeApiKey(orgId: string, keyId: string): void {
-    const org = this.getById(orgId);
+  async revokeApiKey(orgId: string, keyId: string): Promise<void> {
+    const org = await this.getById(orgId);
     if (org && org.api_keys) {
       const key = org.api_keys.find(k => k.id === keyId);
       if (key) {
         key.status = 'revoked';
       }
     }
+    return Promise.resolve();
   }
 
   // Webhook Management
-  getWebhooks(orgId: string): Webhook[] {
-    const org = this.getById(orgId);
-    return org?.webhooks || [];
+  async getWebhooks(orgId: string): Promise<Webhook[]> {
+    const org = await this.getById(orgId);
+    return Promise.resolve(org?.webhooks || []);
   }
 
-  addWebhook(orgId: string, webhook: Omit<Webhook, 'id' | 'created_at' | 'status' | 'secret'>): Webhook | null {
-    const org = this.getById(orgId);
-    if (!org) return null;
+  async addWebhook(orgId: string, webhook: Omit<Webhook, 'id' | 'created_at' | 'status' | 'secret'>): Promise<Webhook | null> {
+    const org = await this.getById(orgId);
+    if (!org) return Promise.resolve(null);
     if (!org.webhooks) org.webhooks = [];
     
     const newWebhook: Webhook = {
@@ -338,13 +340,14 @@ export class OrganizationsRepo {
         ...webhook
     };
     org.webhooks.push(newWebhook);
-    return newWebhook;
+    return Promise.resolve(newWebhook);
   }
 
-  deleteWebhook(orgId: string, webhookId: string): void {
-      const org = this.getById(orgId);
+  async deleteWebhook(orgId: string, webhookId: string): Promise<void> {
+      const org = await this.getById(orgId);
       if (org && org.webhooks) {
           org.webhooks = org.webhooks.filter(w => w.id !== webhookId);
       }
+      return Promise.resolve();
   }
 }

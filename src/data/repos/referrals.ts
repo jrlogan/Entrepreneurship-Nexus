@@ -10,7 +10,7 @@ export class ReferralsRepo {
   constructor(private consentRepo: ConsentRepo) {}
 
   // Viewer-Aware with Ecosystem Scoping
-  getAll(viewer: ViewerContext, ecosystemId?: string): Referral[] {
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<Referral[]> {
     const scope = validateEcosystemScope(viewer, ecosystemId);
 
     // 1. Identify Organizations active in this scope
@@ -24,32 +24,32 @@ export class ReferralsRepo {
     // 2. Filter Referrals relevant to this ecosystem
     // A referral is relevant if EITHER the sender OR receiver is in the ecosystem.
     const scopedReferrals = MOCK_REFERRALS.filter(r => 
-        ecosystemOrgIds.has(r.referring_org_id) || 
-        ecosystemOrgIds.has(r.receiving_org_id)
+        (r.referring_org_id && ecosystemOrgIds.has(r.referring_org_id)) || 
+        (r.receiving_org_id && ecosystemOrgIds.has(r.receiving_org_id))
     );
 
     // 3. Apply Viewer Permissions (Role-based filtering)
     // Admin sees all in scope
     if (['platform_admin', 'ecosystem_manager'].includes(viewer.role)) {
-      return scopedReferrals;
+      return Promise.resolve(scopedReferrals);
     }
 
     // Otherwise, must be Sender, Receiver, or the Subject
-    return scopedReferrals.filter(r => 
+    return Promise.resolve(scopedReferrals.filter(r => 
       r.referring_org_id === viewer.orgId ||
       r.receiving_org_id === viewer.orgId ||
       r.subject_person_id === viewer.personId ||
       (r.subject_org_id && r.subject_org_id === viewer.orgId)
-    );
+    ));
   }
 
   // New: List referrals for a specific subject Org (e.g. on their profile)
   // This allows 3rd party ESOs to see "Oh, they have pending referrals" (Metadata) without details
-  listForOrgForViewer(viewer: ViewerContext, orgId: string): Referral[] {
+  async listForOrgForViewer(viewer: ViewerContext, orgId: string): Promise<Referral[]> {
       const referrals = MOCK_REFERRALS.filter(r => r.subject_org_id === orgId || r.referring_org_id === orgId || r.receiving_org_id === orgId);
       const subjectOrg = ALL_ORGANIZATIONS.find(o => o.id === orgId);
 
-      return referrals.map(ref => {
+      const results = referrals.map(ref => {
           // If I am involved, I see it
           if (ref.referring_org_id === viewer.orgId || ref.receiving_org_id === viewer.orgId) {
               return ref;
@@ -66,14 +66,17 @@ export class ReferralsRepo {
           // Otherwise redact
           return redactReferral(ref);
       });
+
+      return Promise.resolve(results);
   }
 
-  add(referral: Referral): void {
+  async add(referral: Referral): Promise<void> {
     referral.delivered_at = new Date().toISOString();
     MOCK_REFERRALS.push(referral);
+    return Promise.resolve();
   }
 
-  accept(id: string, notes?: string, ownerId?: string): void {
+  async accept(id: string, notes?: string, ownerId?: string): Promise<void> {
     const ref = MOCK_REFERRALS.find(r => r.id === id);
     if (ref && ref.status === 'pending') {
         ref.status = 'accepted';
@@ -81,18 +84,20 @@ export class ReferralsRepo {
         if (notes) ref.response_notes = notes;
         if (ownerId) ref.owner_id = ownerId;
     }
+    return Promise.resolve();
   }
 
-  decline(id: string, notes?: string): void {
+  async decline(id: string, notes?: string): Promise<void> {
     const ref = MOCK_REFERRALS.find(r => r.id === id);
     if (ref && ref.status === 'pending') {
         ref.status = 'rejected';
         ref.declined_at = new Date().toISOString();
         if (notes) ref.response_notes = notes;
     }
+    return Promise.resolve();
   }
 
-  close(id: string, outcome: string, outcomeTags: string[], notes?: string): void {
+  async close(id: string, outcome: string, outcomeTags: string[], notes?: string): Promise<void> {
     const ref = MOCK_REFERRALS.find(r => r.id === id);
     if (ref && ref.status === 'accepted') {
         ref.status = 'completed';
@@ -101,19 +106,22 @@ export class ReferralsRepo {
         ref.outcome_tags = outcomeTags;
         if (notes) ref.response_notes = (ref.response_notes || '') + '\nClosing Note: ' + notes;
     }
+    return Promise.resolve();
   }
 
-  updateFollowUp(id: string, date: string): void {
+  async updateFollowUp(id: string, date: string): Promise<void> {
     const ref = MOCK_REFERRALS.find(r => r.id === id);
     if (ref) {
       ref.follow_up_date = date;
     }
+    return Promise.resolve();
   }
 
-  assignOwner(id: string, ownerId?: string): void {
+  async assignOwner(id: string, ownerId?: string): Promise<void> {
     const ref = MOCK_REFERRALS.find(r => r.id === id);
     if (ref) {
       ref.owner_id = ownerId || undefined;
     }
+    return Promise.resolve();
   }
 }

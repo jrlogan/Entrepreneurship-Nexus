@@ -98,6 +98,9 @@ export interface Organization {
   // Multi-tenancy
   ecosystem_ids: string[]; // Organizations can participate in multiple ecosystems
   
+  // External ID Mapping
+  external_ids?: Record<string, string>; // Added: Map of external system names to their specific IDs
+
   // Flexible Tagging
   tags?: string[];
 }

@@ -3,15 +3,17 @@ export type ReferralStatus = 'pending' | 'accepted' | 'rejected' | 'completed';
 
 export interface Referral {
   id: string;
-  referring_org_id: string; // Who sent it
-  receiving_org_id: string; // Who received it
-  subject_person_id: string; // Who is being introduced
-  subject_org_id?: string; // What company are they with
+  ecosystem_id: string | null; // Added: Ecosystem scoping
+  referring_org_id: string | null; // Who sent it (nullable for BCC)
+  receiving_org_id: string | null; // Who received it (nullable for BCC)
+  subject_person_id: string | null; // Who is being introduced
+  subject_org_id?: string | null; // What company are they with
   date: string;
   status: ReferralStatus;
   notes: string; // The "Intro" note
   response_notes?: string; // Notes from the receiver
   intro_email_sent?: boolean; // New: Automatic email
+  source?: 'manual_ui' | 'bcc_intake' | 'api' | null; // Added: Origin tracking
   
   // Lifecycle & Tracking
   accepted_at?: string;

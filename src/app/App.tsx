@@ -241,25 +241,46 @@ const App = () => {
 
   // Fetch Scoped Data based on Current Ecosystem AND Permissions
   // Dependent on dataVersion to trigger re-fetch/re-render when data changes
-  const organizations = useMemo(() => (
-    viewerContext ? repos.organizations.getAll(viewerContext, currentEcosystemId) : []
-  ), [repos, viewerContext, currentEcosystemId, dataVersion]);
-  const people = useMemo(() => (
-    viewerContext ? repos.people.getAll(currentEcosystemId) : []
-  ), [repos, viewerContext, currentEcosystemId, dataVersion]);
-  
-  // Updated: Use viewer-aware initiative fetching
-  const initiatives = useMemo(() => (
-    viewerContext ? repos.pipelines.getInitiativesForViewer(viewerContext, currentEcosystemId) : []
-  ), [repos, viewerContext, currentEcosystemId, dataVersion]);
-  
-  const interactions = useMemo(() => (
-    viewerContext ? repos.interactions.getAll(viewerContext, currentEcosystemId) : []
-  ), [repos, viewerContext, currentEcosystemId, dataVersion]);
-  const pipelines = useMemo(() => repos.pipelines.getPipelines(currentEcosystemId), [repos, currentEcosystemId]);
-  const referrals = useMemo(() => (
-    viewerContext ? repos.referrals.getAll(viewerContext) : []
-  ), [repos, viewerContext, dataVersion]);
+  const [organizations, setOrganizations] = useState<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [initiatives, setInitiatives] = useState<Initiative[]>([]);
+  const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+
+  useEffect(() => {
+    if (viewerContext) {
+      repos.organizations.getAll(viewerContext, currentEcosystemId).then(setOrganizations);
+    }
+  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+
+  useEffect(() => {
+    if (viewerContext) {
+      repos.people.getAll(currentEcosystemId).then(setPeople);
+    }
+  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+
+  useEffect(() => {
+    if (viewerContext) {
+      repos.pipelines.getInitiativesForViewer(viewerContext, currentEcosystemId).then(setInitiatives);
+    }
+  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+
+  useEffect(() => {
+    if (viewerContext) {
+      repos.interactions.getAll(viewerContext, currentEcosystemId).then(setInteractions);
+    }
+  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+
+  useEffect(() => {
+    repos.pipelines.getPipelines(currentEcosystemId).then(setPipelines);
+  }, [repos, currentEcosystemId, dataVersion]);
+
+  useEffect(() => {
+    if (viewerContext) {
+      repos.referrals.getAll(viewerContext).then(setReferrals);
+    }
+  }, [repos, viewerContext, dataVersion]);
   
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(initialRoute.orgId || null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(initialRoute.personId || null);
@@ -459,7 +480,15 @@ const App = () => {
                ) : null
            )}
            {view === 'referrals' && (
-                <ReferralsView currentUser={activeUser} onSelectOrganization={navigateToOrg} onSelectPerson={navigateToPerson} />
+                <ReferralsView 
+                  currentUser={activeUser} 
+                  allReferrals={referrals}
+                  organizations={organizations}
+                  people={people}
+                  onSelectOrganization={navigateToOrg} 
+                  onSelectPerson={navigateToPerson}
+                  onRefresh={refreshData} 
+                />
            )}
            {view === 'reports' && (
                canAccessReports ? (

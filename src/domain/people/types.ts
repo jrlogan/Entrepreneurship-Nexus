@@ -53,6 +53,7 @@ export interface Person {
   
   // Integration
   external_refs?: ExternalRef[]; // Link people to external IDs (e.g. Salesforce Contact ID)
+  external_ids?: Record<string, string>; // Added: Map of external system names to their specific IDs
   
   // Enhanced Profile
   links?: SocialLink[];

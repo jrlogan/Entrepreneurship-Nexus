@@ -96,4 +96,40 @@ export class FirebasePeopleRepo {
   async getMembershipsForPerson(personId: string): Promise<FirestorePersonMembershipRecord[]> {
     return queryCollection<FirestorePersonMembershipRecord>('person_memberships', [whereEquals('person_id', personId)]);
   }
+
+  async getAll(ecosystemId?: string): Promise<Person[]> {
+    const constraints = ecosystemId ? [whereEquals('ecosystem_id', ecosystemId)] : [];
+    const records = await queryCollection<FirestorePersonRecord>('people', constraints);
+    
+    const results: Person[] = [];
+    for (const record of records) {
+        const memberships = await this.getMembershipsForPerson(record.id);
+        results.push(toPerson(record, memberships));
+    }
+    return results;
+  }
+
+  async add(person: Person): Promise<void> {
+    const record: FirestorePersonRecord = {
+        id: person.id,
+        first_name: person.first_name,
+        last_name: person.last_name,
+        email: person.email,
+        avatar_url: person.avatar_url,
+        role: person.role,
+        system_role: person.system_role,
+        primary_organization_id: person.organization_id,
+        ecosystem_id: person.ecosystem_id,
+        tags: person.tags,
+        external_refs: person.external_refs,
+        links: person.links,
+        secondary_profile: person.secondary_profile,
+    };
+    await setDocument('people', person.id, record);
+  }
+
+  async update(id: string, updates: Partial<Person>): Promise<void> {
+    // This is a simplified update that doesn't handle membership syncing
+    await updateDocument('people', id, updates as any);
+  }
 }

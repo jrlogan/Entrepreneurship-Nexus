@@ -3,25 +3,27 @@ import type { Person } from '../../domain/people/types';
 import { MOCK_PEOPLE } from '../mockData';
 
 export class PeopleRepo {
-  getAll(ecosystemId?: string): Person[] {
+  async getAll(ecosystemId?: string): Promise<Person[]> {
     if (ecosystemId) {
-      return MOCK_PEOPLE.filter(p => p.memberships?.some(m => m.ecosystem_id === ecosystemId));
+      return Promise.resolve(MOCK_PEOPLE.filter(p => p.memberships?.some(m => m.ecosystem_id === ecosystemId)));
     }
-    return MOCK_PEOPLE;
+    return Promise.resolve(MOCK_PEOPLE);
   }
 
-  getById(id: string): Person | undefined {
-    return MOCK_PEOPLE.find(p => p.id === id);
+  async getById(id: string): Promise<Person | undefined> {
+    return Promise.resolve(MOCK_PEOPLE.find(p => p.id === id));
   }
 
-  add(person: Person): void {
+  async add(person: Person): Promise<void> {
     MOCK_PEOPLE.push(person);
+    return Promise.resolve();
   }
 
-  update(id: string, updates: Partial<Person>): void {
-    const person = this.getById(id);
+  async update(id: string, updates: Partial<Person>): Promise<void> {
+    const person = MOCK_PEOPLE.find(p => p.id === id);
     if (person) {
         Object.assign(person, updates);
     }
+    return Promise.resolve();
   }
 }
