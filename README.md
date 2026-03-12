@@ -51,6 +51,51 @@ This platform bridges the gap between **Entrepreneurs** (Founders), **Entreprene
     *   Add your `API_KEY` for Google GenAI.
 4.  **Run Development Server**: `npm run dev`
 
+## Local Firebase Workflow
+
+For local auth, Firestore, and function testing:
+
+Quick start:
+
+```bash
+npm run local:start
+```
+
+Manual flow:
+
+1. Set these in `.env`:
+   - `VITE_DEMO_MODE=false`
+   - `VITE_USE_FIREBASE_EMULATORS=true`
+2. Start the app with `npm run dev`
+3. Start emulators with `npm run firebase:emulators`
+4. Seed reference data with `npm run simulate:seed-local`
+5. Create a test account with `npm run simulate:create-auth-user`
+6. Sign into the app using the Firebase auth panel
+7. Simulate inbound email intake with `npm run simulate:inbound-email`
+8. Simulate a Postmark-style inbound webhook with `npm run simulate:postmark-inbound`
+9. Run an end-to-end invite acceptance flow with `npm run simulate:full-invite-flow`
+10. Seed the full local role matrix with `npm run simulate:seed-test-accounts`
+
+Local defaults:
+
+- project id: `entrepreneurship-nexus-local`
+- shared test password: `Password123!`
+- platform admin: `coach@makehaven.org`
+- ecosystem manager: `ecosystem.admin@newhaven.example.org`
+- ESO admin: `eso.admin@makehaven.org`
+- ESO staff: `eso.staff@makehaven.org`
+- ESO coach: `eso.coach@makehaven.org`
+- partner ESO admin: `eso.admin@ctinnovations.org`
+- entrepreneur: `founder@darkstarmarine.com`
+
+## 📘 Planning Notes
+
+* [BCC Introduction Intake Plan](docs/bcc-introduction-intake-plan.md)
+* [Firebase Architecture Draft](docs/firebase-architecture-draft.md)
+* [Onboarding And Role Model](docs/onboarding-and-role-model.md)
+* [MVP ESO Experience](docs/mvp-eso-experience.md)
+* [Postmark Integration](docs/postmark-integration.md)
+
 ---
 
 ## 📜 License

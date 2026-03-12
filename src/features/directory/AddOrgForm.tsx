@@ -175,6 +175,14 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) =
                         onChange={e => setRole(e.target.value as OrganizationRole)}
                     >
                         <option value="startup">Startup / Client</option>
+                        <option value="small_business">Small Business</option>
+                        <option value="nonprofit">Nonprofit Organization</option>
+                        <option value="government">Government / Public Agency</option>
+                        <option value="education">College / University / School</option>
+                        <option value="service_provider">Professional Service Provider</option>
+                        <option value="workspace">Lab / Workspace / Makerspace</option>
+                        <option value="community_org">Community Organization</option>
+                        <option value="anchor_institution">Anchor Institution / Major Employer</option>
                         <option value="eso">Support Organization (ESO)</option>
                         <option value="funder">Funder / Investor</option>
                     </select>

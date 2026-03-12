@@ -18,10 +18,40 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
     // State for Tags
     const [tags, setTags] = useState<string[]>([]);
     const [newTag, setNewTag] = useState('');
+    const [featureFlags, setFeatureFlags] = useState({
+        advanced_workflows: ecosystem.settings.feature_flags?.advanced_workflows ?? false,
+        dashboard: ecosystem.settings.feature_flags?.dashboard ?? false,
+        tasks_advice: ecosystem.settings.feature_flags?.tasks_advice ?? false,
+        initiatives: ecosystem.settings.feature_flags?.initiatives ?? false,
+        processes: ecosystem.settings.feature_flags?.processes ?? false,
+        interactions: ecosystem.settings.feature_flags?.interactions ?? false,
+        reports: ecosystem.settings.feature_flags?.reports ?? false,
+        venture_scout: ecosystem.settings.feature_flags?.venture_scout ?? false,
+        api_console: ecosystem.settings.feature_flags?.api_console ?? false,
+        data_quality: ecosystem.settings.feature_flags?.data_quality ?? false,
+        data_standards: ecosystem.settings.feature_flags?.data_standards ?? false,
+        metrics_manager: ecosystem.settings.feature_flags?.metrics_manager ?? false,
+        inbound_intake: ecosystem.settings.feature_flags?.inbound_intake ?? false,
+    });
 
     useEffect(() => {
         loadConfig();
         setTags(ecosystem.tags || []);
+        setFeatureFlags({
+            advanced_workflows: ecosystem.settings.feature_flags?.advanced_workflows ?? false,
+            dashboard: ecosystem.settings.feature_flags?.dashboard ?? false,
+            tasks_advice: ecosystem.settings.feature_flags?.tasks_advice ?? false,
+            initiatives: ecosystem.settings.feature_flags?.initiatives ?? false,
+            processes: ecosystem.settings.feature_flags?.processes ?? false,
+            interactions: ecosystem.settings.feature_flags?.interactions ?? false,
+            reports: ecosystem.settings.feature_flags?.reports ?? false,
+            venture_scout: ecosystem.settings.feature_flags?.venture_scout ?? false,
+            api_console: ecosystem.settings.feature_flags?.api_console ?? false,
+            data_quality: ecosystem.settings.feature_flags?.data_quality ?? false,
+            data_standards: ecosystem.settings.feature_flags?.data_standards ?? false,
+            metrics_manager: ecosystem.settings.feature_flags?.metrics_manager ?? false,
+            inbound_intake: ecosystem.settings.feature_flags?.inbound_intake ?? false,
+        });
     }, [ecosystem.id]);
 
     const loadConfig = () => {
@@ -88,6 +118,35 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
         const updatedTags = tags.filter(t => t !== tagToRemove);
         setTags(updatedTags);
         repos.ecosystems.update(ecosystem.id, { tags: updatedTags });
+    };
+
+    const toggleWorkspaceFeature = (
+        field:
+            | 'advanced_workflows'
+            | 'dashboard'
+            | 'tasks_advice'
+            | 'initiatives'
+            | 'processes'
+            | 'interactions'
+            | 'reports'
+            | 'venture_scout'
+            | 'api_console'
+            | 'data_quality'
+            | 'data_standards'
+            | 'metrics_manager'
+            | 'inbound_intake'
+    ) => {
+        const nextFeatureFlags = {
+            ...featureFlags,
+            [field]: !featureFlags[field],
+        };
+        setFeatureFlags(nextFeatureFlags);
+        repos.ecosystems.update(ecosystem.id, {
+            settings: {
+                ...ecosystem.settings,
+                feature_flags: nextFeatureFlags,
+            },
+        });
     };
 
     return (
@@ -262,6 +321,167 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
                          + Add Link
                      </button>
                  </div>
+            </Card>
+
+            <Card title="Workspace Features">
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Advanced Workflows</div>
+                            <div className="text-sm text-gray-500">Master switch for the broader prototype workflow screens. Individual sections below can also be enabled one by one.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('advanced_workflows')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.advanced_workflows ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.advanced_workflows ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Dashboard</div>
+                            <div className="text-sm text-gray-500">Enable the ecosystem summary dashboard for staff and admins.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('dashboard')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.dashboard ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.dashboard ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Tasks & Advice</div>
+                            <div className="text-sm text-gray-500">Show the task queue and guided next-step workspace.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('tasks_advice')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.tasks_advice ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.tasks_advice ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Initiatives</div>
+                            <div className="text-sm text-gray-500">Show initiative management and venture project tracking.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('initiatives')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.initiatives ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.initiatives ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Processes</div>
+                            <div className="text-sm text-gray-500">Expose process and pipeline configuration screens.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('processes')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.processes ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.processes ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Interactions Workspace</div>
+                            <div className="text-sm text-gray-500">Enable the broader interactions screen outside direct referral follow-up.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('interactions')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.interactions ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.interactions ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Reports</div>
+                            <div className="text-sm text-gray-500">Show ecosystem reporting and rollup views.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('reports')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.reports ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.reports ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Venture Scout</div>
+                            <div className="text-sm text-gray-500">Enable scouting and discovery workflows when the ecosystem is ready.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('venture_scout')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.venture_scout ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.venture_scout ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">API Console</div>
+                            <div className="text-sm text-gray-500">Expose integration keys, webhooks, and API testing tools for this ecosystem.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('api_console')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.api_console ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.api_console ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Data Quality</div>
+                            <div className="text-sm text-gray-500">Show duplicate review and data-cleanup tooling.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('data_quality')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.data_quality ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.data_quality ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Data Standards</div>
+                            <div className="text-sm text-gray-500">Show shared schema and standards reference screens.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('data_standards')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.data_standards ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.data_standards ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Metrics Manager</div>
+                            <div className="text-sm text-gray-500">Advanced metrics administration tools for this ecosystem.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('metrics_manager')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.metrics_manager ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.metrics_manager ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
+                        <div>
+                            <div className="font-semibold text-gray-900">Inbound Intake</div>
+                            <div className="text-sm text-gray-500">Inbound email intake review tools. Visible only to platform admins.</div>
+                        </div>
+                        <button
+                            onClick={() => toggleWorkspaceFeature('inbound_intake')}
+                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.inbound_intake ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {featureFlags.inbound_intake ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                </div>
             </Card>
         </div>
     );

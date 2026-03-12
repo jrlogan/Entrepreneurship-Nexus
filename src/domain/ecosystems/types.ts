@@ -28,6 +28,21 @@ export interface Ecosystem {
   region: string;
   settings: {
     interaction_privacy_default: 'open' | 'restricted'; // Updated to match new model
+    feature_flags?: {
+      advanced_workflows?: boolean;
+      dashboard?: boolean;
+      tasks_advice?: boolean;
+      initiatives?: boolean;
+      processes?: boolean;
+      interactions?: boolean;
+      reports?: boolean;
+      venture_scout?: boolean;
+      api_console?: boolean;
+      data_quality?: boolean;
+      data_standards?: boolean;
+      metrics_manager?: boolean;
+      inbound_intake?: boolean;
+    };
   };
   // Configurable checklists available to all initiatives in this ecosystem
   checklist_templates?: ChecklistTemplate[];

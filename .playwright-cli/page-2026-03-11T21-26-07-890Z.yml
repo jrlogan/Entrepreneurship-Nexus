@@ -1,0 +1,195 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: Firebase session:unauthenticated
+      - generic [ref=e7]:
+        - textbox "Email" [ref=e8]: coach@makehaven.org
+        - textbox "Password" [ref=e9]: Password123!
+        - button "Sign In" [ref=e10] [cursor=pointer]
+        - button "Google" [ref=e11] [cursor=pointer]
+    - generic [ref=e12]:
+      - complementary [ref=e13]:
+        - generic [ref=e14]:
+          - heading "Entrepreneurship Nexus" [level=1] [ref=e15]
+          - button "New Haven Innovation Cluster ▼" [ref=e17] [cursor=pointer]:
+            - generic [ref=e18]: New Haven Innovation Cluster
+            - generic [ref=e19]: ▼
+          - generic [ref=e20]: Acting On Behalf Of
+          - generic [ref=e21]:
+            - generic [ref=e23]: M
+            - generic [ref=e24]: MakeHaven
+        - navigation [ref=e25]:
+          - button "Dashboard" [ref=e26] [cursor=pointer]:
+            - img [ref=e28]
+            - generic [ref=e30]: Dashboard
+          - button "Organizations" [ref=e31] [cursor=pointer]:
+            - img [ref=e33]
+            - generic [ref=e35]: Organizations
+          - button "People" [ref=e36] [cursor=pointer]:
+            - img [ref=e38]
+            - generic [ref=e40]: People
+          - button "Tasks & Data" [ref=e41] [cursor=pointer]:
+            - img [ref=e43]
+            - generic [ref=e45]: Tasks & Data
+          - generic [ref=e46]: Workflows
+          - button "Initiatives" [ref=e47] [cursor=pointer]:
+            - img [ref=e49]
+            - generic [ref=e51]: Initiatives
+          - button "Processes" [ref=e52] [cursor=pointer]:
+            - img [ref=e54]
+            - generic [ref=e56]: Processes
+          - button "Interactions" [ref=e57] [cursor=pointer]:
+            - img [ref=e59]
+            - generic [ref=e61]: Interactions
+          - button "Referrals" [ref=e62] [cursor=pointer]:
+            - img [ref=e64]
+            - generic [ref=e66]: Referrals
+          - button "Reports" [ref=e67] [cursor=pointer]:
+            - img [ref=e69]
+            - generic [ref=e71]: Reports
+          - generic [ref=e72]: System
+          - button "Data Quality" [ref=e73] [cursor=pointer]:
+            - img [ref=e75]
+            - generic [ref=e77]: Data Quality
+          - button "Metrics Manager" [ref=e78] [cursor=pointer]:
+            - img [ref=e80]
+            - generic [ref=e82]: Metrics Manager
+          - button "Data Standards" [ref=e83] [cursor=pointer]:
+            - img [ref=e85]
+            - generic [ref=e87]: Data Standards
+          - button "API Console" [ref=e88] [cursor=pointer]:
+            - img [ref=e90]
+            - generic [ref=e92]: API Console
+          - button "Inbound Intake" [ref=e93] [cursor=pointer]:
+            - img [ref=e95]
+            - generic [ref=e97]: Inbound Intake
+          - generic [ref=e98]: External Resources
+          - link "📅 Community Calendar" [ref=e99] [cursor=pointer]:
+            - /url: "#"
+            - generic [ref=e100]: 📅
+            - generic [ref=e101]: Community Calendar
+            - img [ref=e102]
+        - generic [ref=e104]:
+          - generic [ref=e105] [cursor=pointer]:
+            - generic [ref=e107]: JL
+            - generic [ref=e108]:
+              - generic [ref=e109]: J.R. Logan
+              - generic [ref=e112]: eso admin
+            - generic [ref=e113]: ⇄
+          - button "Start Demo Tour" [ref=e114] [cursor=pointer]
+      - main [ref=e115]:
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - generic [ref=e118]:
+              - generic "Active Clients Served" [ref=e119]
+              - generic [ref=e120]: "2"
+            - generic [ref=e121]:
+              - generic "Interactions (Last 12m)" [ref=e122]
+              - generic [ref=e123]: "0"
+            - generic [ref=e124]:
+              - generic "Pending Referrals" [ref=e125]
+              - generic [ref=e126]: "0"
+            - generic [ref=e127]:
+              - generic "Client Projects" [ref=e128]
+              - generic [ref=e129]: "3"
+          - generic [ref=e130]:
+            - heading "Portfolio Impact" [level=3] [ref=e132]
+            - generic [ref=e133]:
+              - generic [ref=e134]:
+                - generic [ref=e135]:
+                  - generic [ref=e136]: Total Jobs Created
+                  - generic [ref=e137]:
+                    - text: "3"
+                    - generic [ref=e138]: ↑ 12%
+                  - generic [ref=e139]: Full-Time Equivalents
+                - generic [ref=e140]:
+                  - generic [ref=e141]: Total Revenue
+                  - generic [ref=e142]:
+                    - text: $15.0k
+                    - generic [ref=e143]: ↑ 5%
+                  - generic [ref=e144]: Annual Recurring
+                - generic [ref=e145]:
+                  - generic [ref=e146]: Capital Raised
+                  - generic [ref=e147]:
+                    - text: $0.0k
+                    - generic [ref=e148]: "-"
+                  - generic [ref=e149]: Equity & Grants
+              - generic [ref=e150]:
+                - generic [ref=e151]:
+                  - generic [ref=e152]: "Data Confidence:"
+                  - generic [ref=e153]: 1 Verified
+                  - generic [ref=e154]: 1 Self-Reported
+                - link "Full Metrics Report" [ref=e155] [cursor=pointer]:
+                  - /url: /reports
+                  - img [ref=e156]
+                  - text: Full Metrics Report
+          - generic [ref=e158]:
+            - heading "My Organization's Activity" [level=3] [ref=e160]
+            - generic [ref=e162]:
+              - generic [ref=e163]:
+                - generic [ref=e164]: M
+                - generic [ref=e165]:
+                  - paragraph [ref=e166]: Internal engineering review. Discussed propulsion schematics.
+                  - paragraph [ref=e167]: 2023-12-01 • Project X • Recorded by J.R. Logan
+              - generic [ref=e168]:
+                - generic [ref=e169]: M
+                - generic [ref=e170]:
+                  - paragraph [ref=e171]: Quarterly Check-in. Discussed manufacturing scale-up challenges.
+                  - paragraph [ref=e172]: 2023-11-28 • DarkStar Marine • Recorded by J.R. Logan (AI Assisted)
+              - generic [ref=e173]:
+                - generic [ref=e174]: C
+                - generic [ref=e175]:
+                  - paragraph [ref=e176]: REDACTED
+                  - paragraph [ref=e177]: 2023-11-25 • DarkStar Marine • Recorded by Agency Staff
+              - generic [ref=e178]:
+                - generic [ref=e179]: M
+                - generic [ref=e180]:
+                  - paragraph [ref=e181]: Discussed confidential patent strategy for Project X.
+                  - paragraph [ref=e182]: 2023-11-15 • Project X • Recorded by J.R. Logan
+              - generic [ref=e183]:
+                - generic [ref=e184]: "N"
+                - generic [ref=e185]:
+                  - paragraph [ref=e186]: Noticed mention of DarkStar in local press. Alpha prototype looking good.
+                  - paragraph [ref=e187]: 2023-11-02 • DarkStar Marine • Recorded by J.R. Logan
+      - button "?" [ref=e188] [cursor=pointer]:
+        - generic [ref=e189]: "?"
+  - generic [ref=e191]:
+    - generic [ref=e192]:
+      - button "Skip ×" [ref=e194] [cursor=pointer]
+      - generic [ref=e195]:
+        - heading "Entrepreneurship Nexus" [level=1] [ref=e196]
+        - paragraph [ref=e197]: "Prototype: AI-Driven Ecosystem Orchestration"
+    - generic [ref=e198]:
+      - generic [ref=e199]:
+        - paragraph [ref=e200]:
+          - text: The underlying motive of this prototype is to
+          - strong [ref=e201]: explore the data structure
+          - text: and how it might exist if we followed the Agency Specification. It serves as a tool to better understand our requirements and rapidly iterate on potential solutions.
+        - paragraph [ref=e202]:
+          - text: Modern AI options make it feasible for us to build our own solution. This prototype is released under the
+          - strong [ref=e203]: MIT License
+          - text: ", making it freely available for the community. The code for this project is accessible at"
+          - link "Google AI Studio" [ref=e204] [cursor=pointer]:
+            - /url: https://ai.studio/apps/drive/1IcUvd7VmDWyHIIN_bKgxsW3O-UraSwCL
+          - text: .
+      - generic [ref=e205]:
+        - generic [ref=e206]:
+          - generic [ref=e207]: 🔌
+          - heading "API-First Architecture" [level=3] [ref=e208]
+          - paragraph [ref=e209]:
+            - text: The interface you see is just one way to interact. The system is architected to
+            - strong [ref=e210]: ingest data
+            - text: from other systems (CRMs, State Registries) rather than replace them.
+        - generic [ref=e211]:
+          - generic [ref=e212]: ✅
+          - heading "Functional Prototype" [level=3] [ref=e213]
+          - paragraph [ref=e214]:
+            - text: This is more than a slide deck. The app is
+            - strong [ref=e215]: functional
+            - text: . You can add orgs, log interactions, and see the
+            - strong [ref=e216]: real HSDS-compliant data structure
+            - text: in action. Data persists during your session but resets on reload.
+      - button "Explore the Demos →" [ref=e217] [cursor=pointer]:
+        - text: Explore the Demos
+        - generic [ref=e218]: →
+      - button "I've seen this, take me to the dashboard" [ref=e220] [cursor=pointer]

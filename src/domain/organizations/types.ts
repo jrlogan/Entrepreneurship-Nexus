@@ -1,5 +1,16 @@
 
-export type OrganizationRole = 'startup' | 'funder' | 'eso'; // ESO = Entrepreneur Support Organization
+export type OrganizationRole =
+  | 'startup'
+  | 'small_business'
+  | 'nonprofit'
+  | 'government'
+  | 'education'
+  | 'funder'
+  | 'service_provider'
+  | 'workspace'
+  | 'community_org'
+  | 'anchor_institution'
+  | 'eso'; // ESO = Entrepreneur Support Organization
 export type TaxStatus = 'non_profit' | 'for_profit' | 'government' | 'other';
 
 export interface ExternalRef {

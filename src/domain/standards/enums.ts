@@ -8,7 +8,15 @@ export const ENUMS = {
   ],
   "OrganizationRole": [
     { "id": "startup", "label": "Startup / Entrepreneur" },
+    { "id": "small_business", "label": "Small Business" },
+    { "id": "nonprofit", "label": "Nonprofit Organization" },
+    { "id": "government", "label": "Government / Public Agency" },
+    { "id": "education", "label": "College / University / School" },
     { "id": "funder", "label": "Funder / Investor" },
+    { "id": "service_provider", "label": "Professional Service Provider" },
+    { "id": "workspace", "label": "Lab / Workspace / Makerspace" },
+    { "id": "community_org", "label": "Community Organization" },
+    { "id": "anchor_institution", "label": "Anchor Institution / Major Employer" },
     { "id": "eso", "label": "Entrepreneur Support Org (ESO)" }
   ],
   "OperationalVisibility": [

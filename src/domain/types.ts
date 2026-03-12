@@ -12,3 +12,8 @@ export * from './referrals/types';
 export * from './services/types';
 export * from './shared/types';
 export * from './audit/types';
+export * from './consent/types';
+export * from './inbound/types';
+export * from './auth/session';
+export * from './auth/accountRequests';
+export * from './auth/invites';

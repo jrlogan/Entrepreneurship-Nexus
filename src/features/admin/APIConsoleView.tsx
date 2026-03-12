@@ -198,12 +198,26 @@ export const APIConsoleView = () => {
     const repos = useRepos();
     const viewer = useViewer();
     const [activeTab, setActiveTab] = useState<'overview' | 'simulator' | 'sync_guide' | 'webhooks' | 'docs'>('overview');
+    const organizations = repos.organizations.getAll(viewer);
+    const manageableEsoOrganizations = useMemo(() => {
+        if (viewer.role === 'platform_admin') {
+            return organizations.filter(org => org.roles.includes('eso'));
+        }
+
+        if (viewer.role === 'ecosystem_manager') {
+            return organizations.filter(org => org.roles.includes('eso') && org.ecosystem_ids.includes(viewer.ecosystemId));
+        }
+
+        const ownOrg = organizations.find(org => org.id === viewer.orgId);
+        return ownOrg && ownOrg.roles.includes('eso') ? [ownOrg] : [];
+    }, [organizations, viewer.ecosystemId, viewer.orgId, viewer.role]);
     
     // Key Management State
     const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
     const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false);
     const [newKeyLabel, setNewKeyLabel] = useState('');
     const [createdKeySecret, setCreatedKeySecret] = useState<string | null>(null);
+    const [selectedIntegrationOrgId, setSelectedIntegrationOrgId] = useState('');
 
     // Webhook Management State
     const [webhooks, setWebhooks] = useState<Webhook[]>([]);
@@ -219,7 +233,6 @@ export const APIConsoleView = () => {
     const [deliveryLog, setDeliveryLog] = useState<DeliveryLogEntry[]>([]);
 
     // Sync Status State
-    const organizations = repos.organizations.getAll(viewer);
     const [syncStatus, setSyncStatus] = useState<Record<string, string>>({
         'Salesforce': new Date(Date.now() - 1000 * 60 * 45).toISOString(),
         'HubSpot': new Date(Date.now() - 1000 * 60 * 120).toISOString(),
@@ -236,29 +249,81 @@ export const APIConsoleView = () => {
         return stats;
     }, [organizations]);
 
+    const esoIntegrationStats = useMemo(() => {
+        if (viewer.role !== 'ecosystem_manager') {
+            return [];
+        }
+
+        return organizations
+            .filter(org => org.roles.includes('eso'))
+            .map(org => {
+                const apiKeysForOrg = repos.organizations.getApiKeys(org.id);
+                const webhooksForOrg = repos.organizations.getWebhooks(org.id);
+                const activeApiKeys = apiKeysForOrg.filter(key => key.status === 'active').length;
+                const activeWebhooks = webhooksForOrg.filter(hook => hook.status === 'active').length;
+                const syncedSources = new Set((org.external_refs || []).map(ref => ref.source)).size;
+                const lastWebhookDelivery = webhooksForOrg
+                    .map(hook => hook.last_delivery)
+                    .filter(Boolean)
+                    .sort()
+                    .reverse()[0];
+
+                return {
+                    org,
+                    activeApiKeys,
+                    activeWebhooks,
+                    syncedSources,
+                    activityLabel: activeApiKeys > 0 || activeWebhooks > 0 || syncedSources > 0 ? 'Active' : 'Not configured',
+                    lastActivity: lastWebhookDelivery || null,
+                };
+            })
+            .sort((a, b) => {
+                const aScore = a.activeApiKeys + a.activeWebhooks + a.syncedSources;
+                const bScore = b.activeApiKeys + b.activeWebhooks + b.syncedSources;
+                return bScore - aScore;
+            });
+    }, [organizations, repos.organizations, viewer.role]);
+
     const conflicts = useMemo(() => detectDuplicates(organizations), [organizations]);
+    const showFederatedSyncStatus = viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
 
     const handleSync = (source: string) => {
         setSyncStatus(prev => ({ ...prev, [source]: new Date().toISOString() }));
     };
 
     useEffect(() => {
-        setApiKeys(repos.organizations.getApiKeys(viewer.orgId));
-        setWebhooks(repos.organizations.getWebhooks(viewer.orgId));
-    }, [viewer.orgId, repos, isCreateKeyModalOpen, isCreateWebhookModalOpen]); 
+        const fallbackOrgId = manageableEsoOrganizations[0]?.id || viewer.orgId;
+        setSelectedIntegrationOrgId(current => (
+            manageableEsoOrganizations.some(org => org.id === current) ? current : fallbackOrgId
+        ));
+    }, [manageableEsoOrganizations, viewer.orgId]);
+
+    useEffect(() => {
+        if (!selectedIntegrationOrgId) {
+            setApiKeys([]);
+            setWebhooks([]);
+            return;
+        }
+
+        setApiKeys(repos.organizations.getApiKeys(selectedIntegrationOrgId));
+        setWebhooks(repos.organizations.getWebhooks(selectedIntegrationOrgId));
+    }, [selectedIntegrationOrgId, repos, isCreateKeyModalOpen, isCreateWebhookModalOpen]); 
 
     // --- API Key Handlers ---
     const handleCreateKey = () => {
-        const key = repos.organizations.generateApiKey(viewer.orgId, newKeyLabel || 'New API Key');
+        if (!selectedIntegrationOrgId) {
+            return;
+        }
+        const key = repos.organizations.generateApiKey(selectedIntegrationOrgId, newKeyLabel || 'New API Key');
         if (key) {
             setCreatedKeySecret(key.prefix); 
-            setApiKeys(repos.organizations.getApiKeys(viewer.orgId));
+            setApiKeys(repos.organizations.getApiKeys(selectedIntegrationOrgId));
         }
     };
 
     const handleRevokeKey = (id: string) => {
         if (confirm('Are you sure you want to revoke this key? This action cannot be undone and may break active integrations.')) {
-            repos.organizations.revokeApiKey(viewer.orgId, id);
+            repos.organizations.revokeApiKey(selectedIntegrationOrgId, id);
             setApiKeys(prev => prev.map(k => k.id === id ? { ...k, status: 'revoked' } : k));
         }
     };
@@ -271,14 +336,14 @@ export const APIConsoleView = () => {
 
     // --- Webhook Handlers ---
     const handleCreateWebhook = () => {
-        if (!newWebhookUrl) return;
-        repos.organizations.addWebhook(viewer.orgId, {
+        if (!newWebhookUrl || !selectedIntegrationOrgId) return;
+        repos.organizations.addWebhook(selectedIntegrationOrgId, {
             url: newWebhookUrl,
             description: newWebhookDesc,
             events: newWebhookEvents,
             payload_format: newWebhookFormat
         });
-        setWebhooks(repos.organizations.getWebhooks(viewer.orgId));
+        setWebhooks(repos.organizations.getWebhooks(selectedIntegrationOrgId));
         setIsCreateWebhookModalOpen(false);
         setNewWebhookUrl('');
         setNewWebhookDesc('');
@@ -288,8 +353,8 @@ export const APIConsoleView = () => {
 
     const handleDeleteWebhook = (id: string) => {
         if (confirm('Delete this webhook?')) {
-            repos.organizations.deleteWebhook(viewer.orgId, id);
-            setWebhooks(repos.organizations.getWebhooks(viewer.orgId));
+            repos.organizations.deleteWebhook(selectedIntegrationOrgId, id);
+            setWebhooks(repos.organizations.getWebhooks(selectedIntegrationOrgId));
         }
     };
 
@@ -397,6 +462,17 @@ export const APIConsoleView = () => {
                     <p className="text-gray-500 text-sm mt-1">Integrate Entrepreneurship Nexus into your agency's backend workflows.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                     {manageableEsoOrganizations.length > 0 && (
+                        <select
+                            className={`${FORM_SELECT_CLASS} min-w-[240px]`}
+                            value={selectedIntegrationOrgId}
+                            onChange={(event) => setSelectedIntegrationOrgId(event.target.value)}
+                        >
+                            {manageableEsoOrganizations.map((organization) => (
+                                <option key={organization.id} value={organization.id}>{organization.name}</option>
+                            ))}
+                        </select>
+                     )}
                      <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded">Role: {viewer.role}</span>
                      <DemoLink href="/help/api" className="text-indigo-600 text-sm hover:underline" title="Documentation Center">Help</DemoLink>
                 </div>
@@ -428,7 +504,24 @@ export const APIConsoleView = () => {
                 <div className="space-y-6">
                     <Card title="Sync Status">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            {Object.entries(sourceStats).map(([source, count]) => (
+                            {viewer.role === 'ecosystem_manager' ? esoIntegrationStats.map(({ org, activeApiKeys, activeWebhooks, syncedSources, activityLabel, lastActivity }) => (
+                                <div key={org.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="font-bold text-gray-700 text-sm">{org.name}</span>
+                                            <Badge color={activityLabel === 'Active' ? 'green' : 'gray'}>{activityLabel}</Badge>
+                                        </div>
+                                        <div className="space-y-1 text-sm text-gray-600">
+                                            <div>{activeApiKeys} active API key{activeApiKeys === 1 ? '' : 's'}</div>
+                                            <div>{activeWebhooks} active webhook{activeWebhooks === 1 ? '' : 's'}</div>
+                                            <div>{syncedSources} data source{syncedSources === 1 ? '' : 's'} linked</div>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 pt-3 border-t border-gray-200 text-[11px] text-gray-500">
+                                        {lastActivity ? `Last webhook activity: ${new Date(lastActivity).toLocaleString()}` : 'No webhook deliveries recorded yet'}
+                                    </div>
+                                </div>
+                            )) : showFederatedSyncStatus ? Object.entries(sourceStats).map(([source, count]) => (
                                 <div key={source} className="p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col justify-between">
                                     <div>
                                         <div className="flex justify-between items-center mb-2">
@@ -450,7 +543,14 @@ export const APIConsoleView = () => {
                                         </button>
                                     </div>
                                 </div>
-                            ))}
+                            )) : (
+                                <div className="md:col-span-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                                    <div className="font-bold text-gray-900 text-sm">Organization API Workspace</div>
+                                    <div className="mt-1 text-sm text-gray-500">
+                                        Cross-organization sync status is hidden for ESO admins. This workspace is limited to your organization&apos;s API keys, webhooks, and integration tooling.
+                                    </div>
+                                </div>
+                            )}
                             {/* Data Quality Warning */}
                             <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex flex-col justify-between border-l-4 border-l-yellow-400">
                                 <div>
@@ -472,6 +572,11 @@ export const APIConsoleView = () => {
 
                     <Card title="Your API Keys">
                         <div className="space-y-4">
+                            {selectedIntegrationOrgId && (
+                                <div className="text-xs text-gray-500">
+                                    Managing keys for <span className="font-semibold text-gray-700">{organizations.find((organization) => organization.id === selectedIntegrationOrgId)?.name || selectedIntegrationOrgId}</span>
+                                </div>
+                            )}
                             {apiKeys.length === 0 && <p className="text-gray-500 italic">No active API keys.</p>}
                             {apiKeys.map(key => (
                                 <div key={key.id} className={`flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded ${key.status === 'revoked' ? 'opacity-60' : ''}`}>
@@ -490,7 +595,7 @@ export const APIConsoleView = () => {
                                     </div>
                                 </div>
                             ))}
-                            <button onClick={() => setIsCreateKeyModalOpen(true)} className="text-sm text-indigo-600 font-bold hover:underline">+ Generate New Key</button>
+                            <button onClick={() => setIsCreateKeyModalOpen(true)} className="text-sm text-indigo-600 font-bold hover:underline disabled:opacity-50" disabled={!selectedIntegrationOrgId}>+ Generate New Key</button>
                         </div>
                     </Card>
                     <Card title="Quick Start">
@@ -714,6 +819,14 @@ export const APIConsoleView = () => {
                 {!createdKeySecret ? (
                     <div className="space-y-4">
                         <div>
+                            <label className={FORM_LABEL_CLASS}>Assign To ESO Organization</label>
+                            <select className={FORM_SELECT_CLASS} value={selectedIntegrationOrgId} onChange={(e) => setSelectedIntegrationOrgId(e.target.value)}>
+                                {manageableEsoOrganizations.map((organization) => (
+                                    <option key={organization.id} value={organization.id}>{organization.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
                             <label className={FORM_LABEL_CLASS}>Key Label</label>
                             <input 
                                 className={FORM_INPUT_CLASS} 
@@ -727,7 +840,7 @@ export const APIConsoleView = () => {
                         </div>
                         <div className="flex justify-end gap-2 pt-2">
                             <button onClick={closeCreateKeyModal} className="px-4 py-2 border rounded hover:bg-gray-50 text-sm">Cancel</button>
-                            <button onClick={handleCreateKey} disabled={!newKeyLabel} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm disabled:opacity-50">Create</button>
+                            <button onClick={handleCreateKey} disabled={!newKeyLabel || !selectedIntegrationOrgId} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm disabled:opacity-50">Create</button>
                         </div>
                     </div>
                 ) : (

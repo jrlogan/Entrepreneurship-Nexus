@@ -25,7 +25,7 @@ export const DATA_DICTIONARY: EntityDefinition[] = [
         fields: [
             { name: 'id', type: 'string (uuid)', required: true, description: 'Unique system identifier.' },
             { name: 'name', type: 'string', required: true, description: 'Legal or common name of the entity.' },
-            { name: 'roles', type: 'array', required: true, description: 'Functions the org performs (e.g. Startup, Funder).', enumRef: 'OrganizationRole' },
+            { name: 'roles', type: 'array', required: true, description: 'Functions the org performs (e.g. startup, nonprofit, government, service provider, funder, ESO).', enumRef: 'OrganizationRole' },
             { name: 'tax_status', type: 'enum', required: true, description: 'IRS tax designation.', enumRef: 'TaxStatus' },
             { name: 'industry_tags', type: 'array<string>', required: false, description: 'Flexible tagging for sector (e.g. BioTech, SaaS).' },
             { name: 'naics_code', type: 'string', required: false, description: 'North American Industry Classification System code.' },

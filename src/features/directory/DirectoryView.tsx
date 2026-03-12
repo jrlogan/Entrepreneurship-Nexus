@@ -81,6 +81,14 @@ export const DirectoryView = ({ organizations, onSelect, onAdd }: DirectoryViewP
                         >
                             <option value="all">All Types</option>
                             <option value="startup">Startups</option>
+                            <option value="small_business">Small Businesses</option>
+                            <option value="nonprofit">Nonprofits</option>
+                            <option value="government">Government</option>
+                            <option value="education">Education</option>
+                            <option value="service_provider">Service Providers</option>
+                            <option value="workspace">Workspaces / Labs</option>
+                            <option value="community_org">Community Organizations</option>
+                            <option value="anchor_institution">Anchor Institutions</option>
                             <option value="eso">Support Orgs (ESOs)</option>
                             <option value="funder">Funders</option>
                         </select>

@@ -7,7 +7,15 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Referral, Person } from '../../domain/types';
 import { CreateReferralModal } from './CreateReferralModal';
 
-export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
+export const ReferralsView = ({
+    currentUser,
+    onSelectOrganization,
+    onSelectPerson
+}: {
+    currentUser: Person;
+    onSelectOrganization?: (id: string, tab?: string) => void;
+    onSelectPerson?: (id: string) => void;
+}) => {
     const repos = useRepos();
     const viewer = useViewer();
     const allReferrals = repos.referrals.getAll(viewer);
@@ -24,6 +32,9 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
     const [outcome, setOutcome] = useState('');
     const [outcomeTags, setOutcomeTags] = useState('');
     const [followUpDate, setFollowUpDate] = useState('');
+    const [assignedOwnerId, setAssignedOwnerId] = useState('');
+    const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+    const [feedbackTone, setFeedbackTone] = useState<'success' | 'error'>('success');
 
     // Interaction Log State (within Referral Modal)
     const [intDate, setIntDate] = useState('');
@@ -62,10 +73,12 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
 
     const handleOpen = (ref: Referral) => {
         setSelectedReferral(ref);
+        setFeedbackMessage(null);
         setResponseNote(ref.response_notes || '');
         setOutcome(ref.outcome || '');
         setOutcomeTags(ref.outcome_tags?.join(', ') || '');
         setFollowUpDate(ref.follow_up_date || '');
+        setAssignedOwnerId(ref.owner_id || '');
         
         // Reset Interaction defaults
         setIntDate(new Date().toISOString().split('T')[0]);
@@ -75,7 +88,10 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
 
     const handleAccept = () => {
         if (selectedReferral) {
-            repos.referrals.accept(selectedReferral.id, responseNote);
+            repos.referrals.accept(selectedReferral.id, responseNote, assignedOwnerId || undefined);
+            if (followUpDate) {
+                repos.referrals.updateFollowUp(selectedReferral.id, followUpDate);
+            }
             setSelectedReferral(null); 
         }
     };
@@ -90,7 +106,8 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
     const handleClose = () => {
         if (selectedReferral) {
             if (!outcome) {
-                alert("Please select a standardized outcome.");
+                setFeedbackTone('error');
+                setFeedbackMessage('Select a final outcome before closing the referral.');
                 return;
             }
             const tags = outcomeTags.split(',').map(s => s.trim()).filter(Boolean);
@@ -101,8 +118,12 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
 
     const handleUpdateFollowUp = () => {
         if (selectedReferral && followUpDate) {
+            if (assignedOwnerId) {
+                repos.referrals.assignOwner(selectedReferral.id, assignedOwnerId);
+            }
             repos.referrals.updateFollowUp(selectedReferral.id, followUpDate);
-            alert("Follow-up reminder set.");
+            setFeedbackTone('success');
+            setFeedbackMessage('Referral owner and next follow-up date saved.');
         }
     }
 
@@ -127,7 +148,8 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                 recorded_by: `${currentUser.first_name} ${currentUser.last_name}`,
                 attendees
             });
-            alert("Interaction logged successfully.");
+            setFeedbackTone('success');
+            setFeedbackMessage('Follow-up interaction logged.');
             setIntNotes('');
         }
     };
@@ -151,6 +173,15 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
             body: `Hello ${recOrg?.name || 'Partner'} Team,\n\nI'd like to introduce ${subjectPerson ? `${subjectPerson.first_name} ${subjectPerson.last_name}` : 'the client'} from ${subOrg?.name || 'Client Org'}.\n\n${ref.notes}\n\nBest,\n${senderName}\n${refOrg?.name || ''}`
         };
     };
+
+    const getOwnerLabel = (ref: Referral) => {
+        const owner = people.find(p => p.id === ref.owner_id);
+        return owner ? `${owner.first_name} ${owner.last_name}` : 'Unassigned';
+    };
+
+    const assignablePeople = selectedReferral
+        ? people.filter(p => p.organization_id === selectedReferral.receiving_org_id)
+        : [];
 
     return (
         <div className="space-y-6">
@@ -217,6 +248,16 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                 />
              </div>
 
+             {feedbackMessage && (
+                <div className={`rounded-lg border px-4 py-3 text-sm ${
+                    feedbackTone === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                        : 'border-rose-200 bg-rose-50 text-rose-900'
+                }`}>
+                    {feedbackMessage}
+                </div>
+             )}
+
              {/* Table */}
              <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -226,6 +267,8 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                             {activeTab !== 'incoming' && <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">To</th>}
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Owner</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Follow-Up</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
                         </tr>
@@ -237,16 +280,56 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                                 <tr key={ref.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleOpen(ref)}>
                                     {activeTab !== 'outgoing' && (
                                         <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                                            {organizations.find(o => o.id === ref.referring_org_id)?.name}
+                                            {organizations.find(o => o.id === ref.referring_org_id) && onSelectOrganization ? (
+                                                <button
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        onSelectOrganization(ref.referring_org_id, 'referrals');
+                                                    }}
+                                                    className="hover:text-indigo-700 hover:underline"
+                                                >
+                                                    {organizations.find(o => o.id === ref.referring_org_id)?.name}
+                                                </button>
+                                            ) : (
+                                                organizations.find(o => o.id === ref.referring_org_id)?.name
+                                            )}
                                         </td>
                                     )}
                                     {activeTab !== 'incoming' && (
                                         <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                                            {organizations.find(o => o.id === ref.receiving_org_id)?.name}
+                                            {organizations.find(o => o.id === ref.receiving_org_id) && onSelectOrganization ? (
+                                                <button
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        onSelectOrganization(ref.receiving_org_id, 'referrals');
+                                                    }}
+                                                    className="hover:text-indigo-700 hover:underline"
+                                                >
+                                                    {organizations.find(o => o.id === ref.receiving_org_id)?.name}
+                                                </button>
+                                            ) : (
+                                                organizations.find(o => o.id === ref.receiving_org_id)?.name
+                                            )}
                                         </td>
                                     )}
-                                    <td className="px-6 py-4 text-sm text-gray-900">{subjectPerson ? `${subjectPerson.first_name} ${subjectPerson.last_name}` : 'Unknown'}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-900">
+                                        {subjectPerson && onSelectPerson ? (
+                                            <button
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    onSelectPerson(subjectPerson.id);
+                                                }}
+                                                className="font-medium text-indigo-600 hover:underline"
+                                            >
+                                                {subjectPerson.first_name} {subjectPerson.last_name}
+                                            </button>
+                                        ) : (
+                                            subjectPerson ? `${subjectPerson.first_name} ${subjectPerson.last_name}` : 'Unknown'
+                                        )}
+                                    </td>
                                     <td className="px-6 py-4"><Badge color={ref.status === 'pending' ? 'yellow' : ref.status === 'accepted' ? 'green' : ref.status === 'rejected' ? 'red' : 'blue'}>{ref.status}</Badge></td>
+                                    <td className="px-6 py-4 text-sm text-gray-700">{getOwnerLabel(ref)}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500">{ref.follow_up_date || 'Not scheduled'}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500">{ref.date}</td>
                                     <td className="px-6 py-4 text-right text-sm text-indigo-600 hover:text-indigo-900">
                                         {ref.status === 'pending' && activeTab === 'incoming' ? 'Review' : 'View'}
@@ -256,7 +339,7 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                         })}
                         {filteredReferrals.length === 0 && (
                             <tr>
-                                <td colSpan={6} className="px-6 py-8 text-sm text-gray-500 text-center">
+                                <td colSpan={8} className="px-6 py-8 text-sm text-gray-500 text-center">
                                     {activeTab === 'incoming' 
                                         ? "No incoming referrals found. You're all caught up!" 
                                         : activeTab === 'outgoing' 
@@ -318,6 +401,21 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                          {/* Actions: Incoming & Pending */}
                          {selectedReferral.receiving_org_id === currentOrgId && selectedReferral.status === 'pending' && (
                              <div className="space-y-3">
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                     <div>
+                                         <label className={FORM_LABEL_CLASS}>Assign Follow-Up Owner</label>
+                                         <select className={FORM_SELECT_CLASS} value={assignedOwnerId} onChange={(e) => setAssignedOwnerId(e.target.value)}>
+                                             <option value="">Unassigned</option>
+                                             {assignablePeople.map(person => (
+                                                 <option key={person.id} value={person.id}>{person.first_name} {person.last_name}</option>
+                                             ))}
+                                         </select>
+                                     </div>
+                                     <div>
+                                         <label className={FORM_LABEL_CLASS}>Initial Follow-Up Due</label>
+                                         <input type="date" className={FORM_INPUT_CLASS} value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
+                                     </div>
+                                 </div>
                                  <label className={FORM_LABEL_CLASS}>Response Note</label>
                                  <textarea className={FORM_TEXTAREA_CLASS} rows={3} value={responseNote} onChange={(e) => setResponseNote(e.target.value)} placeholder="Enter acceptance or rejection reason..."></textarea>
                                  <div className="flex gap-2 justify-end">
@@ -331,10 +429,38 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                          {selectedReferral.receiving_org_id === currentOrgId && selectedReferral.status === 'accepted' && (
                              <div className="space-y-6">
                                  
-                                 {/* 1. Log Activity */}
+                                 {/* 1. Assign Owner And Due Date */}
+                                 <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-4">
+                                     <h4 className="font-bold text-sm text-slate-900">Assign owner and next follow-up</h4>
+                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                         <div>
+                                             <label className={FORM_LABEL_CLASS}>Follow-Up Owner</label>
+                                             <select className={FORM_SELECT_CLASS} value={assignedOwnerId} onChange={(e) => setAssignedOwnerId(e.target.value)}>
+                                                 <option value="">Unassigned</option>
+                                                 {assignablePeople.map(person => (
+                                                     <option key={person.id} value={person.id}>{person.first_name} {person.last_name}</option>
+                                                 ))}
+                                             </select>
+                                         </div>
+                                         <div>
+                                             <label className={FORM_LABEL_CLASS}>Next Follow-Up Due</label>
+                                             <div className="flex gap-2">
+                                                 <input type="date" className={FORM_INPUT_CLASS} value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
+                                                 <button onClick={handleUpdateFollowUp} className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Save</button>
+                                             </div>
+                                         </div>
+                                     </div>
+                                     <div className="text-xs text-slate-700">
+                                         Current owner: <strong>{getOwnerLabel(selectedReferral)}</strong>
+                                         {' · '}
+                                         Follow-up due: <strong>{selectedReferral.follow_up_date || 'Not scheduled'}</strong>
+                                     </div>
+                                 </div>
+
+                                 {/* 2. Log Activity */}
                                  <div className="bg-indigo-50 p-4 rounded border border-indigo-100">
                                      <h4 className="font-bold text-sm text-indigo-900 mb-3 flex items-center gap-2">
-                                         <span>📞</span> Log Follow-up Interaction
+                                         <span>📞</span> Log follow-up note
                                      </h4>
                                      <div className="space-y-3">
                                          <div className="grid grid-cols-2 gap-2">
@@ -361,7 +487,7 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                                          <div>
                                              <input 
                                                 className="block w-full rounded border-indigo-200 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-2"
-                                                placeholder="Notes from meeting/call..."
+                                                placeholder="What happened in the follow-up?"
                                                 value={intNotes}
                                                 onChange={(e) => setIntNotes(e.target.value)}
                                              />
@@ -372,24 +498,15 @@ export const ReferralsView = ({ currentUser }: { currentUser: Person }) => {
                                                 disabled={!intNotes}
                                                 className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 disabled:opacity-50"
                                              >
-                                                 Log Interaction
+                                                 Save follow-up note
                                              </button>
                                          </div>
                                      </div>
                                  </div>
 
-                                 {/* 2. Set Reminder */}
-                                 <div>
-                                     <label className={FORM_LABEL_CLASS}>Next Follow-up Reminder</label>
-                                     <div className="flex gap-2">
-                                         <input type="date" className={FORM_INPUT_CLASS} value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
-                                         <button onClick={handleUpdateFollowUp} className="text-xs bg-gray-100 px-2 rounded border hover:bg-gray-200">Set Reminder</button>
-                                     </div>
-                                 </div>
-
                                  {/* 3. Close Referral */}
                                  <div className="pt-4 border-t border-gray-100">
-                                    <h4 className="font-bold text-sm text-gray-800 mb-2">Close Referral (Final Outcome)</h4>
+                                    <h4 className="font-bold text-sm text-gray-800 mb-2">Close referral</h4>
                                     <div className="space-y-2">
                                         <div>
                                             <label className={FORM_LABEL_CLASS}>Primary Outcome <span className="text-red-500">*</span></label>

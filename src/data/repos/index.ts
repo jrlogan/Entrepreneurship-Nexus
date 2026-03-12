@@ -10,6 +10,7 @@ import { AdvisorRepo } from './advisorRepo';
 import { EcosystemsRepo } from './ecosystems';
 import { MetricsRepo } from './metrics';
 import { FlexibleMetricsRepo } from './metricsRepo';
+import { InboundMessagesRepo } from './inboundMessages';
 
 export class AppRepos {
   public consent = new ConsentRepo();
@@ -23,4 +24,5 @@ export class AppRepos {
   public ecosystems = new EcosystemsRepo();
   public metrics = new MetricsRepo(this.consent);
   public flexibleMetrics = new FlexibleMetricsRepo(); // New Flexible Layer
+  public inboundMessages = new InboundMessagesRepo();
 }

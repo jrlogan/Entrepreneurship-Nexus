@@ -89,7 +89,22 @@ export const NEW_HAVEN_ECOSYSTEM: Ecosystem = {
   name: 'New Haven Innovation Cluster',
   region: 'New Haven, CT',
   settings: {
-    interaction_privacy_default: 'open'
+    interaction_privacy_default: 'open',
+    feature_flags: {
+      advanced_workflows: false,
+      dashboard: false,
+      tasks_advice: false,
+      initiatives: false,
+      processes: false,
+      interactions: false,
+      reports: false,
+      venture_scout: false,
+      api_console: true,
+      data_quality: false,
+      data_standards: false,
+      metrics_manager: false,
+      inbound_intake: true,
+    }
   },
   pipelines: [REAL_ESTATE_PIPELINE, FORGE_PIPELINE], // Added FORGE here for demo visibility
   checklist_templates: [
@@ -147,7 +162,22 @@ export const CT_MAKERSPACES_ECOSYSTEM: Ecosystem = {
   name: 'CT Makerspaces Network',
   region: 'Statewide',
   settings: {
-    interaction_privacy_default: 'restricted'
+    interaction_privacy_default: 'restricted',
+    feature_flags: {
+      advanced_workflows: false,
+      dashboard: false,
+      tasks_advice: false,
+      initiatives: false,
+      processes: false,
+      interactions: false,
+      reports: false,
+      venture_scout: false,
+      api_console: false,
+      data_quality: false,
+      data_standards: false,
+      metrics_manager: false,
+      inbound_intake: false,
+    }
   },
   pipelines: [FORGE_PIPELINE],
   checklist_templates: [

@@ -18,6 +18,9 @@ interface OrganizationDetailViewProps {
     onBack: () => void;
     onRefresh?: () => void;
     initialTab?: string;
+    onTabChange?: (tab: string) => void;
+    onSelectPerson?: (id: string) => void;
+    onSelectOrganization?: (id: string, tab?: string) => void;
 }
 
 export const OrganizationDetailView = ({ 
@@ -29,13 +32,22 @@ export const OrganizationDetailView = ({
     referrals, 
     onBack,
     onRefresh,
-    initialTab
+    initialTab,
+    onTabChange,
+    onSelectPerson,
+    onSelectOrganization
 }: OrganizationDetailViewProps) => {
     const repos = useRepos();
     const viewer = useViewer();
     const [activeTab, setActiveTab] = useState(initialTab || 'overview');
     const [showAllEvents, setShowAllEvents] = useState(false);
     const [showPrivacyHelp, setShowPrivacyHelp] = useState(false);
+
+    React.useEffect(() => {
+        if (initialTab && initialTab !== activeTab) {
+            setActiveTab(initialTab);
+        }
+    }, [initialTab]);
 
     const orgPeople = people.filter(p => p.organization_id === org.id);
     const orgInitiatives = initiatives.filter(i => i.organization_id === org.id);
@@ -168,8 +180,14 @@ export const OrganizationDetailView = ({
                         {pendingRequest ? 'Request Pending' : 'Request Access'}
                      </button>
                  )}
-                 <button className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-50">Edit Profile</button>
-                 <button className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">Log Interaction</button>
+                 {canViewDetails && (
+                     <button
+                        onClick={() => setActiveTab('interactions')}
+                        className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
+                     >
+                        Log Interaction
+                     </button>
+                 )}
               </div>
            </div>
 
@@ -237,7 +255,10 @@ export const OrganizationDetailView = ({
                  return (
                     <button
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
+                        onClick={() => {
+                            setActiveTab(tab.id);
+                            onTabChange?.(tab.id);
+                        }}
                         className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center ${
                             activeTab === tab.id
                             ? 'border-indigo-500 text-indigo-600'
@@ -385,7 +406,15 @@ export const OrganizationDetailView = ({
                                <tbody className="bg-white divide-y divide-gray-200">
                                    {visiblePeople.map(p => (
                                        <tr key={p.id}>
-                                           <td className="px-6 py-4 text-sm font-medium text-indigo-600">{p.first_name} {p.last_name}</td>
+                                           <td className="px-6 py-4 text-sm font-medium text-indigo-600">
+                                               {onSelectPerson ? (
+                                                   <button onClick={() => onSelectPerson(p.id)} className="hover:underline">
+                                                       {p.first_name} {p.last_name}
+                                                   </button>
+                                               ) : (
+                                                   `${p.first_name} ${p.last_name}`
+                                               )}
+                                           </td>
                                            <td className="px-6 py-4 text-sm text-gray-500">{p.role}</td>
                                            {isRestricted && (
                                                <td className="px-6 py-4 text-right">
@@ -459,14 +488,27 @@ export const OrganizationDetailView = ({
                       {orgReferrals.map(ref => {
                           const referrer = organizations.find(o => o.id === ref.referring_org_id);
                           const receiver = organizations.find(o => o.id === ref.receiving_org_id);
+                          const subjectPerson = people.find(p => p.id === ref.subject_person_id);
                           const isRedacted = ref.notes === REDACTED_TEXT;
 
                           return (
                               <Card key={ref.id} title={
                                   <div className="flex flex-wrap items-center gap-2 text-base">
-                                      <span className="font-bold text-gray-700">{referrer?.name || 'Unknown'}</span>
+                                      {referrer && onSelectOrganization ? (
+                                          <button onClick={() => onSelectOrganization(referrer.id, 'referrals')} className="font-bold text-gray-700 hover:text-indigo-700 hover:underline">
+                                              {referrer.name}
+                                          </button>
+                                      ) : (
+                                          <span className="font-bold text-gray-700">{referrer?.name || 'Unknown'}</span>
+                                      )}
                                       <span className="text-gray-400 text-sm">➔</span>
-                                      <span className="font-bold text-indigo-700">{receiver?.name || 'Unknown'}</span>
+                                      {receiver && onSelectOrganization ? (
+                                          <button onClick={() => onSelectOrganization(receiver.id, 'referrals')} className="font-bold text-indigo-700 hover:underline">
+                                              {receiver.name}
+                                          </button>
+                                      ) : (
+                                          <span className="font-bold text-indigo-700">{receiver?.name || 'Unknown'}</span>
+                                      )}
                                   </div>
                               }>
                                   <div className="flex justify-between items-start mb-2">
@@ -481,6 +523,19 @@ export const OrganizationDetailView = ({
                                           {ref.status.toUpperCase()}
                                       </Badge>
                                   </div>
+
+                                  {subjectPerson && (
+                                      <div className="mb-2 text-sm">
+                                          <span className="font-bold text-gray-500">Subject:</span>{' '}
+                                          {onSelectPerson ? (
+                                              <button onClick={() => onSelectPerson(subjectPerson.id)} className="font-medium text-indigo-600 hover:underline">
+                                                  {subjectPerson.first_name} {subjectPerson.last_name}
+                                              </button>
+                                          ) : (
+                                              <span className="font-medium text-gray-900">{subjectPerson.first_name} {subjectPerson.last_name}</span>
+                                          )}
+                                      </div>
+                                  )}
                                   
                                   {isRedacted ? (
                                       <div className="bg-gray-50 border border-gray-100 rounded p-2 text-xs text-gray-400 italic flex items-center gap-2">

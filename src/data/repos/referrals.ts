@@ -106,7 +106,14 @@ export class ReferralsRepo {
   updateFollowUp(id: string, date: string): void {
     const ref = MOCK_REFERRALS.find(r => r.id === id);
     if (ref) {
-        ref.follow_up_date = date;
+      ref.follow_up_date = date;
+    }
+  }
+
+  assignOwner(id: string, ownerId?: string): void {
+    const ref = MOCK_REFERRALS.find(r => r.id === id);
+    if (ref) {
+      ref.owner_id = ownerId || undefined;
     }
   }
 }

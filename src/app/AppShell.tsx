@@ -2,9 +2,11 @@
 import React, { useState } from 'react';
 import { Person, SystemRole, Ecosystem } from '../domain/types';
 import { ViewMode } from './types';
+import { CONFIG } from './config';
 import { getTheme } from './theme';
 import { SidebarItem, DemoWarningBanner, Avatar, CompanyLogo, DemoLink } from '../shared/ui/Components';
 import { PrivacyLegend } from '../shared/ui/PrivacyLegend';
+import { FirebaseAuthPanel } from '../shared/ui/FirebaseAuthPanel';
 import { 
     IconDashboard, 
     IconBuilding, 
@@ -36,6 +38,7 @@ interface AppShellProps {
   onSwitchEcosystem: (id: string) => void;
   view: ViewMode;
   onNavigate: (view: ViewMode) => void;
+  onOpenProfile: () => void;
   onSwitchUser: () => void;
   onStartDemo: () => void;
   children: React.ReactNode;
@@ -45,6 +48,7 @@ interface AppShellProps {
 const canManageUsers = (role: SystemRole) => ['eso_admin', 'ecosystem_manager', 'platform_admin'].includes(role);
 const isSystemAdmin = (role: SystemRole) => ['platform_admin', 'ecosystem_manager'].includes(role);
 const isEntrepreneur = (role: SystemRole) => role === 'entrepreneur';
+const isMvpMode = !CONFIG.IS_DEMO_MODE;
 
 export const AppShell: React.FC<AppShellProps> = ({ 
     user, 
@@ -54,6 +58,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     onSwitchEcosystem,
     view, 
     onNavigate, 
+    onOpenProfile,
     onSwitchUser, 
     onStartDemo, 
     children 
@@ -65,11 +70,28 @@ export const AppShell: React.FC<AppShellProps> = ({
   const isPrivileged = canManageUsers(currentRole);
   const isSuper = isSystemAdmin(currentRole);
   const isClient = isEntrepreneur(currentRole);
+  const showMvpEsoNav = isMvpMode && !isClient;
+  const featureFlags = currentEcosystem.settings.feature_flags || {};
+  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
+  const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
+  const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
+  const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
+  const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
+  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
+  const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
+  const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
+  const canAccessApiConsole = isPrivileged && featureFlags.api_console === true;
+  const canAccessDataQuality = isPrivileged && featureFlags.data_quality === true;
+  const canAccessDataStandards = isPrivileged && featureFlags.data_standards === true;
+  const canAccessMetricsManager = isSuper && featureFlags.metrics_manager === true;
+  const canAccessInboundIntake = (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true;
 
   const iconClass = "w-5 h-5";
+  const isDemoMode = CONFIG.IS_DEMO_MODE;
 
   // Filter Portal Links based on Audience
   const visiblePortalLinks = currentEcosystem.portal_links?.filter(link => {
+      if (link.label === 'Community Calendar') return false;
       if (link.audience === 'all') return true;
       if (isClient && link.audience === 'entrepreneur') return true;
       if (!isClient && link.audience === 'eso') return true;
@@ -86,7 +108,8 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
-      <DemoWarningBanner />
+      {CONFIG.IS_DEMO_MODE && <DemoWarningBanner />}
+      <FirebaseAuthPanel />
       
       {/* Mobile Header */}
       <div className={`md:hidden ${theme.sidebarBg} p-4 flex justify-between items-center text-white z-30 relative shadow-md`}>
@@ -157,15 +180,6 @@ export const AppShell: React.FC<AppShellProps> = ({
              {!isClient && (
                 <>
                     <SidebarItem 
-                    active={view === 'dashboard'} 
-                    onClick={() => handleNav('dashboard')} 
-                    label="Dashboard" 
-                    icon={<IconDashboard className={iconClass} />} 
-                    textColor={theme.itemText} 
-                    iconColor={theme.itemIcon} 
-                    hoverClass={theme.itemHover}
-                    />
-                    <SidebarItem 
                     active={view === 'directory'} 
                     onClick={() => handleNav('directory')} 
                     label="Organizations" 
@@ -183,44 +197,6 @@ export const AppShell: React.FC<AppShellProps> = ({
                     iconColor={theme.itemIcon} 
                     hoverClass={theme.itemHover}
                     />
-                    <SidebarItem 
-                    active={view === 'todos'} 
-                    onClick={() => handleNav('todos')} 
-                    label="Tasks & Data" 
-                    icon={<IconList className={iconClass} />} 
-                    textColor={theme.itemText} 
-                    iconColor={theme.itemIcon} 
-                    hoverClass={theme.itemHover}
-                    />
-               
-                 <div className={`pt-4 pb-1 px-4 text-xs font-bold uppercase tracking-wider ${theme.headerSub}`}>Workflows</div>
-                 <SidebarItem 
-                   active={view === 'initiatives'} 
-                   onClick={() => handleNav('initiatives')} 
-                   label="Initiatives" 
-                   icon={<IconBriefcase className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
-                 <SidebarItem 
-                   active={view === 'pipelines'} 
-                   onClick={() => handleNav('pipelines')} 
-                   label="Processes" 
-                   icon={<IconRocket className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
-                 <SidebarItem 
-                   active={view === 'interactions'} 
-                   onClick={() => handleNav('interactions')} 
-                   label="Interactions" 
-                   icon={<IconChat className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
                  <SidebarItem 
                    active={view === 'referrals'} 
                    onClick={() => handleNav('referrals')} 
@@ -230,15 +206,92 @@ export const AppShell: React.FC<AppShellProps> = ({
                    iconColor={theme.itemIcon} 
                    hoverClass={theme.itemHover}
                  />
-                 <SidebarItem 
-                   active={view === 'reports'} 
-                   onClick={() => handleNav('reports')} 
-                   label="Reports" 
-                   icon={<IconChart className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
+                 {!showMvpEsoNav && (
+                   <>
+                     {(canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives || canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout) && (
+                       <>
+                         {canAccessDashboard && (
+                           <SidebarItem 
+                           active={view === 'dashboard'} 
+                           onClick={() => handleNav('dashboard')} 
+                           label="Dashboard" 
+                           icon={<IconDashboard className={iconClass} />} 
+                           textColor={theme.itemText} 
+                           iconColor={theme.itemIcon} 
+                           hoverClass={theme.itemHover}
+                           />
+                         )}
+                         {canAccessTasksAdvice && (
+                           <SidebarItem 
+                           active={view === 'todos'} 
+                           onClick={() => handleNav('todos')} 
+                           label="Tasks & Data" 
+                           icon={<IconList className={iconClass} />} 
+                           textColor={theme.itemText} 
+                           iconColor={theme.itemIcon} 
+                           hoverClass={theme.itemHover}
+                           />
+                         )}
+                         <div className={`pt-4 pb-1 px-4 text-xs font-bold uppercase tracking-wider ${theme.headerSub}`}>Workflows</div>
+                         {canAccessInitiatives && (
+                           <SidebarItem 
+                             active={view === 'initiatives'} 
+                             onClick={() => handleNav('initiatives')} 
+                             label="Initiatives" 
+                             icon={<IconBriefcase className={iconClass} />} 
+                             textColor={theme.itemText} 
+                             iconColor={theme.itemIcon} 
+                             hoverClass={theme.itemHover}
+                           />
+                         )}
+                         {canAccessProcesses && (
+                           <SidebarItem 
+                             active={view === 'pipelines'} 
+                             onClick={() => handleNav('pipelines')} 
+                             label="Processes" 
+                             icon={<IconRocket className={iconClass} />} 
+                             textColor={theme.itemText} 
+                             iconColor={theme.itemIcon} 
+                             hoverClass={theme.itemHover}
+                           />
+                         )}
+                         {canAccessInteractions && (
+                           <SidebarItem 
+                             active={view === 'interactions'} 
+                             onClick={() => handleNav('interactions')} 
+                             label="Interactions" 
+                             icon={<IconChat className={iconClass} />} 
+                             textColor={theme.itemText} 
+                             iconColor={theme.itemIcon} 
+                             hoverClass={theme.itemHover}
+                           />
+                         )}
+                         {canAccessReports && (
+                           <SidebarItem 
+                             active={view === 'reports'} 
+                             onClick={() => handleNav('reports')} 
+                             label="Reports" 
+                             icon={<IconChart className={iconClass} />} 
+                             textColor={theme.itemText} 
+                             iconColor={theme.itemIcon} 
+                             hoverClass={theme.itemHover}
+                           />
+                         )}
+                       </>
+                     )}
+                     {canAccessVentureScout && (
+                       <SidebarItem 
+                         active={view === 'scout'} 
+                         onClick={() => handleNav('scout')} 
+                         label="Venture Scout" 
+                         icon={<IconScout className={iconClass} />} 
+                         textColor={theme.itemText} 
+                         iconColor={theme.itemIcon} 
+                         hoverClass={theme.itemHover}
+                       />
+                     )}
+                   </>
+                 )}
                </>
              )}
 
@@ -297,7 +350,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                    iconColor={theme.itemIcon} 
                    hoverClass={theme.itemHover}
                  />}
-                 {isSuper && (
+                 {isSuper && canAccessProcesses && (
                   <SidebarItem 
                     active={view === 'pipelines'} 
                     onClick={() => handleNav('pipelines')} 
@@ -308,7 +361,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                     hoverClass={theme.itemHover}
                   />
                  )}
-                 {isSuper && <SidebarItem 
+                 {isPrivileged && <SidebarItem 
                    active={view === 'user_management'} 
                    onClick={() => handleNav('user_management')} 
                    label="User Management" 
@@ -317,42 +370,61 @@ export const AppShell: React.FC<AppShellProps> = ({
                    iconColor={theme.itemIcon} 
                    hoverClass={theme.itemHover}
                  />}
-                 <SidebarItem 
-                   active={view === 'data_quality'} 
-                   onClick={() => handleNav('data_quality')} 
-                   label="Data Quality" 
-                   icon={<IconDatabase className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
-                 <SidebarItem 
-                   active={view === 'metrics_manager'} 
-                   onClick={() => handleNav('metrics_manager')} 
-                   label="Metrics Manager" 
-                   icon={<IconChart className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
-                 <SidebarItem 
-                   active={view === 'data_standards'} 
-                   onClick={() => handleNav('data_standards')} 
-                   label="Data Standards" 
-                   icon={<IconBook className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
-                 <SidebarItem 
-                   active={view === 'api_console'} 
-                   onClick={() => handleNav('api_console')} 
-                   label="API Console" 
-                   icon={<IconTerminal className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
+                 {canAccessDataQuality && (
+                   <SidebarItem 
+                     active={view === 'data_quality'} 
+                     onClick={() => handleNav('data_quality')} 
+                     label="Data Quality" 
+                     icon={<IconDatabase className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+                 {canAccessMetricsManager && (
+                   <SidebarItem 
+                     active={view === 'metrics_manager'} 
+                     onClick={() => handleNav('metrics_manager')} 
+                     label="Metrics Manager" 
+                     icon={<IconChart className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+                 {canAccessDataStandards && (
+                   <SidebarItem 
+                     active={view === 'data_standards'} 
+                     onClick={() => handleNav('data_standards')} 
+                     label="Data Standards" 
+                     icon={<IconBook className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+                 {canAccessApiConsole && (
+                   <SidebarItem 
+                     active={view === 'api_console'} 
+                     onClick={() => handleNav('api_console')} 
+                     label="API Console" 
+                     icon={<IconTerminal className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+                 {canAccessInboundIntake && (
+                   <SidebarItem 
+                     active={view === 'inbound_intake'} 
+                     onClick={() => handleNav('inbound_intake')} 
+                     label="Inbound Intake" 
+                     icon={<IconChat className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
                </>
              )}
 
@@ -376,10 +448,13 @@ export const AppShell: React.FC<AppShellProps> = ({
                         </DemoLink>
                     ))}
                  </>
-             )}
-           </nav>
+           )}
+          </nav>
            <div className={`p-4 ${theme.footerBg} border-t ${theme.footerBorder}`}>
-             <div className={`flex items-center gap-3 cursor-pointer p-2 rounded transition-colors ${theme.itemHover}`} onClick={onSwitchUser}>
+             <div
+               className={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer ${theme.itemHover}`}
+               onClick={isDemoMode ? onSwitchUser : onOpenProfile}
+             >
                <Avatar src={user.avatar_url} name={`${user.first_name} ${user.last_name}`} size="sm" />
                <div className="overflow-hidden">
                  <div className="text-sm font-medium text-white truncate">{user.first_name} {user.last_name}</div>
@@ -388,11 +463,18 @@ export const AppShell: React.FC<AppShellProps> = ({
                    <div className={`text-xs truncate ${theme.headerSub}`}>{currentRole.replace('_', ' ')}</div>
                  </div>
                </div>
-               <div className="ml-auto text-xs text-gray-500">⇄</div>
+               {isDemoMode && <div className="ml-auto text-xs text-gray-500">⇄</div>}
              </div>
-             <button onClick={onStartDemo} className="mt-3 w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded shadow-sm transition-colors">
-               Start Demo Tour
-             </button>
+             {!isDemoMode && (
+               <button onClick={onOpenProfile} className="mt-3 w-full py-1.5 px-3 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded shadow-sm transition-colors">
+                 My Profile
+               </button>
+             )}
+             {isDemoMode && (
+               <button onClick={onStartDemo} className="mt-3 w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded shadow-sm transition-colors">
+                 Start Demo Tour
+                </button>
+             )}
            </div>
         </aside>
 
