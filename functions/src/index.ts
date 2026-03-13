@@ -96,6 +96,48 @@ const getRequiredEnv = (key: string) => {
   return value || null;
 };
 
+const getProjectId = () => {
+  const directProjectId = getRequiredEnv('GCLOUD_PROJECT') || getRequiredEnv('GOOGLE_CLOUD_PROJECT');
+  if (directProjectId) {
+    return directProjectId;
+  }
+
+  const firebaseConfig = process.env.FIREBASE_CONFIG;
+  if (!firebaseConfig) {
+    return '';
+  }
+
+  try {
+    const parsed = JSON.parse(firebaseConfig) as { projectId?: string; project_id?: string };
+    return parsed.projectId || parsed.project_id || '';
+  } catch {
+    return '';
+  }
+};
+
+const isLocalOnlyEnvironment = () => {
+  if (process.env.FUNCTIONS_EMULATOR === 'true') {
+    return true;
+  }
+
+  const explicit = getRequiredEnv('ALLOW_LOCAL_ONLY_FUNCTIONS');
+  if (explicit) {
+    return explicit === 'true';
+  }
+
+  const projectId = getProjectId();
+  return projectId.includes('local');
+};
+
+const requireLocalOnlyEnvironment = (res: any) => {
+  if (isLocalOnlyEnvironment()) {
+    return true;
+  }
+
+  res.status(403).json({ error: 'This endpoint is only available in local or explicitly enabled environments' });
+  return false;
+};
+
 const getAppBaseUrl = () => getRequiredEnv('APP_BASE_URL') || 'http://localhost:3000';
 
 const parseCsvEnv = (key: string) => {
@@ -162,6 +204,10 @@ const requireAuthOrApiKey = async (req: any, res: any) => {
   res.status(401).json({ error: 'Authentication or valid API key required' });
   return null;
 };
+
+type AuthContext =
+  | { type: 'user'; uid: string }
+  | { type: 'api_key'; organization_id: string; key_id: string; label: string };
 
 const requirePlatformAdmin = async (req: any, res: any) => {
   const token = getBearerToken(req);
@@ -749,7 +795,7 @@ export const resolvePerson = onRequest(async (req, res) => {
     return;
   }
 
-  const context = await requireAuthOrApiKey(req, res);
+  const context = await requireAuthOrApiKey(req, res) as AuthContext | null;
   if (!context) return;
 
   const email = normalize(req.body?.email);
@@ -866,6 +912,10 @@ export const createTestAccount = onRequest(async (req, res) => {
 
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  if (!requireLocalOnlyEnvironment(res)) {
     return;
   }
 
@@ -1523,6 +1573,10 @@ export const pushInteraction = onRequest(async (req, res) => {
   const interactionRef = db.collection('interactions').doc();
   const now = new Date().toISOString();
   
+  const apiKeyContext: Extract<AuthContext, { type: 'api_key' }> | null = context.type === 'api_key'
+    ? context as Extract<AuthContext, { type: 'api_key' }>
+    : null;
+
   const interaction = {
     id: interactionRef.id,
     ecosystem_id,
@@ -1531,9 +1585,9 @@ export const pushInteraction = onRequest(async (req, res) => {
     date: date || now.split('T')[0],
     type: type || 'other',
     notes,
-    recorded_by: recorded_by || (context.type === 'api_key' ? context.label : 'System'),
+    recorded_by: recorded_by || (apiKeyContext?.label || 'System'),
     attendees: attendees || [],
-    author_org_id: context.type === 'api_key' ? context.organization_id : (req.body.author_org_id || null),
+    author_org_id: apiKeyContext?.organization_id || (req.body.author_org_id || null),
     visibility: 'network_shared',
     note_confidential: false,
     created_at: now,
@@ -1542,7 +1596,11 @@ export const pushInteraction = onRequest(async (req, res) => {
 
   await interactionRef.set(interaction);
 
-  await logAudit('interaction_pushed', context.type === 'user' ? context.uid : context.organization_id, {
+  const actorId: string = context.type === 'user'
+    ? (context.uid || 'unknown_user')
+    : (apiKeyContext?.organization_id || 'unknown_api_key_org');
+
+  await logAudit('interaction_pushed', actorId, {
     interaction_id: interactionRef.id,
     ecosystem_id,
     organization_id,
@@ -1610,6 +1668,10 @@ export const seedLocalReferenceData = onRequest(async (req, res) => {
     return;
   }
 
+  if (!requireLocalOnlyEnvironment(res)) {
+    return;
+  }
+
   const now = new Date().toISOString();
 
   await db.collection('organizations').doc('org_makehaven').set({
@@ -1673,6 +1735,10 @@ export const processInboundEmail = onRequest(async (req, res) => {
 
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  if (!requireLocalOnlyEnvironment(res)) {
     return;
   }
 

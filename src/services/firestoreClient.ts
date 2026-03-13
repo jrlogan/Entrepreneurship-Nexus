@@ -28,6 +28,8 @@ export const queryCollection = async <T>(collectionName: string, constraints: Qu
 
 export const whereEquals = (field: string, value: unknown) => where(field, '==', value);
 
+export const whereIn = (field: string, value: unknown[]) => where(field, 'array-contains-any', value);
+
 export const setDocument = async <T>(collectionName: string, id: string, data: T, merge = true) => {
   const db = getFirestoreDb();
   if (!db) {

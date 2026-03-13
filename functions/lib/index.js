@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = void 0;
+exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -47,6 +47,41 @@ const setCors = (res) => {
 const getRequiredEnv = (key) => {
     const value = process.env[key]?.trim();
     return value || null;
+};
+const getProjectId = () => {
+    const directProjectId = getRequiredEnv('GCLOUD_PROJECT') || getRequiredEnv('GOOGLE_CLOUD_PROJECT');
+    if (directProjectId) {
+        return directProjectId;
+    }
+    const firebaseConfig = process.env.FIREBASE_CONFIG;
+    if (!firebaseConfig) {
+        return '';
+    }
+    try {
+        const parsed = JSON.parse(firebaseConfig);
+        return parsed.projectId || parsed.project_id || '';
+    }
+    catch {
+        return '';
+    }
+};
+const isLocalOnlyEnvironment = () => {
+    if (process.env.FUNCTIONS_EMULATOR === 'true') {
+        return true;
+    }
+    const explicit = getRequiredEnv('ALLOW_LOCAL_ONLY_FUNCTIONS');
+    if (explicit) {
+        return explicit === 'true';
+    }
+    const projectId = getProjectId();
+    return projectId.includes('local');
+};
+const requireLocalOnlyEnvironment = (res) => {
+    if (isLocalOnlyEnvironment()) {
+        return true;
+    }
+    res.status(403).json({ error: 'This endpoint is only available in local or explicitly enabled environments' });
+    return false;
 };
 const getAppBaseUrl = () => getRequiredEnv('APP_BASE_URL') || 'http://localhost:3000';
 const parseCsvEnv = (key) => {
@@ -65,6 +100,47 @@ const getBearerToken = (req) => {
         return null;
     }
     return header.slice('Bearer '.length).trim();
+};
+const validateApiKey = async (apiKey) => {
+    if (!apiKey)
+        return null;
+    // In a real system, we might use a hash or a separate collection for performance.
+    // For the MVP, we scan organizations for the matching key prefix.
+    // Note: This is simplified. Proper implementation should use a hashed lookup.
+    const snapshot = await db.collection('organizations').get();
+    for (const doc of snapshot.docs) {
+        const apiKeys = (doc.get('api_keys') || []);
+        const match = apiKeys.find(k => k.status === 'active' && (k.prefix === apiKey || apiKey.startsWith(k.prefix.replace('...', ''))));
+        if (match) {
+            return {
+                organization_id: doc.id,
+                key_id: match.id,
+                label: match.label
+            };
+        }
+    }
+    return null;
+};
+const requireAuthOrApiKey = async (req, res) => {
+    const token = getBearerToken(req);
+    const apiKey = req.get('X-Nexus-API-Key');
+    if (token) {
+        try {
+            const decoded = await admin.auth().verifyIdToken(token);
+            return { type: 'user', uid: decoded.uid };
+        }
+        catch {
+            // Fall through to API key check
+        }
+    }
+    if (apiKey) {
+        const apiContext = await validateApiKey(apiKey);
+        if (apiContext) {
+            return { type: 'api_key', ...apiContext };
+        }
+    }
+    res.status(401).json({ error: 'Authentication or valid API key required' });
+    return null;
 };
 const requirePlatformAdmin = async (req, res) => {
     const token = getBearerToken(req);
@@ -578,6 +654,9 @@ exports.resolvePerson = (0, https_1.onRequest)(async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
+    const context = await requireAuthOrApiKey(req, res);
+    if (!context)
+        return;
     const email = normalize(req.body?.email);
     const fullName = normalize(req.body?.full_name);
     const organizationName = normalize(req.body?.organization_name);
@@ -639,6 +718,9 @@ exports.resolveOrganization = (0, https_1.onRequest)(async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
+    const context = await requireAuthOrApiKey(req, res);
+    if (!context)
+        return;
     const name = (req.body?.name || '').trim();
     const domain = normalize(req.body?.domain);
     if (!name && !domain) {
@@ -676,6 +758,9 @@ exports.createTestAccount = (0, https_1.onRequest)(async (req, res) => {
     setCors(res);
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireLocalOnlyEnvironment(res)) {
         return;
     }
     const email = normalize(req.body?.email);
@@ -1225,6 +1310,56 @@ exports.approveAccountRequest = (0, https_1.onRequest)(async (req, res) => {
     });
     res.json({ ok: true, request_id: requestId });
 });
+exports.pushInteraction = (0, https_1.onRequest)(async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const context = await requireAuthOrApiKey(req, res);
+    if (!context)
+        return;
+    const { ecosystem_id, organization_id, person_id, date, type, notes, recorded_by, attendees } = req.body;
+    if (!ecosystem_id || !organization_id || !notes) {
+        res.status(400).json({ error: 'ecosystem_id, organization_id, and notes are required' });
+        return;
+    }
+    const interactionRef = db.collection('interactions').doc();
+    const now = new Date().toISOString();
+    const apiKeyContext = context.type === 'api_key'
+        ? context
+        : null;
+    const interaction = {
+        id: interactionRef.id,
+        ecosystem_id,
+        organization_id,
+        person_id: person_id || null,
+        date: date || now.split('T')[0],
+        type: type || 'other',
+        notes,
+        recorded_by: recorded_by || (apiKeyContext?.label || 'System'),
+        attendees: attendees || [],
+        author_org_id: apiKeyContext?.organization_id || (req.body.author_org_id || null),
+        visibility: 'network_shared',
+        note_confidential: false,
+        created_at: now,
+        source: context.type === 'api_key' ? 'api' : 'manual'
+    };
+    await interactionRef.set(interaction);
+    const actorId = context.type === 'user'
+        ? (context.uid || 'unknown_user')
+        : (apiKeyContext?.organization_id || 'unknown_api_key_org');
+    await logAudit('interaction_pushed', actorId, {
+        interaction_id: interactionRef.id,
+        ecosystem_id,
+        organization_id,
+        source: context.type
+    });
+    res.json({ ok: true, interaction_id: interactionRef.id });
+});
 exports.rejectAccountRequest = (0, https_1.onRequest)(async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
@@ -1271,6 +1406,9 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)(async (req, res) => {
     setCors(res);
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireLocalOnlyEnvironment(res)) {
         return;
     }
     const now = new Date().toISOString();
@@ -1329,6 +1467,9 @@ exports.processInboundEmail = (0, https_1.onRequest)(async (req, res) => {
     setCors(res);
     if (req.method !== 'POST') {
         res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireLocalOnlyEnvironment(res)) {
         return;
     }
     const payload = req.body;
