@@ -119,6 +119,47 @@ Notes:
 - `postmarkInboundWebhook` remains public by design, but requires the configured shared secret.
 - `sendQueuedNotices` is still manual/admin-triggered. Outbound mail is not scheduled automatically yet.
 
+## First Platform Admin
+
+The deployed app currently shows the normal Firebase auth gate. That is expected.
+
+Because invite and approval flows assume an existing admin, the first `platform_admin` must be bootstrapped once. This repo now includes a secret-gated HTTP function for that:
+
+- `bootstrapPlatformAdmin`
+
+Required Functions env:
+
+- `BOOTSTRAP_PLATFORM_ADMIN_SECRET`
+
+Example request after Functions are deployed:
+
+```bash
+curl -X POST "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/bootstrapPlatformAdmin" \
+  -H "Content-Type: application/json" \
+  -H "X-Bootstrap-Secret: YOUR_BOOTSTRAP_PLATFORM_ADMIN_SECRET" \
+  -d '{
+    "email": "you@example.com",
+    "password": "CHOOSE_A_STRONG_PASSWORD",
+    "first_name": "Your",
+    "last_name": "Name",
+    "ecosystem_id": "eco_new_haven",
+    "organization_id": ""
+  }'
+```
+
+Behavior:
+
+- works only when no `platform_admin` exists yet
+- creates the Firebase Auth user if needed
+- creates the `people` record
+- creates an active `person_memberships` record with role `platform_admin`
+
+After this succeeds:
+
+1. sign in through the deployed app
+2. verify admin access works
+3. rotate or remove `BOOTSTRAP_PLATFORM_ADMIN_SECRET`
+
 ## GitHub Auto Deploy
 
 This repo now includes GitHub Actions to mirror the Boat Club flow:

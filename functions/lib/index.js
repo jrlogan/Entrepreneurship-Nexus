@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = void 0;
+exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -93,6 +93,18 @@ const parseCsvEnv = (key) => {
         .split(',')
         .map((item) => item.trim().toLowerCase())
         .filter(Boolean);
+};
+const hasPlatformAdmin = async () => {
+    const snapshot = await db.collection('people')
+        .where('system_role', '==', 'platform_admin')
+        .limit(1)
+        .get();
+    return !snapshot.empty;
+};
+const getBootstrapSecret = (req) => {
+    const fromHeader = req.get('x-bootstrap-secret') || req.get('X-Bootstrap-Secret');
+    const fromBody = req.body?.secret;
+    return (fromHeader || fromBody || '').toString().trim();
 };
 const getBearerToken = (req) => {
     const header = req.get('authorization') || req.get('Authorization');
@@ -880,6 +892,90 @@ exports.completeSelfSignup = (0, https_1.onRequest)(async (req, res) => {
     }
     catch {
         res.status(401).json({ error: 'Invalid authentication token' });
+    }
+});
+exports.bootstrapPlatformAdmin = (0, https_1.onRequest)(async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const configuredSecret = getRequiredEnv('BOOTSTRAP_PLATFORM_ADMIN_SECRET');
+    if (!configuredSecret) {
+        res.status(500).json({ error: 'Bootstrap secret is not configured' });
+        return;
+    }
+    const providedSecret = getBootstrapSecret(req);
+    if (!providedSecret || providedSecret !== configuredSecret) {
+        res.status(401).json({ error: 'Invalid bootstrap secret' });
+        return;
+    }
+    if (await hasPlatformAdmin()) {
+        res.status(409).json({ error: 'A platform admin already exists. Bootstrap is disabled.' });
+        return;
+    }
+    const email = normalize(req.body?.email);
+    const password = req.body?.password || '';
+    const firstName = (req.body?.first_name || 'Platform').trim();
+    const lastName = (req.body?.last_name || 'Admin').trim();
+    const ecosystemId = (req.body?.ecosystem_id || '').trim();
+    const organizationId = (req.body?.organization_id || '').trim();
+    if (!email || !password || !ecosystemId) {
+        res.status(400).json({ error: 'email, password, and ecosystem_id are required' });
+        return;
+    }
+    try {
+        const existing = await admin.auth().getUserByEmail(email).catch(() => null);
+        const authUser = existing || await admin.auth().createUser({
+            email,
+            password,
+            displayName: `${firstName} ${lastName}`.trim(),
+        });
+        const now = new Date().toISOString();
+        const personRef = db.collection('people').doc(authUser.uid);
+        await personRef.set({
+            id: authUser.uid,
+            auth_uid: authUser.uid,
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            role: '',
+            system_role: 'platform_admin',
+            primary_organization_id: organizationId,
+            ecosystem_id: ecosystemId,
+            status: 'active',
+            created_at: now,
+            updated_at: now,
+        }, { merge: true });
+        const membershipRef = db.collection('person_memberships').doc(`${authUser.uid}_${ecosystemId}_${organizationId || 'none'}`);
+        await membershipRef.set({
+            id: membershipRef.id,
+            person_id: authUser.uid,
+            ecosystem_id: ecosystemId,
+            organization_id: organizationId,
+            system_role: 'platform_admin',
+            status: 'active',
+            joined_at: now,
+        }, { merge: true });
+        await logAudit('platform_admin_bootstrapped', authUser.uid, {
+            ecosystem_id: ecosystemId,
+            organization_id: organizationId || null,
+            email,
+        });
+        res.json({
+            ok: true,
+            uid: authUser.uid,
+            email,
+            ecosystem_id: ecosystemId,
+            organization_id: organizationId || null,
+            message: 'Initial platform admin created. Disable or rotate the bootstrap secret now.',
+        });
+    }
+    catch (error) {
+        res.status(500).json({ error: error?.message || 'Unable to bootstrap platform admin' });
     }
 });
 exports.createInvite = (0, https_1.onRequest)(async (req, res) => {
