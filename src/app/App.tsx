@@ -140,7 +140,8 @@ const App = () => {
   const [dataVersion, setDataVersion] = useState(0); // Used to force refresh when sub-components update data
   
   // User Session
-  const [demoUser, setDemoUser] = useState<Person>(repos.people.getAll().find(p => p.system_role === 'eso_admin') || repos.people.getAll()[0]);
+  const defaultDemoUser = MOCK_PEOPLE.find((person) => person.system_role === 'eso_admin') || MOCK_PEOPLE[0];
+  const [demoUser, setDemoUser] = useState<Person>(defaultDemoUser);
   const [resolvedAuthPerson, setResolvedAuthPerson] = useState<Person | null>(null);
 
   const shouldRequireAuth = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
@@ -207,8 +208,11 @@ const App = () => {
         return;
       }
 
+      const fallbackMockPeople = session.authUser?.email
+        ? await repos.people.getAll()
+        : [];
       const fallbackMockPerson = session.authUser?.email
-        ? repos.people.getAll().find(person => person.email.toLowerCase() === session.authUser.email!.toLowerCase())
+        ? fallbackMockPeople.find(person => person.email.toLowerCase() === session.authUser.email!.toLowerCase())
         : undefined;
 
       const matchedUser = resolvedFirebasePerson || fallbackMockPerson;
@@ -632,7 +636,7 @@ const App = () => {
               }
           }}
           onSwitchUser={(role) => {
-             const newUser = repos.people.getAll().find(p => p.system_role === role);
+             const newUser = MOCK_PEOPLE.find(p => p.system_role === role);
              if (newUser) {
                  setDemoUser(newUser);
                  if (newUser.memberships?.length > 0) {
@@ -661,7 +665,7 @@ const App = () => {
         <Modal isOpen={isSwitchUserOpen} onClose={() => setIsSwitchUserOpen(false)} title="Switch Context (User)">
             <div className="space-y-2">
                 <p className="text-sm text-gray-500 mb-4">Select a user to simulate their permissions and view.</p>
-                {repos.people.getAll().map(p => (
+                {MOCK_PEOPLE.map(p => (
                     <button 
                       key={p.id} 
                       onClick={() => { 
