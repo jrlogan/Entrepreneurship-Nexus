@@ -93,6 +93,11 @@ service cloud.firestore {
       allow write: if isPlatformAdmin();
     }
 
+    match /authorized_sender_domains/{domainId} {
+      allow read: if isAuthenticated();
+      allow write: if isPlatformAdmin();
+    }
+
     match /inbound_messages/{messageId} {
       allow read: if isPlatformAdmin();
       allow write: if false;

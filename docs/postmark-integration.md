@@ -87,6 +87,20 @@ Seed the staging route and organizations:
 FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging npm run staging:seed-mail-test
 ```
 
+That seed now also creates ecosystem-scoped records in `authorized_sender_domains`, which are used to:
+
+- map approved staff domains to an ESO organization
+- infer the likely referring organization from the sender email domain
+- queue sender follow-up notices only for approved ESO domains
+- keep generic external senders from receiving internal management links
+
+Supported domain policies are:
+
+- `approved`: domain-affiliated staff can be recognized automatically
+- `invite_only`: people on that domain should be invited individually
+- `request_access`: senders should use the existing access-request path
+- `blocked`: do not send a management follow-up
+
 Then simulate a staging webhook against deployed Functions:
 
 ```bash

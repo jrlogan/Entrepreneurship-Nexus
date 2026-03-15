@@ -5,6 +5,32 @@ import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/acc
 import { redactOrganization } from '../../../domain/access/redaction';
 import { ConsentRepo } from '../consent';
 
+const normalizeOrganization = (org: Organization): Organization => ({
+  ...org,
+  description: org.description || '',
+  tax_status: org.tax_status || 'for_profit',
+  roles: Array.isArray(org.roles) ? org.roles : [],
+  demographics: {
+    minority_owned: org.demographics?.minority_owned ?? false,
+    woman_owned: org.demographics?.woman_owned ?? false,
+    veteran_owned: org.demographics?.veteran_owned ?? false,
+  },
+  classification: {
+    naics_code: org.classification?.naics_code || '',
+    industry_tags: Array.isArray(org.classification?.industry_tags) ? org.classification.industry_tags : [],
+  },
+  external_refs: Array.isArray(org.external_refs) ? org.external_refs : [],
+  managed_by_ids: Array.isArray(org.managed_by_ids) ? org.managed_by_ids : [],
+  operational_visibility: org.operational_visibility || 'open',
+  authorized_eso_ids: Array.isArray(org.authorized_eso_ids) ? org.authorized_eso_ids : [],
+  version: org.version || 1,
+  ecosystem_ids: Array.isArray(org.ecosystem_ids) ? org.ecosystem_ids : [],
+  api_keys: Array.isArray(org.api_keys) ? org.api_keys : [],
+  webhooks: Array.isArray(org.webhooks) ? org.webhooks : [],
+  tags: Array.isArray(org.tags) ? org.tags : [],
+  external_ids: org.external_ids || {},
+});
+
 export class FirebaseOrganizationsRepo {
   constructor(private consentRepo: ConsentRepo) {}
 
@@ -13,7 +39,7 @@ export class FirebaseOrganizationsRepo {
     if (!scope) return [];
 
     const constraints = [whereIn('ecosystem_ids', [scope])];
-    const orgs = await queryCollection<Organization>('organizations', constraints);
+    const orgs = (await queryCollection<Organization>('organizations', constraints)).map(normalizeOrganization);
 
     return orgs.map(org => {
       const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
@@ -49,13 +75,13 @@ export class FirebaseOrganizationsRepo {
 
   async getById(id: string): Promise<Organization | undefined> {
     const org = await getDocument<Organization>('organizations', id);
-    return org || undefined;
+    return org ? normalizeOrganization(org) : undefined;
   }
 
   async add(org: Organization): Promise<void> {
     const now = new Date().toISOString();
     const doc = {
-        ...org,
+        ...normalizeOrganization(org),
         status: org.status || 'active',
         version: org.version || 1,
         created_at: org.created_at || now,

@@ -63,6 +63,18 @@ interface PersonMembershipRecord {
   joined_at: string;
 }
 
+interface AuthorizedSenderDomainRecord {
+  id: string;
+  ecosystem_id: string;
+  organization_id: string;
+  domain: string;
+  is_active?: boolean;
+  access_policy?: 'approved' | 'invite_only' | 'request_access' | 'blocked';
+  allow_sender_affiliation?: boolean;
+  allow_auto_acknowledgement?: boolean;
+  allow_invite_prompt?: boolean;
+}
+
 interface InviteRecord {
   id: string;
   email: string;
@@ -150,6 +162,15 @@ const parseCsvEnv = (key: string) => {
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean);
+};
+
+const getEmailDomain = (email?: string | null) => {
+  const normalized = normalize(email);
+  if (!normalized || !normalized.includes('@')) {
+    return '';
+  }
+
+  return normalized.split('@')[1] || '';
 };
 
 const hasPlatformAdmin = async () => {
@@ -511,6 +532,168 @@ const enqueueNotice = async (personId: string, email: string, payload: Record<st
   });
 };
 
+const enqueueTypedNotice = async (
+  type: string,
+  toEmail: string,
+  payload: Record<string, unknown>,
+  options?: { personId?: string | null; dedupeKey?: string | null }
+) => {
+  const normalizedEmail = normalize(toEmail);
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const dedupeKey = options?.dedupeKey || null;
+  if (dedupeKey) {
+    const existing = await db.collection('notice_queue')
+      .where('type', '==', type)
+      .where('to_email', '==', normalizedEmail)
+      .where('dedupe_key', '==', dedupeKey)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      return existing.docs[0];
+    }
+  }
+
+  const docRef = db.collection('notice_queue').doc();
+  await docRef.set({
+    id: docRef.id,
+    type,
+    person_id: options?.personId || null,
+    to_email: normalizedEmail,
+    status: 'queued',
+    payload,
+    dedupe_key: dedupeKey,
+    created_at: new Date().toISOString(),
+  });
+
+  return docRef.get();
+};
+
+const getReferralManageUrl = (ecosystemId?: string | null) => {
+  const baseUrl = getAppBaseUrl();
+  if (!ecosystemId) {
+    return `${baseUrl}?view=referrals`;
+  }
+  return `${baseUrl}?view=referrals&eco=${encodeURIComponent(ecosystemId)}`;
+};
+
+const getInboundIntakeUrl = (ecosystemId?: string | null) => {
+  const baseUrl = getAppBaseUrl();
+  if (!ecosystemId) {
+    return `${baseUrl}?view=inbound_intake`;
+  }
+  return `${baseUrl}?view=inbound_intake&eco=${encodeURIComponent(ecosystemId)}`;
+};
+
+const findAuthorizedSenderDomain = async (ecosystemId?: string | null, fromEmail?: string | null, fallbackDomains: string[] = []) => {
+  const domain = getEmailDomain(fromEmail);
+  if (!ecosystemId || !domain) {
+    return { match: null, domain };
+  }
+
+  const snapshot = await db.collection('authorized_sender_domains')
+    .where('ecosystem_id', '==', ecosystemId)
+    .where('domain', '==', domain)
+    .where('is_active', '==', true)
+    .limit(1)
+    .get();
+
+  if (!snapshot.empty) {
+    return {
+      domain,
+      match: snapshot.docs[0].data() as AuthorizedSenderDomainRecord,
+    };
+  }
+
+  if (fallbackDomains.includes(domain)) {
+    return {
+      domain,
+      match: {
+        id: `route_fallback_${domain}`,
+        ecosystem_id: ecosystemId,
+        organization_id: '',
+        domain,
+        is_active: true,
+        access_policy: 'approved',
+        allow_sender_affiliation: true,
+        allow_auto_acknowledgement: true,
+        allow_invite_prompt: true,
+      } satisfies AuthorizedSenderDomainRecord,
+    };
+  }
+
+  return { match: null, domain };
+};
+
+const queueSenderReferralNotice = async (args: {
+  senderEmail?: string | null;
+  ecosystemId?: string | null;
+  referralId: string;
+  inboundMessageId: string;
+  receivingOrgName?: string | null;
+  referringOrgId?: string | null;
+  senderDomainMatch: AuthorizedSenderDomainRecord | null;
+  subject?: string | null;
+}) => {
+  const senderEmail = normalize(args.senderEmail);
+  if (!senderEmail) {
+    return;
+  }
+
+  const domainPolicy = args.senderDomainMatch?.access_policy
+    || (args.senderDomainMatch ? 'approved' : 'request_access');
+  if (domainPolicy === 'blocked') {
+    return;
+  }
+
+  const existingPerson = await findExistingPersonByEmail(senderEmail);
+  const referringOrgName = args.referringOrgId
+    ? (await db.collection('organizations').doc(args.referringOrgId).get()).get('name') || null
+    : null;
+  const commonPayload = {
+    referral_id: args.referralId,
+    inbound_message_id: args.inboundMessageId,
+    ecosystem_id: args.ecosystemId || null,
+    receiving_org_name: args.receivingOrgName || null,
+    referring_org_name: referringOrgName,
+    sender_domain: args.senderDomainMatch?.domain || getEmailDomain(senderEmail),
+    manage_url: getReferralManageUrl(args.ecosystemId),
+    intake_url: getInboundIntakeUrl(args.ecosystemId),
+    request_access_url: `${getAppBaseUrl()}${args.ecosystemId ? `?eco=${encodeURIComponent(args.ecosystemId)}` : ''}`,
+    subject: args.subject || '',
+  };
+
+  if (domainPolicy === 'approved' && existingPerson && args.senderDomainMatch?.allow_auto_acknowledgement !== false) {
+    await enqueueTypedNotice('sender_referral_receipt', senderEmail, commonPayload, {
+      personId: existingPerson.id,
+      dedupeKey: `${args.referralId}:sender-receipt:${senderEmail}`,
+    });
+    return;
+  }
+
+  if (domainPolicy === 'approved' && args.senderDomainMatch?.allow_invite_prompt !== false) {
+    await enqueueTypedNotice('sender_domain_claim', senderEmail, commonPayload, {
+      dedupeKey: `${args.referralId}:sender-claim:${senderEmail}`,
+    });
+    return;
+  }
+
+  if (domainPolicy === 'invite_only') {
+    await enqueueTypedNotice('sender_invite_required', senderEmail, commonPayload, {
+      dedupeKey: `${args.referralId}:sender-invite:${senderEmail}`,
+    });
+    return;
+  }
+
+  await enqueueTypedNotice('sender_access_request', senderEmail, commonPayload, {
+    personId: existingPerson?.id || null,
+    dedupeKey: `${args.referralId}:sender-access:${senderEmail}`,
+  });
+};
+
 const logAudit = async (action: string, actorId: string, details: Record<string, unknown>) => {
   const docRef = db.collection('audit_logs').doc();
   await docRef.set({
@@ -635,6 +818,114 @@ const renderNoticeContent = (notice: FirebaseFirestore.DocumentData) => {
     };
   }
 
+  if (notice.type === 'sender_referral_receipt') {
+    const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
+    const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+    return {
+      subject: 'Your referral is now in Entrepreneurship Nexus',
+      textBody: [
+        'Hello,',
+        '',
+        `Your referral for ${receivingOrgName} has been logged in Entrepreneurship Nexus.`,
+        'You can sign in to review the referral status, add updates, and mark the work complete.',
+        '',
+        `Referral workspace: ${manageUrl}`,
+        '',
+        'Thank you,',
+        'Entrepreneurship Nexus',
+      ].join('\n'),
+      htmlBody: `
+        <p>Hello,</p>
+        <p>Your referral for <strong>${receivingOrgName}</strong> has been logged in Entrepreneurship Nexus.</p>
+        <p>You can sign in to review the referral status, add updates, and mark the work complete.</p>
+        <p><a href="${manageUrl}">Open referral workspace</a></p>
+        <p>Thank you,<br />Entrepreneurship Nexus</p>
+      `,
+    };
+  }
+
+  if (notice.type === 'sender_domain_claim') {
+    const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
+    const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+    const senderDomain = notice.payload?.sender_domain || 'your organization email domain';
+    return {
+      subject: 'Manage your referral in Entrepreneurship Nexus',
+      textBody: [
+        'Hello,',
+        '',
+        `We logged a referral for ${receivingOrgName} from ${senderDomain}.`,
+        'Your organization email domain is approved for this ecosystem, so you can manage this referral in Entrepreneurship Nexus after signing in with this email address.',
+        '',
+        `Sign in and review the referral here: ${manageUrl}`,
+        '',
+        'Thank you,',
+        'Entrepreneurship Nexus',
+      ].join('\n'),
+      htmlBody: `
+        <p>Hello,</p>
+        <p>We logged a referral for <strong>${receivingOrgName}</strong> from <strong>${senderDomain}</strong>.</p>
+        <p>Your organization email domain is approved for this ecosystem, so you can manage this referral in Entrepreneurship Nexus after signing in with this email address.</p>
+        <p><a href="${manageUrl}">Sign in and review the referral</a></p>
+        <p>Thank you,<br />Entrepreneurship Nexus</p>
+      `,
+    };
+  }
+
+  if (notice.type === 'sender_access_request') {
+    const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
+    const requestAccessUrl = notice.payload?.request_access_url || getAppBaseUrl();
+    return {
+      subject: 'Your referral was received by Entrepreneurship Nexus',
+      textBody: [
+        'Hello,',
+        '',
+        `We received your referral for ${receivingOrgName}.`,
+        'To manage referrals directly in Entrepreneurship Nexus, sign in and use the request access flow for your organization.',
+        '',
+        `Open Entrepreneurship Nexus: ${requestAccessUrl}`,
+        '',
+        'If your organization already uses Nexus, an administrator can also invite you directly.',
+        '',
+        'Thank you,',
+        'Entrepreneurship Nexus',
+      ].join('\n'),
+      htmlBody: `
+        <p>Hello,</p>
+        <p>We received your referral for <strong>${receivingOrgName}</strong>.</p>
+        <p>To manage referrals directly in Entrepreneurship Nexus, sign in and use the request access flow for your organization.</p>
+        <p><a href="${requestAccessUrl}">Open Entrepreneurship Nexus</a></p>
+        <p>If your organization already uses Nexus, an administrator can also invite you directly.</p>
+        <p>Thank you,<br />Entrepreneurship Nexus</p>
+      `,
+    };
+  }
+
+  if (notice.type === 'sender_invite_required') {
+    const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
+    const requestAccessUrl = notice.payload?.request_access_url || getAppBaseUrl();
+    return {
+      subject: 'An invite is required to manage this referral',
+      textBody: [
+        'Hello,',
+        '',
+        `We received your referral for ${receivingOrgName}.`,
+        'Your organization is configured for invite-based access. Please sign in and request access, or ask an existing Nexus administrator to invite you.',
+        '',
+        `Open Entrepreneurship Nexus: ${requestAccessUrl}`,
+        '',
+        'Thank you,',
+        'Entrepreneurship Nexus',
+      ].join('\n'),
+      htmlBody: `
+        <p>Hello,</p>
+        <p>We received your referral for <strong>${receivingOrgName}</strong>.</p>
+        <p>Your organization is configured for invite-based access. Please sign in and request access, or ask an existing Nexus administrator to invite you.</p>
+        <p><a href="${requestAccessUrl}">Open Entrepreneurship Nexus</a></p>
+        <p>Thank you,<br />Entrepreneurship Nexus</p>
+      `,
+    };
+  }
+
   return {
     subject: 'Notification from Entrepreneurship Nexus',
     textBody: 'A new notification is available in Entrepreneurship Nexus.',
@@ -694,6 +985,11 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     : 'unknown') as IntroContactPermission;
   const supportNeeds = Array.isArray(footer?.support_needs) ? footer.support_needs : [];
   const ventureStage = Array.isArray(footer?.venture_stage) ? footer.venture_stage[0] : undefined;
+  const senderEmail = normalize(payload.from_email);
+  const senderDomainInfo = await findAuthorizedSenderDomain(route?.ecosystem_id, senderEmail, route?.allowed_sender_domains || []);
+  const referringOrgId = senderDomainInfo.match?.allow_sender_affiliation === false
+    ? null
+    : (senderDomainInfo.match?.organization_id || null);
 
   const inboundMessageRef = db.collection('inbound_messages').doc();
   const now = new Date().toISOString();
@@ -705,7 +1001,7 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     route_address: routeAddress,
     ecosystem_id: route?.ecosystem_id || null,
     activity_type: route?.activity_type || 'introduction',
-    from_email: normalize(payload.from_email),
+    from_email: senderEmail,
     to_emails: payload.to_emails || [],
     cc_emails: payload.cc_emails || [],
     subject: payload.subject || '',
@@ -731,19 +1027,22 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     candidate_person_name: clientName || null,
     candidate_venture_name: ventureName || null,
     candidate_receiving_org_id: receivingOrganization?.id || null,
-    candidate_referring_org_id: null,
+    candidate_referring_org_id: referringOrgId,
     intro_contact_permission: introContactPermission,
     venture_stage: ventureStage || null,
     support_needs: supportNeeds,
     confidence: clientEmail ? 0.82 : 0.45,
-    needs_review_reasons: clientEmail ? [] : ['missing_client_email'],
+    needs_review_reasons: [
+      ...(clientEmail ? [] : ['missing_client_email']),
+      ...(senderDomainInfo.match ? [] : ['unknown_sender_domain']),
+    ],
   });
 
   const referralRef = db.collection('referrals').doc();
   await referralRef.set({
     id: referralRef.id,
     ecosystem_id: route?.ecosystem_id || null,
-    referring_org_id: null,
+    referring_org_id: referringOrgId,
     receiving_org_id: receivingOrganization?.id || null,
     subject_person_id: person?.id || null,
     subject_org_id: organization?.id || null,
@@ -762,6 +1061,17 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
       subject: payload.subject || '',
     });
   }
+
+  await queueSenderReferralNotice({
+    senderEmail,
+    ecosystemId: route?.ecosystem_id || null,
+    referralId: referralRef.id,
+    inboundMessageId: inboundMessageRef.id,
+    receivingOrgName: receivingOrganization?.get('name') || receivingOrgName || null,
+    referringOrgId,
+    senderDomainMatch: senderDomainInfo.match,
+    subject: payload.subject || '',
+  });
 
   await inboundMessageRef.update({
     parse_status: 'parsed',
@@ -1824,6 +2134,18 @@ export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (re
     alias: 'SBDC',
     domain: 'sbdc.org',
     ecosystem_id: 'eco_new_haven',
+  }, { merge: true });
+
+  await db.collection('authorized_sender_domains').doc('auth_domain_makehaven').set({
+    id: 'auth_domain_makehaven',
+    ecosystem_id: 'eco_new_haven',
+    organization_id: 'org_makehaven',
+    domain: 'makehaven.org',
+    is_active: true,
+    access_policy: 'approved',
+    allow_sender_affiliation: true,
+    allow_auto_acknowledgement: true,
+    allow_invite_prompt: true,
   }, { merge: true });
 
   await db.collection('inbound_routes').doc('route_newhaven_intro').set({

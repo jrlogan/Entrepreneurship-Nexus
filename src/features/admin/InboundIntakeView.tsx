@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { Card, Badge, InfoBanner } from '../../shared/ui/Components';
+import { Card, Badge, FORM_INPUT_CLASS, FORM_SELECT_CLASS, InfoBanner } from '../../shared/ui/Components';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
-import { queryCollection } from '../../services/firestoreClient';
+import { queryCollection, setDocument } from '../../services/firestoreClient';
 import { useAuthSession } from '../../app/useAuthSession';
-import type { InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
+import type { AuthorizedSenderDomain, InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
 import type { Organization } from '../../domain/organizations/types';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 
@@ -25,14 +25,20 @@ export const InboundIntakeView = () => {
   const currentRole = session.viewer?.role || session.person?.system_role || 'entrepreneur';
   const canViewInboundIntake = currentRole === 'platform_admin' || currentRole === 'ecosystem_manager';
   const canViewRawIntake = currentRole === 'platform_admin';
+  const canManageAuthorizedDomains = currentRole === 'platform_admin';
   const [messages, setMessages] = useState<InboundMessage[]>([]);
   const [parseResults, setParseResults] = useState<InboundParseResult[]>([]);
   const [noticeQueue, setNoticeQueue] = useState<NoticeQueueItem[]>([]);
   const [routes, setRoutes] = useState<InboundRoute[]>([]);
+  const [authorizedDomains, setAuthorizedDomains] = useState<AuthorizedSenderDomain[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isSavingDomain, setIsSavingDomain] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleEsoOrganizations, setVisibleEsoOrganizations] = useState<Organization[]>([]);
+  const [newDomain, setNewDomain] = useState('');
+  const [newDomainOrgId, setNewDomainOrgId] = useState('');
+  const [newDomainPolicy, setNewDomainPolicy] = useState<NonNullable<AuthorizedSenderDomain['access_policy']>>('approved');
 
   const loadData = async () => {
     if (!canViewInboundIntake) {
@@ -40,6 +46,7 @@ export const InboundIntakeView = () => {
         setParseResults([]);
         setNoticeQueue([]);
         setRoutes([]);
+        setAuthorizedDomains([]);
         setVisibleEsoOrganizations([]);
         setError(null);
         return;
@@ -55,6 +62,8 @@ export const InboundIntakeView = () => {
 
         const firestoreRoutes = await queryCollection<InboundRoute>('inbound_routes');
         setRoutes(firestoreRoutes);
+        const firestoreDomains = await queryCollection<AuthorizedSenderDomain>('authorized_sender_domains');
+        setAuthorizedDomains(firestoreDomains);
 
         if (canViewRawIntake) {
           const [firestoreMessages, firestoreParseResults, firestoreNoticeQueue] = await Promise.all([
@@ -77,6 +86,7 @@ export const InboundIntakeView = () => {
         setParseResults(await repos.inboundMessages.getParseResults());
         setNoticeQueue([]);
         setRoutes(await repos.inboundMessages.getRoutes());
+        setAuthorizedDomains([]);
       }
     } catch (err: any) {
       setError(err?.message || 'Unable to load inbound intake data.');
@@ -103,7 +113,13 @@ export const InboundIntakeView = () => {
   const parseResultByMessageId = new Map(parseResults.map((result) => [result.inbound_message_id, result]));
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
   const scopedMessages = messages.filter((message) => message.ecosystem_id === viewer.ecosystemId);
-  const authorizedSenderDomains = Array.from(new Set(scopedRoutes.flatMap((route) => route.allowed_sender_domains || []))).sort();
+  const scopedAuthorizedDomains = authorizedDomains
+    .filter((domain) => domain.ecosystem_id === viewer.ecosystemId)
+    .sort((a, b) => a.domain.localeCompare(b.domain));
+  const authorizedSenderDomains = Array.from(new Set([
+    ...scopedRoutes.flatMap((route) => route.allowed_sender_domains || []),
+    ...scopedAuthorizedDomains.map((domain) => domain.domain),
+  ])).sort();
   const activeIntegrationOrganizations = useMemo(() => visibleEsoOrganizations.filter((organization) => {
     const activeKeys = (organization.api_keys || []).filter((key) => key.status === 'active').length;
     const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active').length;
@@ -121,6 +137,54 @@ export const InboundIntakeView = () => {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const updateAuthorizedDomain = (domainId: string, updates: Partial<AuthorizedSenderDomain>) => {
+    setAuthorizedDomains((current) => current.map((domain) => (
+      domain.id === domainId ? { ...domain, ...updates } : domain
+    )));
+  };
+
+  const persistAuthorizedDomain = async (domainRecord: AuthorizedSenderDomain) => {
+    setIsSavingDomain(true);
+    setError(null);
+    try {
+      await setDocument('authorized_sender_domains', domainRecord.id, domainRecord);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to save authorized domain.');
+    } finally {
+      setIsSavingDomain(false);
+    }
+  };
+
+  const addAuthorizedDomain = async () => {
+    const normalizedDomain = newDomain.trim().toLowerCase();
+    if (!normalizedDomain || !newDomainOrgId) {
+      setError('Domain and organization are required.');
+      return;
+    }
+
+    const domainId = `auth_domain_${viewer.ecosystemId}_${normalizedDomain.replace(/[^a-z0-9]+/g, '_')}`;
+    const record: AuthorizedSenderDomain = {
+      id: domainId,
+      ecosystem_id: viewer.ecosystemId,
+      organization_id: newDomainOrgId,
+      domain: normalizedDomain,
+      is_active: true,
+      access_policy: newDomainPolicy,
+      allow_sender_affiliation: newDomainPolicy === 'approved',
+      allow_auto_acknowledgement: newDomainPolicy === 'approved',
+      allow_invite_prompt: newDomainPolicy === 'approved' || newDomainPolicy === 'invite_only',
+    };
+
+    setAuthorizedDomains((current) => {
+      const withoutDuplicate = current.filter((domain) => domain.id !== domainId);
+      return [...withoutDuplicate, record];
+    });
+    await persistAuthorizedDomain(record);
+    setNewDomain('');
+    setNewDomainOrgId('');
+    setNewDomainPolicy('approved');
   };
 
   return (
@@ -210,6 +274,38 @@ export const InboundIntakeView = () => {
                     </div>
                   </div>
                 ))}
+                {scopedAuthorizedDomains.length > 0 && (
+                  <div className="rounded-md border border-dashed border-indigo-200 bg-indigo-50/40 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Approved domain registry</div>
+                    <div className="mt-2 space-y-2">
+                      {scopedAuthorizedDomains.map((domainRecord) => {
+                        const org = visibleEsoOrganizations.find((organization) => organization.id === domainRecord.organization_id);
+                        return (
+                          <div key={domainRecord.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                            <div className="font-medium text-gray-900">{domainRecord.domain}</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge color="indigo">{org?.name || domainRecord.organization_id}</Badge>
+                              <Badge color={
+                                domainRecord.access_policy === 'invite_only'
+                                  ? 'yellow'
+                                  : domainRecord.access_policy === 'request_access'
+                                    ? 'purple'
+                                    : domainRecord.access_policy === 'blocked'
+                                      ? 'red'
+                                      : 'green'
+                              }>
+                                {domainRecord.access_policy || 'approved'}
+                              </Badge>
+                              {domainRecord.allow_sender_affiliation !== false && <Badge color="green">sender affiliation</Badge>}
+                              {domainRecord.allow_auto_acknowledgement !== false && <Badge color="purple">sender receipt</Badge>}
+                              {domainRecord.allow_invite_prompt !== false && <Badge color="gray">claim prompt</Badge>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
             </div>
           )}
         </Card>
@@ -245,6 +341,143 @@ export const InboundIntakeView = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Authorized Sender Domain Policies">
+        {!isFirebaseEnabled() ? (
+          <p className="text-sm text-gray-500">Domain policy editing is available when Firebase is enabled.</p>
+        ) : (
+          <div className="space-y-4">
+            {canManageAuthorizedDomains && (
+              <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-4 lg:grid-cols-[2fr_2fr_1.2fr_auto]">
+                <input
+                  className={FORM_INPUT_CLASS}
+                  placeholder="agency.org"
+                  value={newDomain}
+                  onChange={(event) => setNewDomain(event.target.value)}
+                />
+                <select
+                  className={FORM_SELECT_CLASS}
+                  value={newDomainOrgId}
+                  onChange={(event) => setNewDomainOrgId(event.target.value)}
+                >
+                  <option value="">Select ESO organization</option>
+                  {visibleEsoOrganizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>{organization.name}</option>
+                  ))}
+                </select>
+                <select
+                  className={FORM_SELECT_CLASS}
+                  value={newDomainPolicy}
+                  onChange={(event) => setNewDomainPolicy(event.target.value as NonNullable<AuthorizedSenderDomain['access_policy']>)}
+                >
+                  <option value="approved">approved</option>
+                  <option value="invite_only">invite_only</option>
+                  <option value="request_access">request_access</option>
+                  <option value="blocked">blocked</option>
+                </select>
+                <button
+                  onClick={() => void addAuthorizedDomain()}
+                  className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                  disabled={isSavingDomain}
+                >
+                  Add domain
+                </button>
+              </div>
+            )}
+
+            {scopedAuthorizedDomains.length === 0 ? (
+              <p className="text-sm text-gray-500">No sender domain policies configured for this ecosystem yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {scopedAuthorizedDomains.map((domainRecord) => (
+                  <div key={domainRecord.id} className="rounded-md border border-gray-200 p-4">
+                    <div className="grid gap-3 lg:grid-cols-[2fr_2fr_1.2fr_auto]">
+                      <input
+                        className={FORM_INPUT_CLASS}
+                        value={domainRecord.domain}
+                        disabled={!canManageAuthorizedDomains}
+                        onChange={(event) => updateAuthorizedDomain(domainRecord.id, { domain: event.target.value.toLowerCase() })}
+                      />
+                      <select
+                        className={FORM_SELECT_CLASS}
+                        value={domainRecord.organization_id}
+                        disabled={!canManageAuthorizedDomains}
+                        onChange={(event) => updateAuthorizedDomain(domainRecord.id, { organization_id: event.target.value })}
+                      >
+                        {visibleEsoOrganizations.map((organization) => (
+                          <option key={organization.id} value={organization.id}>{organization.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        className={FORM_SELECT_CLASS}
+                        value={domainRecord.access_policy || 'approved'}
+                        disabled={!canManageAuthorizedDomains}
+                        onChange={(event) => {
+                          const policy = event.target.value as NonNullable<AuthorizedSenderDomain['access_policy']>;
+                          updateAuthorizedDomain(domainRecord.id, {
+                            access_policy: policy,
+                            allow_sender_affiliation: policy === 'approved',
+                            allow_auto_acknowledgement: policy === 'approved',
+                            allow_invite_prompt: policy === 'approved' || policy === 'invite_only',
+                          });
+                        }}
+                      >
+                        <option value="approved">approved</option>
+                        <option value="invite_only">invite_only</option>
+                        <option value="request_access">request_access</option>
+                        <option value="blocked">blocked</option>
+                      </select>
+                      {canManageAuthorizedDomains ? (
+                        <button
+                          onClick={() => void persistAuthorizedDomain(domainRecord)}
+                          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          disabled={isSavingDomain}
+                        >
+                          Save
+                        </button>
+                      ) : (
+                        <div className="flex items-center justify-end">
+                          <Badge color={domainRecord.is_active ? 'green' : 'gray'}>{domainRecord.is_active ? 'active' : 'inactive'}</Badge>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { is_active: !domainRecord.is_active })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${domainRecord.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        {domainRecord.is_active ? 'active' : 'inactive'}
+                      </button>
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { allow_sender_affiliation: !(domainRecord.allow_sender_affiliation !== false) })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${(domainRecord.allow_sender_affiliation !== false) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        sender affiliation
+                      </button>
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { allow_auto_acknowledgement: !(domainRecord.allow_auto_acknowledgement !== false) })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${(domainRecord.allow_auto_acknowledgement !== false) ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        sender receipt
+                      </button>
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { allow_invite_prompt: !(domainRecord.allow_invite_prompt !== false) })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${(domainRecord.allow_invite_prompt !== false) ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        claim prompt
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Card>
