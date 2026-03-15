@@ -1,22 +1,52 @@
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, DemoLink } from '../../shared/ui/Components';
 import { MetricLog } from '../../domain/metrics/types';
 import { IconChart } from '../../shared/ui/Icons';
+import type { Organization } from '../../domain/organizations/types';
+import type { Person } from '../../domain/people/types';
+import type { Interaction } from '../../domain/interactions/types';
+import type { Initiative } from '../../domain/pipelines/types';
+import type { Referral } from '../../domain/referrals/types';
 
 export const DashboardView = () => {
     const repos = useRepos();
     const viewer = useViewer();
+    const [organizations, setOrganizations] = useState<Organization[]>([]);
+    const [people, setPeople] = useState<Person[]>([]);
+    const [interactions, setInteractions] = useState<Interaction[]>([]);
+    const [initiatives, setInitiatives] = useState<Initiative[]>([]);
+    const [referrals, setReferrals] = useState<Referral[]>([]);
     
-    // Fetch Data (scoped by repo policies)
-    const organizations = repos.organizations.getAll(viewer, viewer.ecosystemId);
-    const people = repos.people.getAll(viewer.ecosystemId);
-    const interactions = repos.interactions.getAll(viewer, viewer.ecosystemId);
-    // Updated to use viewer-aware method
-    const initiatives = repos.pipelines.getInitiativesForViewer(viewer, viewer.ecosystemId);
-    const referrals = repos.referrals.getAll(viewer); 
     const metricsLogs = repos.metrics.getAll(viewer);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadData = async () => {
+            const [nextOrganizations, nextPeople, nextInteractions, nextInitiatives, nextReferrals] = await Promise.all([
+                repos.organizations.getAll(viewer, viewer.ecosystemId),
+                repos.people.getAll(viewer.ecosystemId),
+                repos.interactions.getAll(viewer, viewer.ecosystemId),
+                repos.pipelines.getInitiativesForViewer(viewer, viewer.ecosystemId),
+                repos.referrals.getAll(viewer),
+            ]);
+
+            if (!cancelled) {
+                setOrganizations(nextOrganizations);
+                setPeople(nextPeople);
+                setInteractions(nextInteractions);
+                setInitiatives(nextInitiatives);
+                setReferrals(nextReferrals);
+            }
+        };
+
+        void loadData();
+        return () => {
+            cancelled = true;
+        };
+    }, [repos, viewer]);
 
     // Role Logic
     const isEcoManager = ['platform_admin', 'ecosystem_manager'].includes(viewer.role);

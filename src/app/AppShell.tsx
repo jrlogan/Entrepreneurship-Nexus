@@ -6,7 +6,7 @@ import { CONFIG } from './config';
 import { getTheme } from './theme';
 import { SidebarItem, DemoWarningBanner, Avatar, CompanyLogo, DemoLink } from '../shared/ui/Components';
 import { PrivacyLegend } from '../shared/ui/PrivacyLegend';
-import { FirebaseAuthPanel } from '../shared/ui/FirebaseAuthPanel';
+import { sendPasswordReset, signOutUser } from '../services/authService';
 import { 
     IconDashboard, 
     IconBuilding, 
@@ -65,6 +65,10 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [isEcoDropdownOpen, setIsEcoDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [isAccountActionBusy, setIsAccountActionBusy] = useState(false);
   
   const theme = getTheme(currentRole);
   const isPrivileged = canManageUsers(currentRole);
@@ -106,10 +110,43 @@ export const AppShell: React.FC<AppShellProps> = ({
       onNavigate(v);
   };
 
+  const handleOpenProfile = () => {
+    setIsAccountMenuOpen(false);
+    onOpenProfile();
+  };
+
+  const handlePasswordReset = async () => {
+    setAccountError(null);
+    setAccountMessage(null);
+    setIsAccountActionBusy(true);
+    try {
+      await sendPasswordReset(user.email);
+      setAccountMessage(`Password reset email sent to ${user.email}.`);
+      setIsAccountMenuOpen(false);
+    } catch (error: any) {
+      setAccountError(error?.message || 'Unable to send password reset email.');
+    } finally {
+      setIsAccountActionBusy(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setAccountError(null);
+    setAccountMessage(null);
+    setIsAccountActionBusy(true);
+    try {
+      await signOutUser();
+      setIsAccountMenuOpen(false);
+    } catch (error: any) {
+      setAccountError(error?.message || 'Unable to sign out.');
+    } finally {
+      setIsAccountActionBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
       {CONFIG.IS_DEMO_MODE && <DemoWarningBanner />}
-      <FirebaseAuthPanel />
       
       {/* Mobile Header */}
       <div className={`md:hidden ${theme.sidebarBg} p-4 flex justify-between items-center text-white z-30 relative shadow-md`}>
@@ -451,29 +488,64 @@ export const AppShell: React.FC<AppShellProps> = ({
            )}
           </nav>
            <div className={`p-4 ${theme.footerBg} border-t ${theme.footerBorder}`}>
-             <div
-               className={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer ${theme.itemHover}`}
-               onClick={isDemoMode ? onSwitchUser : onOpenProfile}
-             >
-               <Avatar src={user.avatar_url} name={`${user.first_name} ${user.last_name}`} size="sm" />
-               <div className="overflow-hidden">
-                 <div className="text-sm font-medium text-white truncate">{user.first_name} {user.last_name}</div>
-                 <div className="flex items-center gap-1">
-                   <span className={`inline-block w-2 h-2 rounded-full ${theme.contextColor}`}></span>
-                   <div className={`text-xs truncate ${theme.headerSub}`}>{currentRole.replace('_', ' ')}</div>
+             <div className="relative">
+               <button
+                 type="button"
+                 className={`flex w-full items-center gap-3 rounded p-2 text-left transition-colors ${theme.itemHover}`}
+                 onClick={isDemoMode ? onSwitchUser : () => setIsAccountMenuOpen((open) => !open)}
+               >
+                 <Avatar src={user.avatar_url} name={`${user.first_name} ${user.last_name}`} size="sm" />
+                 <div className="min-w-0 overflow-hidden">
+                   <div className="text-sm font-medium text-white truncate">{user.first_name} {user.last_name}</div>
+                   <div className="flex items-center gap-1">
+                     <span className={`inline-block w-2 h-2 rounded-full ${theme.contextColor}`}></span>
+                     <div className={`text-xs truncate ${theme.headerSub}`}>{currentRole.replace('_', ' ')}</div>
+                   </div>
                  </div>
-               </div>
-               {isDemoMode && <div className="ml-auto text-xs text-gray-500">⇄</div>}
-             </div>
-             {!isDemoMode && (
-               <button onClick={onOpenProfile} className="mt-3 w-full py-1.5 px-3 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded shadow-sm transition-colors">
-                 My Profile
+                 <div className={`ml-auto text-xs ${theme.headerSub}`}>{isDemoMode ? '⇄' : isAccountMenuOpen ? '▲' : '▼'}</div>
                </button>
-             )}
+               {!isDemoMode && isAccountMenuOpen && (
+                 <div className="mt-2 rounded-xl border border-white/10 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
+                   <button
+                     type="button"
+                     onClick={handleOpenProfile}
+                     className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition-colors hover:bg-white/10"
+                   >
+                     Account settings
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => void handlePasswordReset()}
+                     disabled={isAccountActionBusy}
+                     className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition-colors hover:bg-white/10 disabled:opacity-50"
+                   >
+                     Send password reset email
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => void handleSignOut()}
+                     disabled={isAccountActionBusy}
+                     className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-rose-200 transition-colors hover:bg-rose-500/10 disabled:opacity-50"
+                   >
+                     Log out
+                   </button>
+                 </div>
+               )}
+             </div>
              {isDemoMode && (
                <button onClick={onStartDemo} className="mt-3 w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded shadow-sm transition-colors">
                  Start Demo Tour
                 </button>
+             )}
+             {!isDemoMode && accountError && (
+               <div className="mt-3 rounded border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                 {accountError}
+               </div>
+             )}
+             {!isDemoMode && accountMessage && (
+               <div className="mt-3 rounded border border-emerald-300/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+                 {accountMessage}
+               </div>
              )}
            </div>
         </aside>

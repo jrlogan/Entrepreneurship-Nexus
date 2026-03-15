@@ -198,7 +198,7 @@ export const APIConsoleView = () => {
     const repos = useRepos();
     const viewer = useViewer();
     const [activeTab, setActiveTab] = useState<'overview' | 'simulator' | 'sync_guide' | 'webhooks' | 'docs'>('overview');
-    const organizations = repos.organizations.getAll(viewer);
+    const [organizations, setOrganizations] = useState<any[]>([]);
     const manageableEsoOrganizations = useMemo(() => {
         if (viewer.role === 'platform_admin') {
             return organizations.filter(org => org.roles.includes('eso'));
@@ -211,6 +211,22 @@ export const APIConsoleView = () => {
         const ownOrg = organizations.find(org => org.id === viewer.orgId);
         return ownOrg && ownOrg.roles.includes('eso') ? [ownOrg] : [];
     }, [organizations, viewer.ecosystemId, viewer.orgId, viewer.role]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadOrganizations = async () => {
+            const nextOrganizations = await repos.organizations.getAll(viewer);
+            if (!cancelled) {
+                setOrganizations(nextOrganizations);
+            }
+        };
+
+        void loadOrganizations();
+        return () => {
+            cancelled = true;
+        };
+    }, [repos, viewer]);
     
     // Key Management State
     const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);

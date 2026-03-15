@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Badge, InfoBanner } from '../../shared/ui/Components';
 import { loadEnums } from '../../domain/standards/loadStandards';
 import { EnumSelect } from '../../shared/EnumSelect';
@@ -13,8 +13,8 @@ import { REDACTED_TEXT } from '../../domain/access/redaction';
 export const InteractionsView = () => {
     const repos = useRepos();
     const viewer = useViewer();
-    const interactions = repos.interactions.getAll(viewer); // Now filtered by permission
-    const organizations = repos.organizations.getAll(viewer);
+    const [interactions, setInteractions] = useState<Interaction[]>([]);
+    const [organizations, setOrganizations] = useState<any[]>([]);
 
     const [filterType, setFilterType] = useState<string>('all');
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -22,6 +22,27 @@ export const InteractionsView = () => {
     const [refreshTrigger, setRefreshTrigger] = useState(0); // Force re-render
     
     const enums = loadEnums();
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadData = async () => {
+            const [nextInteractions, nextOrganizations] = await Promise.all([
+                repos.interactions.getAll(viewer),
+                repos.organizations.getAll(viewer),
+            ]);
+
+            if (!cancelled) {
+                setInteractions(nextInteractions);
+                setOrganizations(nextOrganizations);
+            }
+        };
+
+        void loadData();
+        return () => {
+            cancelled = true;
+        };
+    }, [repos, viewer, refreshTrigger]);
 
     const filteredInteractions = filterType === 'all'
         ? interactions

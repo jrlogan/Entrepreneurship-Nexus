@@ -143,6 +143,7 @@ const App = () => {
   const defaultDemoUser = MOCK_PEOPLE.find((person) => person.system_role === 'eso_admin') || MOCK_PEOPLE[0];
   const [demoUser, setDemoUser] = useState<Person>(defaultDemoUser);
   const [resolvedAuthPerson, setResolvedAuthPerson] = useState<Person | null>(null);
+  const [isResolvingAuthPerson, setIsResolvingAuthPerson] = useState(false);
 
   const shouldRequireAuth = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
   const activeUser = shouldRequireAuth ? resolvedAuthPerson : demoUser;
@@ -196,6 +197,7 @@ const App = () => {
 
   useEffect(() => {
     if (!session.authUser) {
+      setIsResolvingAuthPerson(false);
       setResolvedAuthPerson(null);
       return;
     }
@@ -203,26 +205,33 @@ const App = () => {
     let cancelled = false;
 
     const syncSessionUser = async () => {
-      const resolvedFirebasePerson = await resolveSessionPerson(session.authUser?.uid, session.authUser?.email);
-      if (cancelled) {
-        return;
-      }
+      setIsResolvingAuthPerson(true);
+      try {
+        const resolvedFirebasePerson = await resolveSessionPerson(session.authUser?.uid, session.authUser?.email);
+        if (cancelled) {
+          return;
+        }
 
-      const fallbackMockPeople = session.authUser?.email
-        ? await repos.people.getAll()
-        : [];
-      const fallbackMockPerson = session.authUser?.email
-        ? fallbackMockPeople.find(person => person.email.toLowerCase() === session.authUser.email!.toLowerCase())
-        : undefined;
+        const fallbackMockPeople = session.authUser?.email
+          ? await repos.people.getAll()
+          : [];
+        const fallbackMockPerson = session.authUser?.email
+          ? fallbackMockPeople.find(person => person.email.toLowerCase() === session.authUser.email!.toLowerCase())
+          : undefined;
 
-      const matchedUser = resolvedFirebasePerson || fallbackMockPerson;
-      setResolvedAuthPerson(matchedUser || null);
-      if (matchedUser?.memberships?.length) {
-        setCurrentEcosystemId(prev => (
-          matchedUser.memberships.some(membership => membership.ecosystem_id === prev)
-            ? prev
-            : matchedUser.memberships[0].ecosystem_id
-        ));
+        const matchedUser = resolvedFirebasePerson || fallbackMockPerson;
+        setResolvedAuthPerson(matchedUser || null);
+        if (matchedUser?.memberships?.length) {
+          setCurrentEcosystemId(prev => (
+            matchedUser.memberships.some(membership => membership.ecosystem_id === prev)
+              ? prev
+              : matchedUser.memberships[0].ecosystem_id
+          ));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResolvingAuthPerson(false);
+        }
       }
     };
 
@@ -234,6 +243,10 @@ const App = () => {
   }, [repos, session.authUser]);
 
   useEffect(() => {
+    if (shouldRequireAuth && session.authUser && isResolvingAuthPerson) {
+      return;
+    }
+
     setResolvedSession({
       person: activeUser,
       memberships: activeMemberships,
@@ -241,7 +254,7 @@ const App = () => {
       activeOrgId: activeUser ? currentOrgId : null,
       viewer: activeUser ? viewerContext : null,
     });
-  }, [activeMemberships, activeUser, currentEcosystemId, currentOrgId, setResolvedSession, viewerContext]);
+  }, [activeMemberships, activeUser, currentEcosystemId, currentOrgId, isResolvingAuthPerson, session.authUser, setResolvedSession, shouldRequireAuth, viewerContext]);
 
   // Fetch Scoped Data based on Current Ecosystem AND Permissions
   // Dependent on dataVersion to trigger re-fetch/re-render when data changes
@@ -405,7 +418,9 @@ const App = () => {
     view,
   ]);
 
-  if (shouldRequireAuth && session.status === 'loading') {
+  const shouldShowAuthLoading = shouldRequireAuth && (session.status === 'loading' || (!!session.authUser && isResolvingAuthPerson));
+
+  if (shouldShowAuthLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
         <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 px-8 py-10 shadow-2xl shadow-black/30 backdrop-blur">

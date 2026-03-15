@@ -66,8 +66,8 @@ export const TodosView = () => {
     const [selectedMetricTask, setSelectedMetricTask] = useState<MetricAssignment | null>(null);
 
     // Data Loading
-    const people = repos.people.getAll(viewer.ecosystemId);
-    const orgs = repos.organizations.getAll(viewer, viewer.ecosystemId);
+    const [people, setPeople] = useState<any[]>([]);
+    const [orgs, setOrgs] = useState<any[]>([]);
 
     // Advisor State
     const [isAdvisorOpen, setIsAdvisorOpen] = useState(false);
@@ -100,15 +100,21 @@ export const TodosView = () => {
 
     // Clean up on unmount
     useEffect(() => {
-        loadData();
+        void loadData();
         return () => {
             disconnectLiveSession();
         };
     }, [repos, viewer, statusFilter]); // Refresh on filter change
 
-    const loadData = () => {
+    const loadData = async () => {
         setTodos(repos.todos.getAll(viewer.personId, viewer.ecosystemId));
         setMetricAssignments(repos.flexibleMetrics.listAssignments(viewer));
+        const [nextPeople, nextOrgs] = await Promise.all([
+            repos.people.getAll(viewer.ecosystemId),
+            repos.organizations.getAll(viewer, viewer.ecosystemId),
+        ]);
+        setPeople(nextPeople);
+        setOrgs(nextOrgs);
         if (!isClient) {
             setAssignedTodos(repos.todos.getAssignedBy(viewer.personId, viewer.ecosystemId));
         }
@@ -189,9 +195,9 @@ export const TodosView = () => {
         loadData();
     };
 
-    const handleAcceptSuggestion = (suggestion: SuggestionItem, index: number) => {
+    const handleAcceptSuggestion = async (suggestion: SuggestionItem, index: number) => {
         if (suggestion.type === 'referral') {
-            const allOrgs = repos.organizations.getAll(viewer);
+            const allOrgs = await repos.organizations.getAll(viewer);
             const targetName = suggestion.target_org_name || suggestion.title;
             const targetOrg = allOrgs.find(o => o.name.toLowerCase().includes(targetName.toLowerCase()));
 
@@ -226,15 +232,15 @@ export const TodosView = () => {
         setPendingSuggestions(newPending);
         
         if (suggestion.type !== 'referral') {
-            loadData();
+            void loadData();
         }
     };
 
     // --- Context Building Helper ---
     const getContext = () => {
         const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId)!;
-        const user = repos.people.getById(viewer.personId)!;
-        const org = repos.organizations.getById(viewer.orgId);
+        const user = people.find((person) => person.id === viewer.personId)!;
+        const org = orgs.find((organization) => organization.id === viewer.orgId);
         const esos = repos.advisor.getAvailableESOs(viewer.ecosystemId);
         const resources = repos.advisor.getResources(viewer.ecosystemId);
         return buildAdvisorContext(ecosystem, esos, resources, user, org);

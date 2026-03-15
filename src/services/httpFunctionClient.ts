@@ -16,14 +16,19 @@ const getBaseUrl = () => {
 export const callHttpFunction = async <TRequest, TResponse>(name: string, payload: TRequest): Promise<TResponse> => {
   const auth = getFirebaseAuth();
   const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
-  const response = await fetch(`${getBaseUrl()}/${name}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getBaseUrl()}/${name}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error: any) {
+    throw new Error(error?.message || `Unable to reach function ${name}`);
+  }
 
   const json = await response.json().catch(() => null);
   if (!response.ok) {
