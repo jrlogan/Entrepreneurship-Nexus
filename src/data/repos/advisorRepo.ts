@@ -6,6 +6,35 @@ import { MOCK_ADVISOR_CONFIGS } from '../mock/advisor';
 import { ALL_ECOSYSTEMS, ALL_ORGANIZATIONS } from '../mockData';
 
 export class AdvisorRepo {
+  private static readonly STORAGE_KEY = 'nexus_advisor_configs';
+
+  constructor() {
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage(): void {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const storedConfigs = localStorage.getItem(AdvisorRepo.STORAGE_KEY);
+      if (!storedConfigs) return;
+
+      const parsed = JSON.parse(storedConfigs) as Record<string, AdvisorConfig>;
+      Object.assign(MOCK_ADVISOR_CONFIGS, parsed);
+    } catch (error) {
+      console.error('Failed to load advisor configs', error);
+    }
+  }
+
+  private saveToStorage(): void {
+    if (typeof window === 'undefined') return;
+
+    try {
+      localStorage.setItem(AdvisorRepo.STORAGE_KEY, JSON.stringify(MOCK_ADVISOR_CONFIGS));
+    } catch (error) {
+      console.error('Failed to save advisor configs', error);
+    }
+  }
   
   getConfig(ecosystemId: string): AdvisorConfig | null {
     return MOCK_ADVISOR_CONFIGS[ecosystemId] || null;
@@ -27,6 +56,8 @@ export class AdvisorRepo {
             ...updates
         };
     }
+
+    this.saveToStorage();
   }
 
   /**

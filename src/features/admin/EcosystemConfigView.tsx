@@ -9,6 +9,7 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
     const repos = useRepos();
     const [advisorConfig, setAdvisorConfig] = useState<AdvisorConfig | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
     // Form State for Resources
     const [newResTitle, setNewResTitle] = useState('');
@@ -64,9 +65,16 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
     const handleSaveConfig = () => {
         if (advisorConfig) {
             repos.advisor.updateConfig(ecosystem.id, advisorConfig);
-            alert("AI Advisor settings updated successfully.");
+            setSaveMessage('AI Advisor settings saved.');
         }
     };
+
+    useEffect(() => {
+        if (!saveMessage) return;
+
+        const timeoutId = window.setTimeout(() => setSaveMessage(null), 3000);
+        return () => window.clearTimeout(timeoutId);
+    }, [saveMessage]);
 
     const toggleFeature = (field: 'enable_advisor_suggestions' | 'enable_referral_suggestions') => {
         if (!advisorConfig) return;
@@ -153,7 +161,14 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-800">Ecosystem Configuration: {ecosystem.name}</h2>
-                <button onClick={handleSaveConfig} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-sm font-medium">Save Changes</button>
+                <div className="flex items-center gap-3">
+                    {saveMessage && (
+                        <span className="text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+                            {saveMessage}
+                        </span>
+                    )}
+                    <button onClick={handleSaveConfig} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-sm font-medium">Save Changes</button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
