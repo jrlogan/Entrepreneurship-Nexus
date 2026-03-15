@@ -200,7 +200,42 @@ export const CT_MAKERSPACES_ECOSYSTEM: Ecosystem = {
   ]
 };
 
-export const ALL_ECOSYSTEMS = [NEW_HAVEN_ECOSYSTEM, CT_MAKERSPACES_ECOSYSTEM];
+export const MAIL_TEST_ECOSYSTEM: Ecosystem = {
+  id: 'eco_mail_test',
+  name: 'Mail Flow Test',
+  region: 'Staging',
+  settings: {
+    interaction_privacy_default: 'restricted',
+    feature_flags: {
+      advanced_workflows: false,
+      dashboard: false,
+      tasks_advice: false,
+      initiatives: false,
+      processes: false,
+      interactions: false,
+      reports: false,
+      venture_scout: false,
+      api_console: true,
+      data_quality: false,
+      data_standards: false,
+      metrics_manager: false,
+      inbound_intake: true,
+    }
+  },
+  pipelines: [FORGE_PIPELINE],
+  checklist_templates: [
+    {
+      id: 'list_mail_test_01',
+      name: 'Inbound Referral QA',
+      description: 'Used to verify staged referral intake, parsing, and notice sending flows.',
+      items: ['Seed routes', 'Send inbound message', 'Review intake queue', 'Verify queued notice']
+    }
+  ],
+  portal_links: [],
+  tags: ['Mail QA', 'Staging']
+};
+
+export const ALL_ECOSYSTEMS = [NEW_HAVEN_ECOSYSTEM, CT_MAKERSPACES_ECOSYSTEM, MAIL_TEST_ECOSYSTEM];
 
 // Part 3: Example Organization Data
 

@@ -1,11 +1,14 @@
 const projectId = process.env.FIREBASE_PROJECT_ID || 'entrepreneurship-nexus-local';
 const region = process.env.FIREBASE_FUNCTIONS_REGION || 'us-central1';
 const baseUrl = process.env.FIREBASE_FUNCTIONS_BASE_URL || `http://127.0.0.1:55001/${projectId}/${region}`;
+const routeAddress = process.env.NEXUS_MAIL_TEST_ROUTE_ADDRESS || 'newhaven+introduction@inbound.example.org';
+const fromEmail = process.env.NEXUS_MAIL_TEST_FROM_EMAIL || 'coach@makehaven.org';
+const receivingOrgName = process.env.NEXUS_MAIL_TEST_RECEIVING_ORG || 'SBDC';
 
 const payload = {
   provider: 'manual',
-  route_address: 'newhaven+introduction@inbound.example.org',
-  from_email: 'coach@makehaven.org',
+  route_address: routeAddress,
+  from_email: fromEmail,
   to_emails: ['intake@network.org', 'advisor@sbdc.org'],
   subject: 'Introduction: Jane Smith',
   text_body: `Hi SBDC,
@@ -18,8 +21,8 @@ Jane is looking for funding and marketing support.
 client_name: Jane Smith
 client_email: jane@example.com
 client_venture: Smith Studio
-referrer_email: coach@makehaven.org
-receiving_org: SBDC
+referrer_email: ${fromEmail}
+receiving_org: ${receivingOrgName}
 
 intro_contact_permission:
 - [x] newly_confirmed

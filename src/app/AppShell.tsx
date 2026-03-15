@@ -104,6 +104,14 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   // Determine the organization name the user is acting for
   const actingOrg = ALL_ORGANIZATIONS.find(o => o.id === user.organization_id);
+  const actingContextLabel = actingOrg?.name || (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager'
+    ? 'Cross-ecosystem access'
+    : 'No active organization');
+  const actingContextHint = actingOrg
+    ? 'Organization context'
+    : (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager'
+      ? 'You are operating above the organization level.'
+      : 'This account is not currently assigned to an organization.');
 
   const handleNav = (v: ViewMode) => {
       setIsMobileMenuOpen(false);
@@ -203,11 +211,14 @@ export const AppShell: React.FC<AppShellProps> = ({
                  {actingOrg ? (
                     <CompanyLogo src={actingOrg.logo_url} name={actingOrg.name} size="sm" className="w-6 h-6 rounded" />
                  ) : (
-                    <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-xs font-bold text-white">??</div>
+                    <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/80">ORG</div>
                  )}
                  <div className={`text-sm font-medium ${theme.itemText} truncate`}>
-                     {actingOrg?.name || "Unknown Org"}
+                     {actingContextLabel}
                  </div>
+             </div>
+             <div className={`mt-1 text-[11px] ${theme.headerSub}`}>
+                 {actingContextHint}
              </div>
            </div>
            

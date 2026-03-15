@@ -1,9 +1,9 @@
-name: Deploy Firebase Hosting on merge
+name: Deploy Firebase Hosting to staging
 
 on:
   push:
     branches:
-      - main
+      - staging
 
 permissions:
   contents: read
@@ -11,7 +11,7 @@ permissions:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
-    environment: production
+    environment: staging
     env:
       VITE_DEMO_MODE: "false"
       VITE_USE_FIREBASE_EMULATORS: "false"

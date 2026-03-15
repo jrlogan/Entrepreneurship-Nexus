@@ -92,17 +92,20 @@ Local defaults:
 
 Before a real deploy:
 
-1. Create a non-local Firebase project and update `.firebaserc` to point at it for staging or production.
-2. Create a Firebase Web App and fill the `VITE_FIREBASE_*` values in your deployment environment.
-3. Set `VITE_DEMO_MODE=false` and `VITE_USE_FIREBASE_EMULATORS=false` in the hosted frontend environment.
-4. Set Functions runtime env values for:
+1. Create non-local Firebase projects for staging and production.
+2. Update `.firebaserc` aliases if your actual project ids differ from:
+   - `staging` => `entrepreneurship-nexus-staging`
+   - `prod` => `entrepreneurship-nexus`
+3. Create a Firebase Web App and fill the `VITE_FIREBASE_*` values in your deployment environment.
+4. Set `VITE_DEMO_MODE=false` and `VITE_USE_FIREBASE_EMULATORS=false` in the hosted frontend environment.
+5. Set Functions runtime env values for:
    - `APP_BASE_URL`
    - `POSTMARK_INBOUND_WEBHOOK_SECRET`
    - `POSTMARK_INBOUND_ALLOWED_RECIPIENTS`
    - `POSTMARK_SERVER_TOKEN`
    - `POSTMARK_FROM_EMAIL`
    - `POSTMARK_MESSAGE_STREAM`
-5. Confirm your inbound Firestore route in `inbound_routes` matches the Postmark recipient you will use.
+6. Confirm your inbound Firestore route in `inbound_routes` matches the Postmark recipient you will use.
 
 This repo now includes Firebase Hosting config for the Vite SPA in `firebase.json`.
 
@@ -118,6 +121,71 @@ Notes:
 - `createTestAccount`, `seedLocalReferenceData`, and `processInboundEmail` are now blocked outside local or explicitly enabled environments.
 - `postmarkInboundWebhook` remains public by design, but requires the configured shared secret.
 - `sendQueuedNotices` is still manual/admin-triggered. Outbound mail is not scheduled automatically yet.
+
+## GitHub Environments
+
+This repo now supports separate Hosting deploy targets through GitHub Environments.
+
+- `main` branch => GitHub environment `production`
+- `staging` branch => GitHub environment `staging`
+
+Use the same secret names in both environments, but give them environment-specific values.
+
+Recommended GitHub environment secrets:
+
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_SERVICE_ACCOUNT`
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MEASUREMENT_ID`
+- `VITE_FIREBASE_FUNCTIONS_REGION`
+- `GEMINI_API_KEY` if used
+
+For staging, `FIREBASE_PROJECT_ID` and `VITE_FIREBASE_PROJECT_ID` should both be `entrepreneurship-nexus-staging`.
+
+## Staging Mail Testing
+
+Use a dedicated Firebase staging project plus a staging-only ecosystem for repeated inbound mail testing.
+
+- Firebase alias: `staging`
+- Recommended project id: `entrepreneurship-nexus-staging`
+- Staging ecosystem id: `eco_mail_test`
+- Recommended inbound route: `mail-test+introduction@inbound.entrepreneurship.nexus`
+
+Seed the staging mail-test fixtures:
+
+```bash
+FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging npm run staging:seed-mail-test
+```
+
+Clean up staging-generated mail artifacts while keeping the seeded route and organizations:
+
+```bash
+FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging npm run staging:cleanup-mail-test
+```
+
+Simulate an inbound Postmark webhook against staging:
+
+```bash
+FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging \
+FIREBASE_FUNCTIONS_BASE_URL=https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net \
+POSTMARK_INBOUND_WEBHOOK_SECRET=YOUR_STAGING_SECRET \
+NEXUS_MAIL_TEST_ROUTE_ADDRESS=mail-test+introduction@inbound.entrepreneurship.nexus \
+npm run simulate:postmark-inbound
+```
+
+Recommended workflow:
+
+1. Deploy Functions and Hosting to `staging`.
+2. Bootstrap your staging admin into `eco_mail_test`.
+3. Seed the staging mail-test route and organizations.
+4. Point a dedicated Postmark inbound stream at the staging webhook URL.
+5. Run repeated inbound tests in staging.
+6. Periodically run the cleanup script to remove generated draft records, referrals, notices, and intake payloads.
 
 ## First Platform Admin
 

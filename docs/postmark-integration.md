@@ -24,6 +24,12 @@ Recommended inbound recipient:
 newhaven+introduction@inbound.example.org
 ```
 
+Recommended staging inbound recipient:
+
+```text
+mail-test+introduction@inbound.entrepreneurship.nexus
+```
+
 ## Secrets
 
 Do not commit these values.
@@ -69,6 +75,32 @@ If you want to override the secret for local testing:
 
 ```bash
 POSTMARK_INBOUND_WEBHOOK_SECRET=local-postmark-secret npm run simulate:postmark-inbound
+```
+
+## Staging Test
+
+Use a separate Postmark inbound stream and a separate Firebase project for staging. Do not point test inbound mail at production while tuning parsing behavior.
+
+Seed the staging route and organizations:
+
+```bash
+FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging npm run staging:seed-mail-test
+```
+
+Then simulate a staging webhook against deployed Functions:
+
+```bash
+FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging \
+FIREBASE_FUNCTIONS_BASE_URL=https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net \
+POSTMARK_INBOUND_WEBHOOK_SECRET=YOUR_STAGING_SECRET \
+NEXUS_MAIL_TEST_ROUTE_ADDRESS=mail-test+introduction@inbound.entrepreneurship.nexus \
+npm run simulate:postmark-inbound
+```
+
+When you want to clear generated test artifacts but keep the route and seeded orgs:
+
+```bash
+FIREBASE_PROJECT_ID=entrepreneurship-nexus-staging npm run staging:cleanup-mail-test
 ```
 
 ## Notes

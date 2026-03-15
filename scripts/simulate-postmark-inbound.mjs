@@ -2,22 +2,25 @@ const projectId = process.env.FIREBASE_PROJECT_ID || 'entrepreneurship-nexus-loc
 const region = process.env.FIREBASE_FUNCTIONS_REGION || 'us-central1';
 const baseUrl = process.env.FIREBASE_FUNCTIONS_BASE_URL || `http://127.0.0.1:55001/${projectId}/${region}`;
 const secret = process.env.POSTMARK_INBOUND_WEBHOOK_SECRET || 'local-postmark-secret';
+const routeAddress = process.env.NEXUS_MAIL_TEST_ROUTE_ADDRESS || 'newhaven+introduction@inbound.example.org';
+const fromEmail = process.env.NEXUS_MAIL_TEST_FROM_EMAIL || 'coach@makehaven.org';
+const receivingOrgName = process.env.NEXUS_MAIL_TEST_RECEIVING_ORG || 'SBDC';
 
 const payload = {
   MessageID: 'postmark-local-message-1',
   MessageStream: 'inbound',
   MailboxHash: 'newhaven+introduction',
   Date: new Date().toISOString(),
-  From: 'Coach MakeHaven <coach@makehaven.org>',
+  From: `Coach MakeHaven <${fromEmail}>`,
   FromName: 'Coach MakeHaven',
   FromFull: {
-    Email: 'coach@makehaven.org',
+    Email: fromEmail,
     Name: 'Coach MakeHaven',
   },
-  To: 'newhaven+introduction@inbound.example.org',
+  To: routeAddress,
   ToFull: [
     {
-      Email: 'newhaven+introduction@inbound.example.org',
+      Email: routeAddress,
       Name: 'New Haven Intake',
     },
   ],
@@ -39,8 +42,8 @@ Jane is looking for funding and marketing support.
 client_name: Jane Smith
 client_email: jane@example.com
 client_venture: Smith Studio
-referrer_email: coach@makehaven.org
-receiving_org: SBDC
+referrer_email: ${fromEmail}
+receiving_org: ${receivingOrgName}
 
 intro_contact_permission:
 - [x] newly_confirmed
@@ -70,7 +73,7 @@ support_needs:
 - [ ] other
 --- END NETWORK REFERRAL DATA ---`,
   HtmlBody: '<p>Postmark local inbound test</p>',
-  OriginalRecipient: 'newhaven+introduction@inbound.example.org',
+  OriginalRecipient: routeAddress,
 };
 
 const response = await fetch(`${baseUrl}/postmarkInboundWebhook?secret=${encodeURIComponent(secret)}`, {

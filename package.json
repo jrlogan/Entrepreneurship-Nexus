@@ -15,7 +15,9 @@
     "simulate:create-auth-user": "node scripts/create-emulator-user.mjs",
     "simulate:seed-test-accounts": "node scripts/seed-test-accounts.mjs",
     "simulate:postmark-inbound": "node scripts/simulate-postmark-inbound.mjs",
-    "simulate:full-invite-flow": "node scripts/simulate-full-invite-flow.mjs"
+    "simulate:full-invite-flow": "node scripts/simulate-full-invite-flow.mjs",
+    "staging:seed-mail-test": "node scripts/seed-staging-mail-test.mjs",
+    "staging:cleanup-mail-test": "node scripts/cleanup-staging-mail-test.mjs"
   },
   "dependencies": {
     "firebase": "^12.7.0",

@@ -2,6 +2,7 @@
   "projects": {
     "default": "entrepreneurship-nexus-local",
     "local": "entrepreneurship-nexus-local",
-    "prod": "entrepreneurship-nexus"
+    "prod": "entrepreneurship-nexus",
+    "staging": "entrepreneurship-nexus-staging"
   }
 }
