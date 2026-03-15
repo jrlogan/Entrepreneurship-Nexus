@@ -1,18 +1,40 @@
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, InfoBanner } from '../../shared/ui/Components';
 import { IconShare, IconRocket, IconBuilding, IconCheck } from '../../shared/ui/Icons';
 import { loadEnums } from '../../domain/standards/loadStandards';
+import type { Referral } from '../../domain/referrals/types';
+import type { Organization } from '../../domain/organizations/types';
 
 export const ReferralReportsView = () => {
     const repos = useRepos();
     const viewer = useViewer();
+    const [referrals, setReferrals] = useState<Referral[]>([]);
+    const [organizations, setOrganizations] = useState<Organization[]>([]);
     
-    // Fetch Data
-    const referrals = repos.referrals.getAll(viewer);
-    const organizations = repos.organizations.getAll(viewer, viewer.ecosystemId);
     const enums = loadEnums();
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadData = async () => {
+            const [nextReferrals, nextOrganizations] = await Promise.all([
+                repos.referrals.getAll(viewer),
+                repos.organizations.getAll(viewer, viewer.ecosystemId),
+            ]);
+
+            if (!cancelled) {
+                setReferrals(nextReferrals);
+                setOrganizations(nextOrganizations);
+            }
+        };
+
+        void loadData();
+        return () => {
+            cancelled = true;
+        };
+    }, [repos, viewer]);
 
     // --- Statistics Calculation ---
     const stats = useMemo(() => {

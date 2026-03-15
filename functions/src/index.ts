@@ -799,7 +799,7 @@ const mapPostmarkInboundToInternal = (payload: PostmarkInboundPayload): InboundE
   };
 };
 
-export const resolvePerson = onRequest(async (req, res) => {
+export const resolvePerson = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -871,7 +871,7 @@ export const resolvePerson = onRequest(async (req, res) => {
   res.json({ match_found: false, confidence: 0 });
 });
 
-export const resolveOrganization = onRequest(async (req, res) => {
+export const resolveOrganization = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -919,7 +919,7 @@ export const resolveOrganization = onRequest(async (req, res) => {
   res.json({ match_found: false, confidence: 0 });
 });
 
-export const createTestAccount = onRequest(async (req, res) => {
+export const createTestAccount = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -992,7 +992,7 @@ export const createTestAccount = onRequest(async (req, res) => {
   });
 });
 
-export const completeSelfSignup = onRequest(async (req, res) => {
+export const completeSelfSignup = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1068,7 +1068,7 @@ export const completeSelfSignup = onRequest(async (req, res) => {
   }
 });
 
-export const bootstrapPlatformAdmin = onRequest(async (req, res) => {
+export const bootstrapPlatformAdmin = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1091,11 +1091,6 @@ export const bootstrapPlatformAdmin = onRequest(async (req, res) => {
     return;
   }
 
-  if (await hasPlatformAdmin()) {
-    res.status(409).json({ error: 'A platform admin already exists. Bootstrap is disabled.' });
-    return;
-  }
-
   const email = normalize(req.body?.email);
   const password = req.body?.password || '';
   const firstName = (req.body?.first_name || 'Platform').trim();
@@ -1109,6 +1104,11 @@ export const bootstrapPlatformAdmin = onRequest(async (req, res) => {
   }
 
   try {
+    if (await hasPlatformAdmin()) {
+      res.status(409).json({ error: 'A platform admin already exists. Bootstrap is disabled.' });
+      return;
+    }
+
     const existing = await admin.auth().getUserByEmail(email).catch(() => null);
     const authUser = existing || await admin.auth().createUser({
       email,
@@ -1159,11 +1159,12 @@ export const bootstrapPlatformAdmin = onRequest(async (req, res) => {
       message: 'Initial platform admin created. Disable or rotate the bootstrap secret now.',
     });
   } catch (error: any) {
+    console.error('bootstrapPlatformAdmin failed', error);
     res.status(500).json({ error: error?.message || 'Unable to bootstrap platform admin' });
   }
 });
 
-export const createInvite = onRequest(async (req, res) => {
+export const createInvite = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1251,7 +1252,7 @@ export const createInvite = onRequest(async (req, res) => {
   res.json({ ok: true, invite_id: inviteRef.id, invite_url: inviteUrl });
 });
 
-export const listInvites = onRequest(async (req, res) => {
+export const listInvites = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1327,7 +1328,7 @@ export const listInvites = onRequest(async (req, res) => {
   }
 });
 
-export const getInviteSummary = onRequest(async (req, res) => {
+export const getInviteSummary = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1363,7 +1364,7 @@ export const getInviteSummary = onRequest(async (req, res) => {
   });
 });
 
-export const acceptInvite = onRequest(async (req, res) => {
+export const acceptInvite = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1459,7 +1460,7 @@ export const acceptInvite = onRequest(async (req, res) => {
   }
 });
 
-export const resendInvite = onRequest(async (req, res) => {
+export const resendInvite = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1520,7 +1521,7 @@ export const resendInvite = onRequest(async (req, res) => {
   res.json({ ok: true, invite_url: inviteUrl });
 });
 
-export const revokeInvite = onRequest(async (req, res) => {
+export const revokeInvite = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1561,7 +1562,7 @@ export const revokeInvite = onRequest(async (req, res) => {
   res.json({ ok: true });
 });
 
-export const approveAccountRequest = onRequest(async (req, res) => {
+export const approveAccountRequest = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1650,7 +1651,7 @@ export const approveAccountRequest = onRequest(async (req, res) => {
   res.json({ ok: true, request_id: requestId });
 });
 
-export const pushInteraction = onRequest(async (req, res) => {
+export const pushInteraction = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1720,7 +1721,7 @@ export const pushInteraction = onRequest(async (req, res) => {
   res.json({ ok: true, interaction_id: interactionRef.id });
 });
 
-export const rejectAccountRequest = onRequest(async (req, res) => {
+export const rejectAccountRequest = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1767,7 +1768,7 @@ export const rejectAccountRequest = onRequest(async (req, res) => {
   res.json({ ok: true, request_id: requestId });
 });
 
-export const seedLocalReferenceData = onRequest(async (req, res) => {
+export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1837,7 +1838,7 @@ export const seedLocalReferenceData = onRequest(async (req, res) => {
   res.json({ ok: true });
 });
 
-export const processInboundEmail = onRequest(async (req, res) => {
+export const processInboundEmail = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1857,7 +1858,7 @@ export const processInboundEmail = onRequest(async (req, res) => {
   res.json(result);
 });
 
-export const postmarkInboundWebhook = onRequest(async (req, res) => {
+export const postmarkInboundWebhook = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }
@@ -1896,7 +1897,7 @@ export const postmarkInboundWebhook = onRequest(async (req, res) => {
   res.json(result);
 });
 
-export const sendQueuedNotices = onRequest(async (req, res) => {
+export const sendQueuedNotices = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
   }

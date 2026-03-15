@@ -73,6 +73,21 @@ service cloud.firestore {
       allow create, update, delete: if isPlatformAdmin();
     }
 
+    match /interactions/{interactionId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isPlatformAdmin();
+    }
+
+    match /pipelines/{pipelineId} {
+      allow read: if isAuthenticated();
+      allow write: if isPlatformAdmin();
+    }
+
+    match /initiatives/{initiativeId} {
+      allow read: if isAuthenticated();
+      allow write: if isPlatformAdmin();
+    }
+
     match /inbound_routes/{routeId} {
       allow read: if isAuthenticated();
       allow write: if isPlatformAdmin();

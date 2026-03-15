@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { MetricScope, ReportResult } from '../../domain/metrics/reporting_types';
 import { Card, Badge, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_INPUT_CLASS } from '../../shared/ui/Components';
+import type { Organization } from '../../domain/organizations/types';
 
 export const MetricsPreviewView = () => {
     const repos = useRepos();
@@ -10,7 +11,7 @@ export const MetricsPreviewView = () => {
 
     // Configuration Data
     const metricSets = repos.flexibleMetrics.getMetricSets();
-    const organizations = repos.organizations.getAll(viewer, viewer.ecosystemId);
+    const [organizations, setOrganizations] = useState<Organization[]>([]);
 
     // Form State
     const [selectedSetId, setSelectedSetId] = useState(metricSets[0]?.id || '');
@@ -26,6 +27,22 @@ export const MetricsPreviewView = () => {
 
     // Result State
     const [report, setReport] = useState<ReportResult | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadOrganizations = async () => {
+            const nextOrganizations = await repos.organizations.getAll(viewer, viewer.ecosystemId);
+            if (!cancelled) {
+                setOrganizations(nextOrganizations);
+            }
+        };
+
+        void loadOrganizations();
+        return () => {
+            cancelled = true;
+        };
+    }, [repos, viewer]);
 
     // Smart default for scopeId
     useEffect(() => {

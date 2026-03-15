@@ -1,22 +1,25 @@
 import React, { useState } from 'react';
-import { signInWithEmail, signInWithGoogle, signOutUser } from '../../services/authService';
+import { sendPasswordReset, signInWithEmail, signInWithGoogle, signOutUser } from '../../services/authService';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 import { useAuthSession } from '../../app/useAuthSession';
+import { CONFIG } from '../../app/config';
 
 export const FirebaseAuthPanel = () => {
   const session = useAuthSession();
   const [email, setEmail] = useState('coach@makehaven.org');
   const [password, setPassword] = useState('Password123!');
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
-  if (!isFirebaseEnabled()) {
+  if (!isFirebaseEnabled() || (!CONFIG.IS_DEMO_MODE && !CONFIG.FEATURES.SHOW_FIREBASE_PANEL)) {
     return null;
   }
 
   const handleEmailSignIn = async () => {
     setIsBusy(true);
     setError(null);
+    setMessage(null);
     try {
       await signInWithEmail(email, password);
     } catch (err: any) {
@@ -29,6 +32,7 @@ export const FirebaseAuthPanel = () => {
   const handleGoogleSignIn = async () => {
     setIsBusy(true);
     setError(null);
+    setMessage(null);
     try {
       await signInWithGoogle();
     } catch (err: any) {
@@ -41,10 +45,31 @@ export const FirebaseAuthPanel = () => {
   const handleSignOut = async () => {
     setIsBusy(true);
     setError(null);
+    setMessage(null);
     try {
       await signOutUser();
     } catch (err: any) {
       setError(err?.message || 'Unable to sign out.');
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    const targetEmail = session.authUser?.email || email;
+    if (!targetEmail) {
+      setError('Email is required to send a password reset.');
+      return;
+    }
+
+    setIsBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await sendPasswordReset(targetEmail);
+      setMessage(`Password reset email sent to ${targetEmail}.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to send password reset email.');
     } finally {
       setIsBusy(false);
     }
@@ -92,20 +117,37 @@ export const FirebaseAuthPanel = () => {
               >
                 Google
               </button>
+              <button
+                className="rounded border border-gray-300 bg-white px-3 py-1 font-medium text-gray-700 disabled:opacity-50"
+                onClick={handlePasswordReset}
+                disabled={isBusy}
+              >
+                Reset Password
+              </button>
             </>
           )}
           {session.authUser && (
-            <button
-              className="rounded border border-gray-300 bg-white px-3 py-1 font-medium text-gray-700 disabled:opacity-50"
-              onClick={handleSignOut}
-              disabled={isBusy}
-            >
-              Sign Out
-            </button>
+            <>
+              <button
+                className="rounded border border-gray-300 bg-white px-3 py-1 font-medium text-gray-700 disabled:opacity-50"
+                onClick={handlePasswordReset}
+                disabled={isBusy}
+              >
+                Reset Password
+              </button>
+              <button
+                className="rounded border border-gray-300 bg-white px-3 py-1 font-medium text-gray-700 disabled:opacity-50"
+                onClick={handleSignOut}
+                disabled={isBusy}
+              >
+                Sign Out
+              </button>
+            </>
           )}
         </div>
       </div>
       {error && <div className="mt-2 text-red-600">{error}</div>}
+      {message && <div className="mt-2 text-green-700">{message}</div>}
     </div>
   );
 };

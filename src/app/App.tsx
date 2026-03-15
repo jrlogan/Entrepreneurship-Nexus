@@ -293,7 +293,10 @@ const App = () => {
   const [isSwitchUserOpen, setIsSwitchUserOpen] = useState(false);
   const [showDemo, setShowDemo] = useState(CONFIG.IS_DEMO_MODE);
   const selectedOrganization = selectedOrgId ? organizations.find((organization) => organization.id === selectedOrgId) || null : null;
-  const selectedPerson = selectedPersonId ? people.find((person) => person.id === selectedPersonId) || null : null;
+  const selectedPerson = selectedPersonId
+    ? people.find((person) => person.id === selectedPersonId)
+      || (activeUser?.id === selectedPersonId ? activeUser : null)
+    : null;
 
   const applyRoute = (route: RouteState, mode: 'push' | 'replace' = 'push') => {
     if (route.view) setView(route.view);

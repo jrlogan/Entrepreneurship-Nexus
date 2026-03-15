@@ -22,6 +22,7 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
     const [contactName, setContactName] = useState('');
     const [notes, setNotes] = useState('');
     const [sendEmail, setSendEmail] = useState(false);
+    const [availablePeople, setAvailablePeople] = useState<Person[]>([]);
 
     useEffect(() => {
         if (isOpen) {
@@ -39,17 +40,31 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
     const activeSubject = organizations.find(o => o.id === activeSubjectId);
 
     // Fetch people for the selected org
-    const availablePeople = useMemo(() => {
-        if (!activeSubjectId) return [];
-        return repos.people.getAll().filter(p => p.organization_id === activeSubjectId);
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadAvailablePeople = async () => {
+            if (!activeSubjectId) {
+                setAvailablePeople([]);
+                return;
+            }
+
+            const people = await repos.people.getAll();
+            if (!cancelled) {
+                setAvailablePeople(people.filter((person) => person.organization_id === activeSubjectId));
+            }
+        };
+
+        void loadAvailablePeople();
+        return () => {
+            cancelled = true;
+        };
     }, [activeSubjectId, repos]);
 
     // Fetch context for preview
     const subjectPerson = availablePeople.find(p => p.id === selectedPersonId);
     const referringOrg = organizations.find(o => o.id === currentOrgId);
     const receivingOrg = organizations.find(o => o.id === receivingOrgId);
-    const currentUser = repos.people.getById(viewer.personId);
-
     // Filter potential subjects (exclude current org)
     const subjectCandidates = organizations.filter(o => o.id !== currentOrgId);
 

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, InfoBanner } from '../../shared/ui/Components';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 import { queryCollection } from '../../services/firestoreClient';
 import { useAuthSession } from '../../app/useAuthSession';
 import type { InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
+import type { Organization } from '../../domain/organizations/types';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 
 interface NoticeQueueItem {
@@ -31,15 +32,17 @@ export const InboundIntakeView = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visibleEsoOrganizations, setVisibleEsoOrganizations] = useState<Organization[]>([]);
 
   const loadData = async () => {
     if (!canViewInboundIntake) {
-      setMessages([]);
-      setParseResults([]);
-      setNoticeQueue([]);
-      setRoutes([]);
-      setError(null);
-      return;
+        setMessages([]);
+        setParseResults([]);
+        setNoticeQueue([]);
+        setRoutes([]);
+        setVisibleEsoOrganizations([]);
+        setError(null);
+        return;
     }
 
     setIsLoading(true);
@@ -47,6 +50,9 @@ export const InboundIntakeView = () => {
 
     try {
       if (isFirebaseEnabled() && session.authUser) {
+        const organizations = await repos.organizations.getAll(viewer, viewer.ecosystemId);
+        setVisibleEsoOrganizations(organizations.filter((organization) => organization.roles.includes('eso')));
+
         const firestoreRoutes = await queryCollection<InboundRoute>('inbound_routes');
         setRoutes(firestoreRoutes);
 
@@ -65,10 +71,12 @@ export const InboundIntakeView = () => {
           setNoticeQueue([]);
         }
       } else {
-        setMessages(repos.inboundMessages.getMessages());
-        setParseResults(repos.inboundMessages.getParseResults());
+        const organizations = await repos.organizations.getAll(viewer, viewer.ecosystemId);
+        setVisibleEsoOrganizations(organizations.filter((organization) => organization.roles.includes('eso')));
+        setMessages(await repos.inboundMessages.getMessages());
+        setParseResults(await repos.inboundMessages.getParseResults());
         setNoticeQueue([]);
-        setRoutes(repos.inboundMessages.getRoutes());
+        setRoutes(await repos.inboundMessages.getRoutes());
       }
     } catch (err: any) {
       setError(err?.message || 'Unable to load inbound intake data.');
@@ -96,12 +104,11 @@ export const InboundIntakeView = () => {
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
   const scopedMessages = messages.filter((message) => message.ecosystem_id === viewer.ecosystemId);
   const authorizedSenderDomains = Array.from(new Set(scopedRoutes.flatMap((route) => route.allowed_sender_domains || []))).sort();
-  const visibleEsoOrganizations = repos.organizations.getAll(viewer, viewer.ecosystemId).filter((organization) => organization.roles.includes('eso'));
-  const activeIntegrationOrganizations = visibleEsoOrganizations.filter((organization) => {
-    const activeKeys = repos.organizations.getApiKeys(organization.id).filter((key) => key.status === 'active').length;
-    const activeWebhooks = repos.organizations.getWebhooks(organization.id).filter((hook) => hook.status === 'active').length;
+  const activeIntegrationOrganizations = useMemo(() => visibleEsoOrganizations.filter((organization) => {
+    const activeKeys = (organization.api_keys || []).filter((key) => key.status === 'active').length;
+    const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active').length;
     return activeKeys > 0 || activeWebhooks > 0;
-  });
+  }), [visibleEsoOrganizations]);
 
   const sendQueuedNotices = async () => {
     setIsSending(true);
@@ -214,8 +221,8 @@ export const InboundIntakeView = () => {
         ) : (
           <div className="space-y-3">
             {visibleEsoOrganizations.map((organization) => {
-              const activeKeys = repos.organizations.getApiKeys(organization.id).filter((key) => key.status === 'active');
-              const activeWebhooks = repos.organizations.getWebhooks(organization.id).filter((hook) => hook.status === 'active');
+              const activeKeys = (organization.api_keys || []).filter((key) => key.status === 'active');
+              const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active');
               const organizationDomain = organization.email?.split('@')[1];
               return (
                 <div key={organization.id} className="rounded-md border border-gray-200 p-4">

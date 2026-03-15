@@ -36,6 +36,7 @@ export const CONFIG = {
   // Feature Flags
   FEATURES: {
     ENABLE_REAL_EMAILS: getEnv('REACT_APP_ENABLE_EMAILS', 'VITE_ENABLE_EMAILS', 'false') === 'true',
+    SHOW_FIREBASE_PANEL: getEnv('REACT_APP_SHOW_FIREBASE_PANEL', 'VITE_SHOW_FIREBASE_PANEL', 'false') === 'true',
   }
 };
 

@@ -23,6 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [session, setSession] = useState<AuthSession>(() =>
     isFirebaseEnabled() ? defaultSession : { ...defaultSession, status: 'disabled' }
   );
@@ -35,11 +36,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     initFirebase();
     const unsubscribe = subscribeToAuth((user) => {
+      setAuthResolved(true);
       setAuthUser(user);
       setSession(prev => ({
         ...prev,
         authUser: user,
-        status: user ? (prev.person ? 'authenticated' : 'needs_profile') : 'unauthenticated',
+        status: user
+          ? (prev.person && prev.viewer ? 'authenticated' : 'loading')
+          : 'unauthenticated',
       }));
     });
 
@@ -54,7 +58,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         authUser,
       };
 
-      if (!authUser) {
+      if (!authResolved) {
+        merged.status = isFirebaseEnabled() ? 'loading' : 'disabled';
+      } else if (!authUser) {
         merged.status = isFirebaseEnabled() ? 'unauthenticated' : 'disabled';
       } else if (merged.person && merged.viewer) {
         merged.status = 'authenticated';
@@ -64,7 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       return merged;
     });
-  }, [authUser]);
+  }, [authResolved, authUser]);
 
   const value = useMemo<AuthContextValue>(() => ({ session, setResolvedSession }), [session]);
 

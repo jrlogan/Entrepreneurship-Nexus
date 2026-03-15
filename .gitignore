@@ -17,6 +17,8 @@ dist
 .env.development.local
 .env.test.local
 .env.production.local
+functions/.env
+functions/.env.*
 
 # Misc
 .DS_Store

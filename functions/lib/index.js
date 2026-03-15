@@ -657,7 +657,7 @@ const mapPostmarkInboundToInternal = (payload) => {
         raw_payload: payload,
     };
 };
-exports.resolvePerson = (0, https_1.onRequest)(async (req, res) => {
+exports.resolvePerson = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -721,7 +721,7 @@ exports.resolvePerson = (0, https_1.onRequest)(async (req, res) => {
     }
     res.json({ match_found: false, confidence: 0 });
 });
-exports.resolveOrganization = (0, https_1.onRequest)(async (req, res) => {
+exports.resolveOrganization = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -763,7 +763,7 @@ exports.resolveOrganization = (0, https_1.onRequest)(async (req, res) => {
     }
     res.json({ match_found: false, confidence: 0 });
 });
-exports.createTestAccount = (0, https_1.onRequest)(async (req, res) => {
+exports.createTestAccount = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -827,7 +827,7 @@ exports.createTestAccount = (0, https_1.onRequest)(async (req, res) => {
         password,
     });
 });
-exports.completeSelfSignup = (0, https_1.onRequest)(async (req, res) => {
+exports.completeSelfSignup = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -894,7 +894,7 @@ exports.completeSelfSignup = (0, https_1.onRequest)(async (req, res) => {
         res.status(401).json({ error: 'Invalid authentication token' });
     }
 });
-exports.bootstrapPlatformAdmin = (0, https_1.onRequest)(async (req, res) => {
+exports.bootstrapPlatformAdmin = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -913,10 +913,6 @@ exports.bootstrapPlatformAdmin = (0, https_1.onRequest)(async (req, res) => {
         res.status(401).json({ error: 'Invalid bootstrap secret' });
         return;
     }
-    if (await hasPlatformAdmin()) {
-        res.status(409).json({ error: 'A platform admin already exists. Bootstrap is disabled.' });
-        return;
-    }
     const email = normalize(req.body?.email);
     const password = req.body?.password || '';
     const firstName = (req.body?.first_name || 'Platform').trim();
@@ -928,6 +924,10 @@ exports.bootstrapPlatformAdmin = (0, https_1.onRequest)(async (req, res) => {
         return;
     }
     try {
+        if (await hasPlatformAdmin()) {
+            res.status(409).json({ error: 'A platform admin already exists. Bootstrap is disabled.' });
+            return;
+        }
         const existing = await admin.auth().getUserByEmail(email).catch(() => null);
         const authUser = existing || await admin.auth().createUser({
             email,
@@ -975,10 +975,11 @@ exports.bootstrapPlatformAdmin = (0, https_1.onRequest)(async (req, res) => {
         });
     }
     catch (error) {
+        console.error('bootstrapPlatformAdmin failed', error);
         res.status(500).json({ error: error?.message || 'Unable to bootstrap platform admin' });
     }
 });
-exports.createInvite = (0, https_1.onRequest)(async (req, res) => {
+exports.createInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1056,7 +1057,7 @@ exports.createInvite = (0, https_1.onRequest)(async (req, res) => {
     });
     res.json({ ok: true, invite_id: inviteRef.id, invite_url: inviteUrl });
 });
-exports.listInvites = (0, https_1.onRequest)(async (req, res) => {
+exports.listInvites = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1124,7 +1125,7 @@ exports.listInvites = (0, https_1.onRequest)(async (req, res) => {
         res.status(401).json({ error: 'Invalid authentication token' });
     }
 });
-exports.getInviteSummary = (0, https_1.onRequest)(async (req, res) => {
+exports.getInviteSummary = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1155,7 +1156,7 @@ exports.getInviteSummary = (0, https_1.onRequest)(async (req, res) => {
         note: invite.note || '',
     });
 });
-exports.acceptInvite = (0, https_1.onRequest)(async (req, res) => {
+exports.acceptInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1241,7 +1242,7 @@ exports.acceptInvite = (0, https_1.onRequest)(async (req, res) => {
         res.status(401).json({ error: 'Invalid authentication token' });
     }
 });
-exports.resendInvite = (0, https_1.onRequest)(async (req, res) => {
+exports.resendInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1294,7 +1295,7 @@ exports.resendInvite = (0, https_1.onRequest)(async (req, res) => {
     await logAudit('invite_resent', manager.uid, { invite_id: invite.id });
     res.json({ ok: true, invite_url: inviteUrl });
 });
-exports.revokeInvite = (0, https_1.onRequest)(async (req, res) => {
+exports.revokeInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1328,7 +1329,7 @@ exports.revokeInvite = (0, https_1.onRequest)(async (req, res) => {
     await logAudit('invite_revoked', manager.uid, { invite_id: invite.id });
     res.json({ ok: true });
 });
-exports.approveAccountRequest = (0, https_1.onRequest)(async (req, res) => {
+exports.approveAccountRequest = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1406,7 +1407,7 @@ exports.approveAccountRequest = (0, https_1.onRequest)(async (req, res) => {
     });
     res.json({ ok: true, request_id: requestId });
 });
-exports.pushInteraction = (0, https_1.onRequest)(async (req, res) => {
+exports.pushInteraction = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1456,7 +1457,7 @@ exports.pushInteraction = (0, https_1.onRequest)(async (req, res) => {
     });
     res.json({ ok: true, interaction_id: interactionRef.id });
 });
-exports.rejectAccountRequest = (0, https_1.onRequest)(async (req, res) => {
+exports.rejectAccountRequest = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1495,7 +1496,7 @@ exports.rejectAccountRequest = (0, https_1.onRequest)(async (req, res) => {
     });
     res.json({ ok: true, request_id: requestId });
 });
-exports.seedLocalReferenceData = (0, https_1.onRequest)(async (req, res) => {
+exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1556,7 +1557,7 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)(async (req, res) => {
     }, { merge: true });
     res.json({ ok: true });
 });
-exports.processInboundEmail = (0, https_1.onRequest)(async (req, res) => {
+exports.processInboundEmail = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1572,7 +1573,7 @@ exports.processInboundEmail = (0, https_1.onRequest)(async (req, res) => {
     const result = await processInboundEmailPayload(payload);
     res.json(result);
 });
-exports.postmarkInboundWebhook = (0, https_1.onRequest)(async (req, res) => {
+exports.postmarkInboundWebhook = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }
@@ -1604,7 +1605,7 @@ exports.postmarkInboundWebhook = (0, https_1.onRequest)(async (req, res) => {
     const result = await processInboundEmailPayload(internalPayload);
     res.json(result);
 });
-exports.sendQueuedNotices = (0, https_1.onRequest)(async (req, res) => {
+exports.sendQueuedNotices = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
     }

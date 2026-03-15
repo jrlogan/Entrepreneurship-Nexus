@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "entrepreneurship-nexus-local"
+    "default": "entrepreneurship-nexus-local",
+    "local": "entrepreneurship-nexus-local",
+    "prod": "entrepreneurship-nexus"
   }
 }
