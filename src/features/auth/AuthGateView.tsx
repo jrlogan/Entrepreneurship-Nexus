@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { AccountRequest, Ecosystem, InviteSummary, Organization, SystemRole } from '../../domain/types';
 import { FirebaseAuthPanel } from '../../shared/ui/FirebaseAuthPanel';
-import { createUserWithEmail } from '../../services/authService';
+import { createUserWithEmail, sendPasswordReset, signInWithEmail } from '../../services/authService';
 import { getDocument, setDocument } from '../../services/firestoreClient';
 import { callHttpFunction } from '../../services/httpFunctionClient';
+import { CONFIG } from '../../app/config';
 
 interface AuthGateViewProps {
   status: 'loading' | 'unauthenticated' | 'needs_profile';
@@ -29,6 +30,11 @@ type AccessRequestFormState = {
   note: string;
 };
 
+type SignInFormState = {
+  email: string;
+  password: string;
+};
+
 const defaultMessage = 'Sign in to access shared network data, inbound referral intake, and partner coordination workflows.';
 
 export const AuthGateView: React.FC<AuthGateViewProps> = ({
@@ -44,6 +50,10 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [signInForm, setSignInForm] = useState<SignInFormState>({
+    email: authUserEmail || '',
+    password: '',
+  });
   const inviteToken = useMemo(() => {
     if (typeof window === 'undefined') {
       return '';
@@ -72,6 +82,10 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
       ...current,
       email: authUserEmail || current.email,
       ecosystem_id: current.ecosystem_id || defaultEcosystemId,
+    }));
+    setSignInForm((current) => ({
+      ...current,
+      email: authUserEmail || current.email,
     }));
     setAccessRequestForm((current) => ({
       ...current,
@@ -189,6 +203,40 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
       void credential;
     } catch (err: any) {
       setError(err?.message || 'Unable to create entrepreneur account.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSignIn = async () => {
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      if (!signInForm.email.trim() || !signInForm.password) {
+        throw new Error('Email and password are required.');
+      }
+      await signInWithEmail(signInForm.email.trim(), signInForm.password);
+      setSuccess('Signed in. Loading your workspace.');
+    } catch (err: any) {
+      setError(err?.message || 'Unable to sign in.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      if (!signInForm.email.trim()) {
+        throw new Error('Enter your email first.');
+      }
+      await sendPasswordReset(signInForm.email.trim());
+      setSuccess(`Password reset email sent to ${signInForm.email.trim()}.`);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to send password reset email.');
     } finally {
       setIsSubmitting(false);
     }
@@ -320,7 +368,33 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
               {status === 'unauthenticated' && (
                 <>
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    Use the local test account, or create a new entrepreneur account below.
+                    Sign in with an existing account, or create a new entrepreneur account below.
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <div className="mb-3 text-base font-semibold text-slate-900">Sign In</div>
+                    <div className="grid gap-3">
+                      <input
+                        className="rounded border border-slate-300 px-3 py-2"
+                        placeholder="Email"
+                        value={signInForm.email}
+                        onChange={(event) => setSignInForm({ ...signInForm, email: event.target.value })}
+                      />
+                      <input
+                        className="rounded border border-slate-300 px-3 py-2"
+                        type="password"
+                        placeholder="Password"
+                        value={signInForm.password}
+                        onChange={(event) => setSignInForm({ ...signInForm, password: event.target.value })}
+                      />
+                    </div>
+                    <div className="mt-4 flex gap-3">
+                      <button className="rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleSignIn} disabled={isSubmitting}>
+                        Sign in
+                      </button>
+                      <button className="rounded border border-slate-300 px-4 py-2 font-medium text-slate-700 disabled:opacity-50" onClick={handleForgotPassword} disabled={isSubmitting}>
+                        Forgot password
+                      </button>
+                    </div>
                   </div>
                   <div className="rounded-2xl border border-slate-200 p-4">
                     <div className="mb-3 text-base font-semibold text-slate-900">Create Entrepreneur Account</div>
@@ -407,13 +481,15 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                 </div>
               )}
 
-              <div className="rounded-xl border border-slate-200 px-4 py-3">
-                <div className="font-medium text-slate-900">Local login</div>
-                <div className="mt-2 space-y-1 font-mono text-xs text-slate-600">
-                  <div>Email: coach@makehaven.org</div>
-                  <div>Password: Password123!</div>
+              {CONFIG.IS_DEMO_MODE && (
+                <div className="rounded-xl border border-slate-200 px-4 py-3">
+                  <div className="font-medium text-slate-900">Local login</div>
+                  <div className="mt-2 space-y-1 font-mono text-xs text-slate-600">
+                    <div>Email: coach@makehaven.org</div>
+                    <div>Password: Password123!</div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
