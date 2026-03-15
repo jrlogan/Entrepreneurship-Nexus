@@ -405,10 +405,24 @@ const App = () => {
     view,
   ]);
 
+  if (shouldRequireAuth && session.status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
+        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/5 px-8 py-10 shadow-2xl shadow-black/30 backdrop-blur">
+          <div className="text-lg font-semibold">Loading Entrepreneurship Nexus</div>
+          <div className="mt-2 text-sm text-slate-300">Restoring your session and workspace.</div>
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-400" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (shouldRequireAuth && session.status !== 'authenticated') {
     return (
       <AuthGateView
-        status={session.status === 'loading' ? 'loading' : (session.authUser ? 'needs_profile' : 'unauthenticated')}
+        status={session.authUser ? 'needs_profile' : 'unauthenticated'}
         authUserEmail={session.authUser?.email}
         authUid={session.authUser?.uid}
         organizations={ALL_ORGANIZATIONS}
