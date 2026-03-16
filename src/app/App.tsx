@@ -39,6 +39,7 @@ import { calculatePipelineProgress, calculateDaysBetween, detectDuplicates } fro
 // Repos & Context
 import { AppRepos } from '../data/repos';
 import { AppDataProvider } from '../data/AppDataContext';
+import { setDocument } from '../services/firestoreClient';
 
 // Shared
 import { Modal } from '../shared/ui/Components';
@@ -521,7 +522,7 @@ const App = () => {
       >
            {view === 'dashboard' && (
                canAccessDashboard ? (
-               <DashboardView />
+               <DashboardView ecosystem={currentEcosystem} />
                ) : null
            )}
            {view === 'directory' && (
@@ -744,10 +745,34 @@ const App = () => {
 
       {/* Modals */}
       <Modal isOpen={isAddOrgOpen} onClose={() => setIsAddOrgOpen(false)} title="Add New Organization">
-          <AddOrgForm 
-            onSave={async (org) => { 
+          <AddOrgForm
+            onSave={async (org, esoDomains) => {
                 const newOrg = { ...org, ecosystem_ids: [currentEcosystemId] };
                 await repos.organizations.add(newOrg);
+
+                if (newOrg.roles.includes('eso') && esoDomains.length > 0) {
+                    const now = new Date().toISOString();
+                    await Promise.all(esoDomains.flatMap(domain => [
+                        setDocument('authorized_sender_domains', `asd_${newOrg.id}_${domain.replace(/\./g, '_')}`, {
+                            id: `asd_${newOrg.id}_${domain.replace(/\./g, '_')}`,
+                            ecosystem_id: currentEcosystemId,
+                            organization_id: newOrg.id,
+                            domain,
+                            is_active: true,
+                            access_policy: 'approved',
+                            allow_sender_affiliation: true,
+                            allow_auto_acknowledgement: true,
+                            allow_invite_prompt: true,
+                            created_at: now,
+                        }),
+                        setDocument('organization_aliases', `alias_${domain.replace(/\./g, '_')}`, {
+                            id: `alias_${domain.replace(/\./g, '_')}`,
+                            organization_id: newOrg.id,
+                            domain,
+                            created_at: now,
+                        }),
+                    ]));
+                }
 
                 if (activeUser && currentRole === 'entrepreneur') {
                     const existingAffiliations = getActiveOrganizationAffiliations(activeUser, currentEcosystemId);

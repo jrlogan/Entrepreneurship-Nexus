@@ -8,6 +8,8 @@ import { ManageProcessModal } from '../pipelines/PipelineModals';
 import { useViewer } from '../../data/AppDataContext';
 import { uploadImageFile } from '../../services/storageUploads';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
+import { queryCollection, setDocument, whereEquals } from '../../services/firestoreClient';
+import type { AuthorizedSenderDomain } from '../../domain/inbound/types';
 
 // --- Edit Org Modal ---
 interface EditOrgModalProps {
@@ -31,6 +33,11 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
+
+    // ESO Domain State
+    const [esoDomains, setEsoDomains] = useState<string[]>([]);
+    const [domainInput, setDomainInput] = useState('');
+    const isEso = org.roles.includes('eso');
     const ecosystemTagOptions = Array.from(new Set(
         ALL_ECOSYSTEMS
             .filter((ecosystem) => org.ecosystem_ids.includes(ecosystem.id) || ecosystem.id === viewer.ecosystemId)
@@ -51,8 +58,21 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
             setLogoFile(null);
             setSaveError('');
             setIsSaving(false);
+            setDomainInput('');
+
+            if (isEso) {
+                queryCollection<AuthorizedSenderDomain>('authorized_sender_domains', [whereEquals('organization_id', org.id)])
+                    .then(records => setEsoDomains(records.map(r => r.domain)))
+                    .catch(() => setEsoDomains([]));
+            }
         }
-    }, [isOpen, org]);
+    }, [isOpen, org, isEso]);
+
+    const addDomain = () => {
+        const d = domainInput.toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+        if (d && !esoDomains.includes(d)) setEsoDomains(prev => [...prev, d]);
+        setDomainInput('');
+    };
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -78,6 +98,31 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                 },
                 support_offerings: supportOfferings.split(',').map(s => s.trim()).filter(Boolean) as Organization['support_offerings']
             });
+
+            if (isEso && esoDomains.length > 0) {
+                const now = new Date().toISOString();
+                await Promise.all(esoDomains.flatMap(domain => [
+                    setDocument('authorized_sender_domains', `asd_${org.id}_${domain.replace(/\./g, '_')}`, {
+                        id: `asd_${org.id}_${domain.replace(/\./g, '_')}`,
+                        ecosystem_id: viewer.ecosystemId,
+                        organization_id: org.id,
+                        domain,
+                        is_active: true,
+                        access_policy: 'approved',
+                        allow_sender_affiliation: true,
+                        allow_auto_acknowledgement: true,
+                        allow_invite_prompt: true,
+                        created_at: now,
+                    }),
+                    setDocument('organization_aliases', `alias_${domain.replace(/\./g, '_')}`, {
+                        id: `alias_${domain.replace(/\./g, '_')}`,
+                        organization_id: org.id,
+                        domain,
+                        created_at: now,
+                    }),
+                ]));
+            }
+
             onClose();
         } catch (error) {
             setSaveError(error instanceof Error ? error.message : 'Unable to save organization profile.');
@@ -87,7 +132,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Edit Organization Profile">
+        <Modal isOpen={isOpen} onClose={onClose} title="Edit Organization Profile" wide>
             <div className="space-y-4">
                 <div>
                     <label className={FORM_LABEL_CLASS}>Name</label>
@@ -165,7 +210,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                         </label>
                     </div>
                 </div>
-                {org.roles.includes('eso') && (
+                {isEso && (
                     <div>
                         <label className={FORM_LABEL_CLASS}>Support Offerings (comma separated)</label>
                         <input
@@ -174,6 +219,39 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                             onChange={e => setSupportOfferings(e.target.value)}
                             placeholder="funding, business_coaching, networking"
                         />
+                    </div>
+                )}
+                {isEso && (
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
+                        <div>
+                            <label className="block text-xs font-bold text-indigo-800 uppercase tracking-wide mb-1">Email Domains</label>
+                            <p className="text-xs text-indigo-600">Domains this organization sends from and receives at — used for automatic inbound email recognition.</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                className="block w-full rounded-md border-indigo-200 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
+                                value={domainInput}
+                                onChange={e => setDomainInput(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addDomain())}
+                                placeholder="e.g. makehaven.org"
+                            />
+                            <button type="button" onClick={addDomain} disabled={!domainInput.trim()} className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 flex-shrink-0">
+                                Add
+                            </button>
+                        </div>
+                        {esoDomains.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {esoDomains.map(d => (
+                                    <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-indigo-200 text-xs font-medium text-indigo-800">
+                                        {d}
+                                        <button type="button" onClick={() => setEsoDomains(prev => prev.filter(x => x !== d))} className="text-indigo-400 hover:text-red-500 font-bold leading-none">×</button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        {esoDomains.length === 0 && (
+                            <p className="text-xs text-indigo-400 italic">No domains registered yet.</p>
+                        )}
                     </div>
                 )}
                 {saveError && (

@@ -10,7 +10,9 @@ import type { Interaction } from '../../domain/interactions/types';
 import type { Initiative } from '../../domain/pipelines/types';
 import type { Referral } from '../../domain/referrals/types';
 
-export const DashboardView = () => {
+import { Ecosystem } from '../../domain/ecosystems/types';
+
+export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) => {
     const repos = useRepos();
     const viewer = useViewer();
     const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -18,6 +20,12 @@ export const DashboardView = () => {
     const [interactions, setInteractions] = useState<Interaction[]>([]);
     const [initiatives, setInitiatives] = useState<Initiative[]>([]);
     const [referrals, setReferrals] = useState<Referral[]>([]);
+    
+    const portalLinks = useMemo(() => {
+        return (ecosystem?.portal_links || []).filter(link => 
+            link.audience === 'all' || link.audience === 'eso'
+        );
+    }, [ecosystem]);
     
     const metricsLogs = repos.metrics.getAll(viewer);
 
@@ -278,6 +286,22 @@ export const DashboardView = () => {
                         )}
                     </Card>
                 </div>
+            )}
+            
+            {portalLinks.length > 0 && (
+                <Card title="Quick Links & Resources">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {portalLinks.map(link => (
+                            <DemoLink key={link.id} href={link.url} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 group transition-all">
+                                <span className="text-2xl grayscale group-hover:grayscale-0 transition-all">{link.icon}</span>
+                                <div>
+                                    <div className="text-sm font-bold text-gray-900 group-hover:text-indigo-700">{link.label}</div>
+                                    {link.description && <div className="text-[10px] text-gray-500 line-clamp-1">{link.description}</div>}
+                                </div>
+                            </DemoLink>
+                        ))}
+                    </div>
+                </Card>
             )}
             
             <Card title={activityTitle}>

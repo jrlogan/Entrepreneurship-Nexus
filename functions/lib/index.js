@@ -37,6 +37,7 @@ exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInbou
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const emailParsing_1 = require("./emailParsing");
 admin.initializeApp();
 const db = admin.firestore();
 const setCors = (res) => {
@@ -336,61 +337,6 @@ const splitName = (fullName) => {
         first_name,
         last_name: rest.join(' ') || 'Contact',
     };
-};
-const extractEmails = (text) => {
-    if (!text) {
-        return [];
-    }
-    const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
-    return Array.from(new Set(matches.map((item) => item.toLowerCase())));
-};
-const extractNameFromSubject = (subject) => {
-    const match = (subject || '').match(/Introduction:\s*(.+?)(?:\s+to\s+.+)?$/i);
-    return match?.[1]?.trim();
-};
-const parseFooter = (text) => {
-    const blockMatch = (text || '').match(/--- NETWORK REFERRAL DATA ---([\s\S]*?)--- END NETWORK REFERRAL DATA ---/i);
-    if (!blockMatch) {
-        return null;
-    }
-    const block = blockMatch[1];
-    const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    const result = {};
-    let currentSection = null;
-    for (const line of lines) {
-        const keyValueMatch = line.match(/^([a-z_]+):\s*(.*)$/i);
-        if (keyValueMatch) {
-            const [, key, rawValue] = keyValueMatch;
-            const normalizedKey = key.toLowerCase();
-            if (rawValue) {
-                result[normalizedKey] = rawValue;
-                currentSection = normalizedKey;
-            }
-            else {
-                currentSection = normalizedKey;
-                result[normalizedKey] = [];
-            }
-            continue;
-        }
-        const checkboxMatch = line.match(/^- \[x\]\s+(.*)$/i);
-        if (checkboxMatch && currentSection) {
-            const [, option] = checkboxMatch;
-            const existing = result[currentSection];
-            if (Array.isArray(existing)) {
-                existing.push(option.trim());
-            }
-        }
-    }
-    return result;
-};
-const extractReferralNote = (text) => {
-    const raw = text || '';
-    const [beforeFooter] = raw.split(/--- NETWORK REFERRAL DATA ---/i);
-    const candidate = (beforeFooter || raw)
-        .replace(/\r\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-    return candidate || raw.trim();
 };
 const resolveReceivingOrganization = async (receivingOrgName, toEmails = []) => {
     if (receivingOrgName) {
@@ -1139,12 +1085,17 @@ const processInboundEmailPayload = async (payload) => {
             };
         }
     }
-    const footer = parseFooter(payload.text_body);
-    const referralNote = extractReferralNote(payload.text_body);
+    const footer = (0, emailParsing_1.parseFooter)(payload.text_body);
+    const referralNote = (0, emailParsing_1.extractReferralNote)(payload.text_body);
     const footerEmail = typeof footer?.client_email === 'string' ? normalize(footer.client_email) : undefined;
-    const clientEmail = footerEmail
-        || extractEmails(payload.text_body).find((email) => email !== senderEmail) || '';
-    const clientName = typeof footer?.client_name === 'string' ? footer.client_name : extractNameFromSubject(payload.subject);
+    const { clientEmail, additionalCcEmails: ccEmails } = (0, emailParsing_1.extractClientEmail)({
+        footerEmail,
+        ccEmails: payload.cc_emails || [],
+        textBody: payload.text_body,
+        senderEmail,
+        routeAddress,
+    });
+    const clientName = typeof footer?.client_name === 'string' ? footer.client_name : (0, emailParsing_1.extractNameFromSubject)(payload.subject);
     const ventureName = typeof footer?.client_venture === 'string' ? footer.client_venture : undefined;
     const receivingOrgName = typeof footer?.receiving_org === 'string' ? footer.receiving_org : undefined;
     const introContactPermission = (Array.isArray(footer?.intro_contact_permission) && footer?.intro_contact_permission[0]
@@ -1183,12 +1134,14 @@ const processInboundEmailPayload = async (payload) => {
         ...(clientEmail ? [] : ['missing_client_email']),
         ...(senderDomainInfo.match ? [] : ['unknown_sender_domain']),
         ...(receivingOrganization ? [] : ['unknown_receiving_org']),
+        ...(ccEmails.length > 0 ? ['multiple_cc_entrepreneurs'] : []),
     ];
     await parseResultRef.set({
         id: parseResultRef.id,
         inbound_message_id: inboundMessageRef.id,
         candidate_person_email: clientEmail || null,
         candidate_person_name: clientName || null,
+        additional_cc_emails: ccEmails,
         candidate_venture_name: ventureName || null,
         candidate_receiving_org_id: receivingOrganization?.id || null,
         candidate_referring_org_id: referringOrgId,
@@ -1268,7 +1221,7 @@ exports.approveInboundMessage = (0, https_1.onRequest)({ invoker: 'public' }, as
         autoLinkOrganization: !!organizationResult?.created,
     });
     // 3. Create real referral
-    const referralNote = extractReferralNote(message.text_body);
+    const referralNote = (0, emailParsing_1.extractReferralNote)(message.text_body);
     const referralRef = db.collection('referrals').doc();
     await referralRef.set({
         id: referralRef.id,
@@ -2436,9 +2389,13 @@ exports.sendReferralDecisionEmail = (0, https_1.onRequest)({ invoker: 'public' }
         res.status(403).json({ error: 'Only the receiving organization can send referral decision emails' });
         return;
     }
-    const receivingOrgDoc = receivingOrgId ? await db.collection('organizations').doc(receivingOrgId).get() : null;
-    const referringOrgDoc = referringOrgId ? await db.collection('organizations').doc(referringOrgId).get() : null;
-    const subjectPersonDoc = referral.subject_person_id ? await db.collection('people').doc(referral.subject_person_id).get() : null;
+    const [receivingOrgDoc, referringOrgDoc, subjectPersonDoc, ecosystemDoc] = await Promise.all([
+        receivingOrgId ? db.collection('organizations').doc(receivingOrgId).get() : Promise.resolve(null),
+        referringOrgId ? db.collection('organizations').doc(referringOrgId).get() : Promise.resolve(null),
+        referral.subject_person_id ? db.collection('people').doc(referral.subject_person_id).get() : Promise.resolve(null),
+        referralEcosystemId ? db.collection('ecosystems').doc(referralEcosystemId).get() : Promise.resolve(null),
+    ]);
+    const notifyEntrepreneurs = !!(ecosystemDoc?.get('settings.feature_flags.notify_entrepreneurs'));
     const entrepreneurEmail = normalize(subjectPersonDoc?.get('email'));
     const introducerEmail = normalize(referringOrgDoc?.get('email'));
     const receivingOrgName = receivingOrgDoc?.get('name') || 'The receiving organization';
@@ -2471,11 +2428,11 @@ exports.sendReferralDecisionEmail = (0, https_1.onRequest)({ invoker: 'public' }
         }
     }
     const recipients = [
-        entrepreneurEmail ? { to_email: entrepreneurEmail, recipient_kind: 'entrepreneur' } : null,
+        (notifyEntrepreneurs && entrepreneurEmail) ? { to_email: entrepreneurEmail, recipient_kind: 'entrepreneur' } : null,
         introducerEmail ? { to_email: introducerEmail, recipient_kind: 'introducer' } : null,
     ].filter(Boolean);
     if (!recipients.length) {
-        res.status(400).json({ error: 'No entrepreneur or introducer email is available for this referral' });
+        res.status(400).json({ error: 'No introducer email is available for this referral' });
         return;
     }
     const results = await Promise.all(recipients.map(async (recipient) => {

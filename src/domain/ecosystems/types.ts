@@ -42,6 +42,7 @@ export interface Ecosystem {
       data_standards?: boolean;
       metrics_manager?: boolean;
       inbound_intake?: boolean;
+      notify_entrepreneurs?: boolean;
     };
   };
   // Configurable checklists available to all initiatives in this ecosystem

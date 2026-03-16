@@ -59,7 +59,7 @@ interface SotsPreview {
     city?: string;
 }
 
-export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) => void, onCancel: () => void }) => {
+export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization, esoDomains: string[]) => void, onCancel: () => void }) => {
     // Form State
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
@@ -70,6 +70,10 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) =
     const [alei, setAlei] = useState('');
     const [yearFormed, setYearFormed] = useState<number | undefined>();
     const [sotsPreview, setSotsPreview] = useState<SotsPreview | null>(null);
+
+    // ESO Domain State
+    const [esoDomains, setEsoDomains] = useState<string[]>([]);
+    const [domainInput, setDomainInput] = useState('');
 
     // Lookup State
     const [lookupQuery, setLookupQuery] = useState('');
@@ -110,7 +114,10 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) =
             // Website from email domain
             if (fullBiz.business_email_address) {
                 const emailDomain = fullBiz.business_email_address.split('@')[1];
-                if (emailDomain) setWebsite(`https://${emailDomain}`);
+                if (emailDomain) {
+                    setWebsite(`https://${emailDomain}`);
+                    setEsoDomains(prev => prev.includes(emailDomain) ? prev : [...prev, emailDomain]);
+                }
             }
 
             // NAICS → code + human-readable sector as industry tag
@@ -156,6 +163,14 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) =
         }
     };
 
+    const addDomain = () => {
+        const d = domainInput.toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+        if (d && !esoDomains.includes(d)) {
+            setEsoDomains(prev => [...prev, d]);
+        }
+        setDomainInput('');
+    };
+
     const handleSubmit = () => {
         if (!name.trim()) return;
 
@@ -178,7 +193,7 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) =
             authorized_eso_ids: [],
             ecosystem_ids: [],
             version: 1,
-        });
+        }, esoDomains);
     };
 
     return (
@@ -365,6 +380,45 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization) =
                         placeholder="Brief summary of what this organization does..."
                     />
                 </div>
+
+                {role === 'eso' && (
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
+                        <div>
+                            <label className="block text-xs font-bold text-indigo-800 uppercase tracking-wide mb-1">Email Domains</label>
+                            <p className="text-xs text-indigo-600">Domains this organization sends from and receives at — used for automatic inbound email recognition.</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                className="block w-full rounded-md border-indigo-200 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border bg-white"
+                                value={domainInput}
+                                onChange={e => setDomainInput(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addDomain())}
+                                placeholder="e.g. makehaven.org"
+                            />
+                            <button
+                                type="button"
+                                onClick={addDomain}
+                                disabled={!domainInput.trim()}
+                                className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 flex-shrink-0"
+                            >
+                                Add
+                            </button>
+                        </div>
+                        {esoDomains.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {esoDomains.map(d => (
+                                    <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-indigo-200 text-xs font-medium text-indigo-800">
+                                        {d}
+                                        <button type="button" onClick={() => setEsoDomains(prev => prev.filter(x => x !== d))} className="text-indigo-400 hover:text-red-500 font-bold leading-none">×</button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        {esoDomains.length === 0 && (
+                            <p className="text-xs text-indigo-400 italic">No domains added yet. You can add them later in the organization settings.</p>
+                        )}
+                    </div>
+                )}
 
                 <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
                     <button

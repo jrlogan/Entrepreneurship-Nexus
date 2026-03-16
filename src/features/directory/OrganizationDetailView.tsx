@@ -9,6 +9,7 @@ import { MetricAssignment } from '../../domain/metrics/reporting_types';
 import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
 import { RESTRICTED_INITIATIVE_NAME, REDACTED_TEXT } from '../../domain/access/redaction';
 import { EditOrgModal, ManagePersonModal } from './OrgModals';
+import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 
 interface OrganizationDetailViewProps {
     org: Organization;
@@ -47,7 +48,6 @@ export const OrganizationDetailView = ({
     const [showAllEvents, setShowAllEvents] = useState(false);
     const [showPrivacyHelp, setShowPrivacyHelp] = useState(false);
     const [isUpdatingReferral, setIsUpdatingReferral] = useState<string | null>(null);
-    const [partnerSearch, setPartnerSearch] = useState('');
     const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
     const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
     const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
@@ -121,21 +121,13 @@ export const OrganizationDetailView = ({
     const activePolicies = repos.consent.getPoliciesForEntity(org.id);
     const consentEvents = repos.consent.getEventsForEntity(org.id);
     const visibleEvents = showAllEvents ? consentEvents : consentEvents.slice(0, 10);
-    const isManageable = isOwnOrganization || viewer.role === 'platform_admin';
-    const partnerSearchTerm = partnerSearch.trim().toLowerCase();
-    const availablePartnerOrgs = organizations
-        .filter((candidate) =>
-            candidate.id !== org.id &&
-            candidate.ecosystem_ids.includes(viewer.ecosystemId) &&
-            candidate.roles.includes('eso') &&
-            !activePolicies.some((policy) => policy.viewerId === candidate.id)
-        )
-        .filter((candidate) => {
-            if (!partnerSearchTerm) return true;
-            return candidate.name.toLowerCase().includes(partnerSearchTerm)
-                || (candidate.url || '').toLowerCase().includes(partnerSearchTerm)
-                || candidate.roles.some((role) => role.toLowerCase().includes(partnerSearchTerm));
-        });
+    const isManageable = isOwnOrganization || viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
+    const availablePartnerOrgs = organizations.filter((candidate) =>
+        candidate.id !== org.id &&
+        candidate.ecosystem_ids.includes(viewer.ecosystemId) &&
+        candidate.roles.includes('eso') &&
+        !activePolicies.some((policy) => policy.viewerId === candidate.id)
+    );
 
     // Access Control Check
     const hasConsent = repos.consent.hasOperationalAccess(viewer.orgId, org.id);
@@ -244,7 +236,6 @@ export const OrganizationDetailView = ({
         repos.consent.grantAccess(org.id, selectedPartnerOrgId, selectedAccessLevel);
         setSelectedPartnerOrgId('');
         setSelectedAccessLevel('read');
-        setPartnerSearch('');
         onRefresh?.();
     };
 
@@ -338,7 +329,7 @@ export const OrganizationDetailView = ({
                    <h1 className="text-2xl font-bold text-gray-900 leading-none">{org.name}</h1>
                    <div className="flex items-center gap-2 mt-2">
                      {org.alternate_name && <span className="text-sm text-gray-500 mr-2">aka {org.alternate_name}</span>}
-                     <Badge color={org.operational_visibility === 'open' ? 'green' : 'red'}>{org.operational_visibility === 'open' ? 'Network Visible' : 'Private / Hidden'}</Badge>
+                     <Badge color={org.operational_visibility === 'open' ? 'green' : 'red'}>{org.operational_visibility === 'open' ? 'Network Visible' : 'Restricted'}</Badge>
                      {org.roles.map(r => <Badge key={r} color="gray">{r}</Badge>)}
                    </div>
                 </div>
@@ -353,15 +344,23 @@ export const OrganizationDetailView = ({
                      </button>
                  )}
                  {isManageable && (
-                     <button
-                        onClick={() => {
-                            setActiveTab('privacy');
-                            onTabChange?.('privacy');
-                        }}
-                        className="px-4 py-2 border border-gray-300 bg-white text-gray-700 text-sm font-medium rounded hover:bg-gray-50"
-                     >
-                        Privacy Settings
-                     </button>
+                     <>
+                         <button
+                            onClick={() => setIsEditOrgOpen(true)}
+                            className="px-4 py-2 border border-gray-300 bg-white text-gray-700 text-sm font-medium rounded hover:bg-gray-50"
+                         >
+                            Edit Profile
+                         </button>
+                         <button
+                            onClick={() => {
+                                setActiveTab('privacy');
+                                onTabChange?.('privacy');
+                            }}
+                            className="px-4 py-2 border border-gray-300 bg-white text-gray-700 text-sm font-medium rounded hover:bg-gray-50"
+                         >
+                            Privacy Settings
+                         </button>
+                     </>
                  )}
                  {!canViewDetails && !isOwnOrganization && (
                      <>
@@ -1026,48 +1025,62 @@ export const OrganizationDetailView = ({
                               </p>
                               {isManageable && (
                                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
-                                      <div>
-                                          <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">
-                                              Find trusted ESO partner
-                                          </label>
-                                          <input
-                                              type="text"
-                                              value={partnerSearch}
-                                              onChange={(event) => setPartnerSearch(event.target.value)}
-                                              placeholder="Search organizations in this ecosystem"
-                                              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
-                                          />
-                                      </div>
-                                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_auto]">
-                                          <select
+                                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                                          <SearchableSelect
+                                              label="Find trusted ESO partner"
+                                              options={availablePartnerOrgs.map(o => ({ id: o.id, label: o.name }))}
                                               value={selectedPartnerOrgId}
-                                              onChange={(event) => setSelectedPartnerOrgId(event.target.value)}
-                                              className="rounded border border-gray-300 px-3 py-2 text-sm bg-white"
-                                          >
-                                              <option value="">Select an ESO organization</option>
-                                              {availablePartnerOrgs.map((candidate) => (
-                                                  <option key={candidate.id} value={candidate.id}>
-                                                      {candidate.name}
-                                                  </option>
-                                              ))}
-                                          </select>
-                                          <select
-                                              value={selectedAccessLevel}
-                                              onChange={(event) => setSelectedAccessLevel(event.target.value as 'read' | 'write' | 'admin')}
-                                              className="rounded border border-gray-300 px-3 py-2 text-sm bg-white"
-                                          >
-                                              <option value="read">Read: can view detailed operating data</option>
-                                              <option value="write">Write: can add updates and interactions</option>
-                                              <option value="admin">Admin: can manage data and sharing</option>
-                                          </select>
+                                              onChange={setSelectedPartnerOrgId}
+                                              placeholder="Search ESO organizations in this ecosystem..."
+                                          />
                                           <button
                                               type="button"
                                               onClick={handleGrantConsent}
                                               disabled={!selectedPartnerOrgId}
                                               className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                                           >
-                                              Add partner
+                                              Grant Read Access
                                           </button>
+                                      </div>
+                                      <div className="mt-1">
+                                          <button
+                                              type="button"
+                                              onClick={() => { if (selectedAccessLevel === 'read') setSelectedAccessLevel('write'); else setSelectedAccessLevel('read'); }}
+                                              className="text-xs text-gray-400 hover:text-gray-600 underline"
+                                          >
+                                              {selectedAccessLevel === 'read' ? 'Grant elevated access instead (write / admin)' : 'Back to read access'}
+                                          </button>
+                                          {selectedAccessLevel !== 'read' && (
+                                              <div className="mt-2 space-y-2">
+                                                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                                      <strong>Elevated access</strong> — only grant this to trusted partners. Write allows adding interactions and updates; Admin allows managing data and sharing settings.
+                                                  </div>
+                                                  <div className="flex gap-2">
+                                                      <button
+                                                          type="button"
+                                                          onClick={() => setSelectedAccessLevel('write')}
+                                                          className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${selectedAccessLevel === 'write' ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}
+                                                      >
+                                                          Write
+                                                      </button>
+                                                      <button
+                                                          type="button"
+                                                          onClick={() => setSelectedAccessLevel('admin')}
+                                                          className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${selectedAccessLevel === 'admin' ? 'border-red-400 bg-red-100 text-red-800' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}
+                                                      >
+                                                          Admin
+                                                      </button>
+                                                      <button
+                                                          type="button"
+                                                          onClick={handleGrantConsent}
+                                                          disabled={!selectedPartnerOrgId}
+                                                          className="ml-auto rounded bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                                      >
+                                                          Grant {selectedAccessLevel.charAt(0).toUpperCase() + selectedAccessLevel.slice(1)} Access
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                          )}
                                       </div>
                                       <p className="text-xs text-gray-500">
                                           Grant trusted ESO partners access to your operational details without making your organization broadly open to the full network.
@@ -1086,7 +1099,7 @@ export const OrganizationDetailView = ({
                                               Can manage the relationship and consent settings.
                                           </div>
                                       </div>
-                                      {partnerSearchTerm && availablePartnerOrgs.length === 0 && (
+                                      {availablePartnerOrgs.length === 0 && (
                                           <div className="text-xs text-amber-700">
                                               No matching ESO organizations found in this ecosystem.
                                           </div>

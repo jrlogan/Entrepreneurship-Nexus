@@ -6,13 +6,15 @@
     "node": "22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "node --require tsx/cjs --test src/emailParsing.test.ts"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",
     "firebase-functions": "^5.1.1"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "~5.8.2"
   }
 }

@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { Ecosystem } from '../../domain/types';
 import { AdvisorConfig, AdvisorResource } from '../../domain/advisor/types';
-import { Card, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS, Badge, DemoLink } from '../../shared/ui/Components';
+import { Card, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS, Badge, DemoLink, Modal } from '../../shared/ui/Components';
 import { useRepos } from '../../data/AppDataContext';
+import { PortalLink } from '../../domain/ecosystems/types';
 
 export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => {
     const repos = useRepos();
@@ -19,6 +20,18 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
     // State for Tags
     const [tags, setTags] = useState<string[]>([]);
     const [newTag, setNewTag] = useState('');
+
+    // State for Portal Links
+    const [portalLinks, setPortalLinks] = useState<PortalLink[]>(ecosystem.portal_links || []);
+    const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+    const [editingLink, setEditingLink] = useState<PortalLink | null>(null);
+    const [linkFormData, setLinkFormData] = useState<Omit<PortalLink, 'id'>>({
+        label: '',
+        url: '',
+        icon: '🔗',
+        description: '',
+        audience: 'all',
+    });
     const [featureFlags, setFeatureFlags] = useState({
         advanced_workflows: ecosystem.settings.feature_flags?.advanced_workflows ?? false,
         dashboard: ecosystem.settings.feature_flags?.dashboard ?? false,
@@ -33,6 +46,7 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
         data_standards: ecosystem.settings.feature_flags?.data_standards ?? false,
         metrics_manager: ecosystem.settings.feature_flags?.metrics_manager ?? false,
         inbound_intake: ecosystem.settings.feature_flags?.inbound_intake ?? false,
+        notify_entrepreneurs: ecosystem.settings.feature_flags?.notify_entrepreneurs ?? false,
     });
 
     useEffect(() => {
@@ -128,6 +142,48 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
         repos.ecosystems.update(ecosystem.id, { tags: updatedTags });
     };
 
+    const handleAddLink = () => {
+        setEditingLink(null);
+        setLinkFormData({
+            label: '',
+            url: '',
+            icon: '🔗',
+            description: '',
+            audience: 'all',
+        });
+        setIsLinkModalOpen(true);
+    };
+
+    const handleEditLink = (link: PortalLink) => {
+        setEditingLink(link);
+        setLinkFormData({
+            label: link.label,
+            url: link.url,
+            icon: link.icon || '🔗',
+            description: link.description || '',
+            audience: link.audience || 'all',
+        });
+        setIsLinkModalOpen(true);
+    };
+
+    const handleSaveLink = () => {
+        let updatedLinks: PortalLink[];
+        if (editingLink) {
+            updatedLinks = portalLinks.map(l => l.id === editingLink.id ? { ...linkFormData, id: l.id } : l);
+        } else {
+            updatedLinks = [...portalLinks, { ...linkFormData, id: `link_${Date.now()}` }];
+        }
+        setPortalLinks(updatedLinks);
+        repos.ecosystems.update(ecosystem.id, { portal_links: updatedLinks });
+        setIsLinkModalOpen(false);
+    };
+
+    const handleRemoveLink = (id: string) => {
+        const updatedLinks = portalLinks.filter(l => l.id !== id);
+        setPortalLinks(updatedLinks);
+        repos.ecosystems.update(ecosystem.id, { portal_links: updatedLinks });
+    };
+
     const toggleWorkspaceFeature = (
         field:
             | 'advanced_workflows'
@@ -143,6 +199,7 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
             | 'data_standards'
             | 'metrics_manager'
             | 'inbound_intake'
+            | 'notify_entrepreneurs'
     ) => {
         const nextFeatureFlags = {
             ...featureFlags,
@@ -320,184 +377,147 @@ export const EcosystemConfigView = ({ ecosystem }: { ecosystem: Ecosystem }) => 
 
             <Card title="Portal Quick Links (Resource Hub)">
                  <div className="space-y-2">
-                     {ecosystem.portal_links?.map(link => (
-                         <div key={link.id} className="flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-200">
-                             <div className="flex items-center gap-2">
-                                 <span className="text-xl">{link.icon}</span>
+                     {portalLinks.map(link => (
+                         <div key={link.id} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
+                             <div className="flex items-center gap-3">
+                                 <span className="text-2xl">{link.icon}</span>
                                  <div>
-                                     <div className="text-sm font-bold">{link.label}</div>
-                                     <div className="text-xs text-gray-500">{link.url}</div>
+                                     <div className="flex items-center gap-2">
+                                         <div className="text-sm font-bold text-gray-900">{link.label}</div>
+                                         <Badge color={link.audience === 'all' ? 'blue' : link.audience === 'entrepreneur' ? 'green' : 'purple'}>
+                                             {link.audience}
+                                         </Badge>
+                                     </div>
+                                     <div className="text-xs text-gray-500 truncate max-w-xs">{link.url}</div>
                                  </div>
                              </div>
-                             <button className="text-xs text-indigo-600">Edit</button>
+                             <div className="flex gap-2">
+                                 <button onClick={() => handleEditLink(link)} className="text-xs font-medium text-indigo-600 hover:text-indigo-900">Edit</button>
+                                 <button onClick={() => handleRemoveLink(link.id)} className="text-xs font-medium text-red-600 hover:text-red-900">Remove</button>
+                             </div>
                          </div>
                      ))}
-                     <button className="w-full text-center py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded hover:border-indigo-500 hover:text-indigo-600 text-sm font-bold">
+                     {portalLinks.length === 0 && (
+                         <div className="py-4 text-center text-sm text-gray-400 italic bg-gray-50 rounded border border-dashed border-gray-200">
+                             No portal links configured.
+                         </div>
+                     )}
+                     <button 
+                        onClick={handleAddLink}
+                        className="w-full text-center py-3 border-2 border-dashed border-gray-300 text-gray-500 rounded-lg hover:border-indigo-500 hover:text-indigo-600 text-sm font-bold transition-colors"
+                     >
                          + Add Link
                      </button>
                  </div>
             </Card>
 
             <Card title="Workspace Features">
-                <div className="space-y-3">
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Advanced Workflows</div>
-                            <div className="text-sm text-gray-500">Master switch for the broader prototype workflow screens. Individual sections below can also be enabled one by one.</div>
+                <div className="divide-y divide-gray-100">
+                    {([
+                        { key: 'notify_entrepreneurs', label: 'Notify Entrepreneurs', description: 'Send email notifications to entrepreneurs for referral decisions and follow-ups.' },
+                        { key: 'inbound_intake', label: 'Inbound Intake', description: 'Enable inbound email processing for activity capture.' },
+                        { key: 'interactions', label: 'Interactions', description: 'Track and manage interactions between parties.' },
+                        { key: 'dashboard', label: 'Dashboard', description: 'Show the activity dashboard.' },
+                        { key: 'reports', label: 'Reports', description: 'Enable reporting features.' },
+                        { key: 'data_quality', label: 'Data Quality', description: 'Show data quality tools.' },
+                        { key: 'data_standards', label: 'Data Standards', description: 'Enable data standards management.' },
+                        { key: 'metrics_manager', label: 'Metrics Manager', description: 'Enable metrics tracking and management.' },
+                        { key: 'venture_scout', label: 'Venture Scout', description: 'Enable venture scouting features.' },
+                        { key: 'api_console', label: 'API Console', description: 'Show the API console for developers.' },
+                        { key: 'advanced_workflows', label: 'Advanced Workflows', description: 'Enable advanced workflow automation.' },
+                        { key: 'tasks_advice', label: 'Tasks & Advice', description: 'Enable tasks and advice tracking.' },
+                        { key: 'initiatives', label: 'Initiatives', description: 'Enable initiatives management.' },
+                        { key: 'processes', label: 'Processes', description: 'Enable process tracking.' },
+                    ] as Array<{ key: Parameters<typeof toggleWorkspaceFeature>[0], label: string, description: string }>).map(({ key, label, description }) => (
+                        <div key={key} className="flex items-center justify-between py-3">
+                            <div>
+                                <div className="text-sm font-medium text-gray-800">{label}</div>
+                                <div className="text-xs text-gray-500">{description}</div>
+                            </div>
+                            <button
+                                onClick={() => toggleWorkspaceFeature(key)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${featureFlags[key] ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${featureFlags[key] ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
                         </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('advanced_workflows')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.advanced_workflows ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.advanced_workflows ? 'Enabled' : 'Disabled'}
-                        </button>
+                    ))}
+                </div>
+            </Card>
+
+            <Modal
+                isOpen={isLinkModalOpen}
+                onClose={() => setIsLinkModalOpen(false)}
+                title={editingLink ? 'Edit Portal Link' : 'Add Portal Link'}
+            >
+                <div className="space-y-4">
+                    <div className="grid grid-cols-4 gap-4">
+                        <div className="col-span-1">
+                            <label className={FORM_LABEL_CLASS}>Icon</label>
+                            <input 
+                                className={FORM_INPUT_CLASS} 
+                                value={linkFormData.icon} 
+                                onChange={e => setLinkFormData({ ...linkFormData, icon: e.target.value })}
+                                placeholder="Emoji"
+                            />
+                        </div>
+                        <div className="col-span-3">
+                            <label className={FORM_LABEL_CLASS}>Label</label>
+                            <input 
+                                className={FORM_INPUT_CLASS} 
+                                value={linkFormData.label} 
+                                onChange={e => setLinkFormData({ ...linkFormData, label: e.target.value })}
+                                placeholder="Link Title"
+                            />
+                        </div>
                     </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Dashboard</div>
-                            <div className="text-sm text-gray-500">Enable the ecosystem summary dashboard for staff and admins.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('dashboard')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.dashboard ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.dashboard ? 'Enabled' : 'Disabled'}
-                        </button>
+                    <div>
+                        <label className={FORM_LABEL_CLASS}>URL</label>
+                        <input 
+                            className={FORM_INPUT_CLASS} 
+                            value={linkFormData.url} 
+                            onChange={e => setLinkFormData({ ...linkFormData, url: e.target.value })}
+                            placeholder="https://..."
+                        />
                     </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Tasks & Advice</div>
-                            <div className="text-sm text-gray-500">Show the task queue and guided next-step workspace.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('tasks_advice')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.tasks_advice ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.tasks_advice ? 'Enabled' : 'Disabled'}
-                        </button>
+                    <div>
+                        <label className={FORM_LABEL_CLASS}>Description (Optional)</label>
+                        <input 
+                            className={FORM_INPUT_CLASS} 
+                            value={linkFormData.description} 
+                            onChange={e => setLinkFormData({ ...linkFormData, description: e.target.value })}
+                            placeholder="Short description..."
+                        />
                     </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Initiatives</div>
-                            <div className="text-sm text-gray-500">Show initiative management and venture project tracking.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('initiatives')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.initiatives ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                    <div>
+                        <label className={FORM_LABEL_CLASS}>Target Audience</label>
+                        <select 
+                            className={FORM_SELECT_CLASS}
+                            value={linkFormData.audience}
+                            onChange={e => setLinkFormData({ ...linkFormData, audience: e.target.value as any })}
                         >
-                            {featureFlags.initiatives ? 'Enabled' : 'Disabled'}
-                        </button>
+                            <option value="all">Everyone</option>
+                            <option value="entrepreneur">Entrepreneurs Only</option>
+                            <option value="eso">ESO Staff Only</option>
+                        </select>
                     </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Processes</div>
-                            <div className="text-sm text-gray-500">Expose process and pipeline configuration screens.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('processes')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.processes ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button 
+                            onClick={() => setIsLinkModalOpen(false)}
+                            className="px-4 py-2 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
                         >
-                            {featureFlags.processes ? 'Enabled' : 'Disabled'}
+                            Cancel
                         </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Interactions Workspace</div>
-                            <div className="text-sm text-gray-500">Enable the broader interactions screen outside direct referral follow-up.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('interactions')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.interactions ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
+                        <button 
+                            onClick={handleSaveLink}
+                            disabled={!linkFormData.label || !linkFormData.url}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                         >
-                            {featureFlags.interactions ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Reports</div>
-                            <div className="text-sm text-gray-500">Show ecosystem reporting and rollup views.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('reports')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.reports ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.reports ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Venture Scout</div>
-                            <div className="text-sm text-gray-500">Enable scouting and discovery workflows when the ecosystem is ready.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('venture_scout')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.venture_scout ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.venture_scout ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">API Console</div>
-                            <div className="text-sm text-gray-500">Expose integration keys, webhooks, and API testing tools for this ecosystem.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('api_console')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.api_console ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.api_console ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Data Quality</div>
-                            <div className="text-sm text-gray-500">Show duplicate review and data-cleanup tooling.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('data_quality')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.data_quality ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.data_quality ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Data Standards</div>
-                            <div className="text-sm text-gray-500">Show shared schema and standards reference screens.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('data_standards')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.data_standards ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.data_standards ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Metrics Manager</div>
-                            <div className="text-sm text-gray-500">Advanced metrics administration tools for this ecosystem.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('metrics_manager')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.metrics_manager ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.metrics_manager ? 'Enabled' : 'Disabled'}
-                        </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded border border-gray-200 bg-gray-50 px-4 py-3">
-                        <div>
-                            <div className="font-semibold text-gray-900">Inbound Intake</div>
-                            <div className="text-sm text-gray-500">Inbound email intake review tools. Visible only to platform admins.</div>
-                        </div>
-                        <button
-                            onClick={() => toggleWorkspaceFeature('inbound_intake')}
-                            className={`rounded px-3 py-1.5 text-sm font-medium ${featureFlags.inbound_intake ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
-                        >
-                            {featureFlags.inbound_intake ? 'Enabled' : 'Disabled'}
+                            {editingLink ? 'Update Link' : 'Add Link'}
                         </button>
                     </div>
                 </div>
-            </Card>
+            </Modal>
         </div>
     );
 };
