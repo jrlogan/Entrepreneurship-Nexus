@@ -91,12 +91,14 @@ export const FirebaseAuthPanel = () => {
           {!session.authUser && (
             <>
               <input
+                data-testid="firebase-panel-email"
                 className="rounded border border-gray-300 px-2 py-1 text-xs"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="Email"
               />
               <input
+                data-testid="firebase-panel-password"
                 className="rounded border border-gray-300 px-2 py-1 text-xs"
                 type="password"
                 value={password}
@@ -104,6 +106,7 @@ export const FirebaseAuthPanel = () => {
                 placeholder="Password"
               />
               <button
+                data-testid="firebase-panel-sign-in"
                 className="rounded bg-indigo-600 px-3 py-1 font-medium text-white disabled:opacity-50"
                 onClick={handleEmailSignIn}
                 disabled={isBusy}
@@ -136,6 +139,7 @@ export const FirebaseAuthPanel = () => {
                 Reset Password
               </button>
               <button
+                data-testid="firebase-panel-sign-out"
                 className="rounded border border-gray-300 bg-white px-3 py-1 font-medium text-gray-700 disabled:opacity-50"
                 onClick={handleSignOut}
                 disabled={isBusy}

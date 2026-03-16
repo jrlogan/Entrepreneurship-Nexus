@@ -16,6 +16,7 @@ interface FirestorePersonRecord {
   tags?: string[];
   external_refs?: Person['external_refs'];
   links?: Person['links'];
+  organization_affiliations?: Person['organization_affiliations'];
   secondary_profile?: Person['secondary_profile'];
 }
 
@@ -52,6 +53,7 @@ const toPerson = (
     organization_id: primaryMembership?.organization_id || record.primary_organization_id,
     ecosystem_id: primaryMembership?.ecosystem_id || record.ecosystem_id || '',
     memberships: normalizedMemberships,
+    organization_affiliations: record.organization_affiliations,
     secondary_profile: record.secondary_profile,
     tags: record.tags,
     external_refs: record.external_refs,
@@ -123,6 +125,7 @@ export class FirebasePeopleRepo {
         tags: person.tags,
         external_refs: person.external_refs,
         links: person.links,
+        organization_affiliations: person.organization_affiliations,
         secondary_profile: person.secondary_profile,
     };
     await setDocument('people', person.id, record);

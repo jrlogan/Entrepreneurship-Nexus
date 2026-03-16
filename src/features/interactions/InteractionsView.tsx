@@ -20,6 +20,7 @@ export const InteractionsView = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedInteraction, setSelectedInteraction] = useState<Interaction | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0); // Force re-render
+    const [accessRequestMsg, setAccessRequestMsg] = useState('');
     
     const enums = loadEnums();
 
@@ -54,7 +55,8 @@ export const InteractionsView = () => {
 
     const handleRequestAccess = (e: React.MouseEvent) => {
         e.stopPropagation();
-        alert("Access request sent for restricted note.");
+        setAccessRequestMsg("Access request sent for restricted note.");
+        setTimeout(() => setAccessRequestMsg(''), 3000);
     };
 
     return (
@@ -124,12 +126,13 @@ export const InteractionsView = () => {
                                         </div>
                                         <div className="text-xs text-gray-400">Attendees: Details hidden</div>
                                         
-                                        <button 
+                                        <button
                                             onClick={handleRequestAccess}
                                             className="mt-1 px-3 py-1.5 bg-white border border-indigo-200 text-indigo-600 text-xs font-bold rounded shadow-sm hover:bg-indigo-50 transition-colors"
                                         >
                                             Request Access
                                         </button>
+                                        {accessRequestMsg && <p className="text-xs text-green-600 mt-1">{accessRequestMsg}</p>}
                                     </div>
                                     
                                     <p className="text-center text-[10px] text-gray-400 mt-2">

@@ -11,6 +11,7 @@ import { EcosystemsRepo } from './ecosystems';
 import { MetricsRepo } from './metrics';
 import { FlexibleMetricsRepo } from './metricsRepo';
 import { InboundMessagesRepo } from './inboundMessages';
+import { ServicesRepo } from './services';
 
 import { FirebasePeopleRepo } from './firebase/people';
 import { FirebaseReferralsRepo } from './firebase/referrals';
@@ -18,6 +19,7 @@ import { FirebaseInboundMessagesRepo } from './firebase/inboundMessages';
 import { FirebaseInteractionsRepo } from './firebase/interactions';
 import { FirebaseOrganizationsRepo } from './firebase/organizations';
 import { FirebasePipelinesRepo } from './firebase/pipelines';
+import { FirebaseServicesRepo } from './firebase/services';
 import { CONFIG } from '../../app/config';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
@@ -34,6 +36,7 @@ export class AppRepos {
   public metrics = new MetricsRepo(this.consent);
   public flexibleMetrics = new FlexibleMetricsRepo(); // New Flexible Layer
   public inboundMessages: InboundMessagesRepo | FirebaseInboundMessagesRepo;
+  public services: ServicesRepo | FirebaseServicesRepo;
 
   constructor() {
       const useFirebase = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
@@ -44,5 +47,6 @@ export class AppRepos {
       this.inboundMessages = useFirebase ? new FirebaseInboundMessagesRepo() : new InboundMessagesRepo();
       this.interactions = useFirebase ? new FirebaseInteractionsRepo() : new InteractionsRepo(this.consent);
       this.pipelines = useFirebase ? new FirebasePipelinesRepo(this.consent) : new PipelinesRepo(this.consent);
+      this.services = useFirebase ? new FirebaseServicesRepo() : new ServicesRepo();
   }
 }

@@ -20,6 +20,7 @@ export const InitiativesView = ({ initiatives, organizations, pipelines, onNavig
     const repos = useRepos();
     const viewer = useViewer();
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [accessRequestMsg, setAccessRequestMsg] = useState('');
 
     // Get checklists
     const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
@@ -43,7 +44,8 @@ export const InitiativesView = ({ initiatives, organizations, pipelines, onNavig
     };
 
     const handleRequestAccess = () => {
-        alert("Request for access sent to organization owner.");
+        setAccessRequestMsg("Request for access sent to organization owner.");
+        setTimeout(() => setAccessRequestMsg(''), 3000);
     };
 
     return (
@@ -85,12 +87,15 @@ export const InitiativesView = ({ initiatives, organizations, pipelines, onNavig
                                         Organization: <span className="font-medium text-gray-600">{org?.name || 'Unknown'}</span>
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={handleRequestAccess}
-                                    className="px-3 py-1 bg-white border border-gray-300 text-gray-600 text-xs font-bold rounded hover:bg-gray-50"
-                                >
-                                    Request Access
-                                </button>
+                                <div className="flex flex-col items-end gap-1">
+                                    <button
+                                        onClick={handleRequestAccess}
+                                        className="px-3 py-1 bg-white border border-gray-300 text-gray-600 text-xs font-bold rounded hover:bg-gray-50"
+                                    >
+                                        Request Access
+                                    </button>
+                                    {accessRequestMsg && <p className="text-xs text-green-600">{accessRequestMsg}</p>}
+                                </div>
                             </div>
                         );
                     }

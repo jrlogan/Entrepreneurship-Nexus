@@ -63,6 +63,7 @@ export const ManageProcessModal = ({ isOpen, onClose, onSavePipeline, onSaveChec
     const [type, setType] = useState<'pipeline' | 'checklist'>('pipeline');
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [formError, setFormError] = useState('');
     
     // For Pipelines: Stages
     const [stages, setStages] = useState<{name: string, description: string}[]>([
@@ -129,8 +130,9 @@ export const ManageProcessModal = ({ isOpen, onClose, onSavePipeline, onSaveChec
     };
 
     const handleSave = () => {
+        setFormError('');
         if (!name.trim()) {
-            alert("Name is required");
+            setFormError("Name is required");
             return;
         }
 
@@ -151,7 +153,7 @@ export const ManageProcessModal = ({ isOpen, onClose, onSavePipeline, onSaveChec
         } else {
             const validItems = items.filter(i => i.trim() !== '');
             if (validItems.length === 0) {
-                alert("Add at least one item");
+                setFormError("Add at least one item");
                 return;
             }
             const newChecklist: ChecklistTemplate = {
@@ -269,6 +271,7 @@ export const ManageProcessModal = ({ isOpen, onClose, onSavePipeline, onSaveChec
                     </>
                 )}
 
+                {formError && <p className="text-sm text-red-600 mt-2">{formError}</p>}
                 <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
                     <button onClick={onClose} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
                     <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Save {type === 'pipeline' ? 'Pipeline' : 'Checklist'}</button>

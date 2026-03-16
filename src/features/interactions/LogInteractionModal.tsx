@@ -59,6 +59,8 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
     
     // Live API State
     const [isLive, setIsLive] = useState(false);
+    const [formError, setFormError] = useState('');
+    const [micError, setMicError] = useState('');
     
     // Refs for cleanup
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -174,7 +176,7 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
 
         } catch (err) {
             console.error(err);
-            alert("Microphone access failed.");
+            setMicError("Microphone access failed.");
         }
     };
 
@@ -221,8 +223,9 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
     };
 
     const handleSave = () => {
+        setFormError('');
         if (!orgId || !notes) {
-            alert("Please select an organization and enter notes.");
+            setFormError("Please select an organization and enter notes.");
             return;
         }
         stopLiveSession();
@@ -386,6 +389,7 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
                     {isLive && (
                         <p className="text-xs text-red-600 mt-2">Listening... Say "Set date to..." or "Notes are..."</p>
                     )}
+                    {micError && <p className="text-sm text-red-600 mt-2">{micError}</p>}
                 </div>
 
                 <div>
@@ -491,6 +495,7 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
                     )}
                 </div>
 
+                {formError && <p className="text-sm text-red-600 mt-2">{formError}</p>}
                 <div className="flex justify-end gap-3 pt-2">
                     <button onClick={() => { stopLiveSession(); onClose(); }} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
                     <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700">Save Log & Actions</button>

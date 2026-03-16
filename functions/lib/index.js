@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = void 0;
+exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -234,6 +234,82 @@ const requireInviteManager = async (req, res, requestedRole, organizationId, eco
         return null;
     }
 };
+const canManageParticipationForOrg = (memberships, ecosystemId, providerOrgId) => {
+    if (memberships.some((membership) => membership.system_role === 'platform_admin')) {
+        return true;
+    }
+    if (memberships.some((membership) => membership.system_role === 'ecosystem_manager' &&
+        membership.ecosystem_id === ecosystemId)) {
+        return true;
+    }
+    return memberships.some((membership) => membership.ecosystem_id === ecosystemId &&
+        membership.organization_id === providerOrgId &&
+        ['eso_admin', 'eso_staff', 'eso_coach'].includes(membership.system_role));
+};
+const requireParticipationManager = async (req, res, ecosystemId, providerOrgId) => {
+    const authContext = await requireAuthOrApiKey(req, res);
+    if (!authContext) {
+        return null;
+    }
+    if (authContext.type === 'api_key') {
+        if (authContext.organization_id !== providerOrgId) {
+            res.status(403).json({ error: 'API key does not match provider organization' });
+            return null;
+        }
+        return authContext;
+    }
+    const person = await db.collection('people').doc(authContext.uid).get();
+    if (!person.exists) {
+        res.status(403).json({ error: 'No Nexus person record found' });
+        return null;
+    }
+    const memberships = await getActiveMembershipsForPerson(authContext.uid);
+    if (!canManageParticipationForOrg(memberships, ecosystemId, providerOrgId)) {
+        res.status(403).json({ error: 'Participation management access required for this provider organization' });
+        return null;
+    }
+    return authContext;
+};
+const requireUserAuth = async (req, res) => {
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return null;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const person = await db.collection('people').doc(decoded.uid).get();
+        if (!person.exists) {
+            res.status(403).json({ error: 'No Nexus person record found' });
+            return null;
+        }
+        const memberships = await getActiveMembershipsForPerson(decoded.uid);
+        return { uid: decoded.uid, person, memberships };
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid authentication token' });
+        return null;
+    }
+};
+const sanitizeParticipation = (doc) => {
+    const data = doc.data();
+    return {
+        id: data.id,
+        ecosystem_id: data.ecosystem_id,
+        name: data.name,
+        provider_org_id: data.provider_org_id,
+        participation_type: data.participation_type || 'service',
+        recipient_org_id: data.recipient_org_id || null,
+        recipient_person_id: data.recipient_person_id || null,
+        start_date: data.start_date,
+        end_date: data.end_date || null,
+        status: data.status || 'active',
+        description: data.description || '',
+        source: data.source || null,
+        created_at: data.created_at || null,
+        updated_at: data.updated_at || null,
+    };
+};
 const handlePreflight = (req, res) => {
     setCors(res);
     if (req.method === 'OPTIONS') {
@@ -306,6 +382,15 @@ const parseFooter = (text) => {
     }
     return result;
 };
+const extractReferralNote = (text) => {
+    const raw = text || '';
+    const [beforeFooter] = raw.split(/--- NETWORK REFERRAL DATA ---/i);
+    const candidate = (beforeFooter || raw)
+        .replace(/\r\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    return candidate || raw.trim();
+};
 const resolveReceivingOrganization = async (receivingOrgName, toEmails = []) => {
     if (receivingOrgName) {
         const byName = await db.collection('organizations').where('name', '==', receivingOrgName).limit(1).get();
@@ -336,7 +421,10 @@ const upsertDraftOrganization = async (ventureName, ecosystemId) => {
     }
     const exact = await db.collection('organizations').where('name', '==', ventureName).limit(1).get();
     if (!exact.empty) {
-        return exact.docs[0];
+        return {
+            doc: exact.docs[0],
+            created: false,
+        };
     }
     const docRef = db.collection('organizations').doc();
     const now = new Date().toISOString();
@@ -355,9 +443,12 @@ const upsertDraftOrganization = async (ventureName, ecosystemId) => {
         created_at: now,
         updated_at: now,
     });
-    return docRef.get();
+    return {
+        doc: await docRef.get(),
+        created: true,
+    };
 };
-const upsertDraftPerson = async (candidateEmail, candidateName, organizationId, ecosystemId) => {
+const upsertDraftPerson = async (candidateEmail, candidateName, organizationId, ecosystemId, options) => {
     const normalizedEmail = candidateEmail.toLowerCase();
     const existing = await db.collection('people').where('email', '==', normalizedEmail).limit(1).get();
     if (!existing.empty) {
@@ -374,7 +465,7 @@ const upsertDraftPerson = async (candidateEmail, candidateName, organizationId, 
         email: normalizedEmail,
         role: '',
         system_role: 'entrepreneur',
-        primary_organization_id: organizationId || '',
+        primary_organization_id: options?.autoLinkOrganization ? (organizationId || '') : '',
         ecosystem_id: ecosystemId || '',
         status: 'draft',
         created_at: now,
@@ -434,6 +525,12 @@ const enqueueTypedNotice = async (type, toEmail, payload, options) => {
         created_at: new Date().toISOString(),
     });
     return docRef.get();
+};
+const getEcosystemName = async (ecosystemId) => {
+    if (!ecosystemId)
+        return null;
+    const doc = await db.collection('ecosystems').doc(ecosystemId).get();
+    return doc.exists ? (doc.get('name') || null) : null;
 };
 const getReferralManageUrl = (ecosystemId) => {
     const baseUrl = getAppBaseUrl();
@@ -502,8 +599,10 @@ const queueSenderReferralNotice = async (args) => {
         referral_id: args.referralId,
         inbound_message_id: args.inboundMessageId,
         ecosystem_id: args.ecosystemId || null,
+        ecosystem_name: args.ecosystemName || null,
         receiving_org_name: args.receivingOrgName || null,
         referring_org_name: referringOrgName,
+        subject_name: args.subjectName || null,
         sender_domain: args.senderDomainMatch?.domain || getEmailDomain(senderEmail),
         manage_url: getReferralManageUrl(args.ecosystemId),
         intake_url: getInboundIntakeUrl(args.ecosystemId),
@@ -595,7 +694,59 @@ const getPostmarkConfig = () => {
     const messageStream = getRequiredEnv('POSTMARK_MESSAGE_STREAM') || 'outbound';
     return { serverToken, fromEmail, messageStream };
 };
+// ---------------------------------------------------------------------------
+// Email layout helpers
+// ---------------------------------------------------------------------------
+const emailWrap = (content, ecosystemName) => {
+    const brand = ecosystemName || 'Entrepreneurship Nexus';
+    const nexusUrl = getAppBaseUrl();
+    return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,sans-serif;color:#1a1a2e;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:#1a1a2e;padding:20px 32px;">
+            <span style="color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:0.5px;">${brand}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px;">
+            ${content}
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f4f4f5;padding:16px 32px;text-align:center;font-size:12px;color:#6b7280;">
+            Powered by <a href="${nexusUrl}" style="color:#6b7280;">Entrepreneurship Nexus</a>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+};
+const ctaButton = (label, url) => `<p style="margin:24px 0 0;">
+    <a href="${url}" style="display:inline-block;background:#1a1a2e;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:15px;font-weight:bold;">${label}</a>
+  </p>`;
+const emailP = (text) => `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1a1a2e;">${text}</p>`;
+const emailH2 = (text) => `<h2 style="margin:0 0 20px;font-size:20px;font-weight:bold;color:#1a1a2e;">${text}</h2>`;
+const detailBox = (rows) => `
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:6px;padding:0;margin:20px 0;">
+    ${rows.map(([label, value]) => `
+      <tr>
+        <td style="padding:8px 16px;font-size:13px;color:#6b7280;white-space:nowrap;vertical-align:top;">${label}</td>
+        <td style="padding:8px 16px;font-size:14px;color:#1a1a2e;vertical-align:top;">${value}</td>
+      </tr>`).join('')}
+  </table>`;
+// ---------------------------------------------------------------------------
+// Notice renderer
+// ---------------------------------------------------------------------------
 const renderNoticeContent = (notice) => {
+    const ecosystemName = notice.payload?.ecosystem_name || null;
+    const wrap = (content) => emailWrap(content, ecosystemName);
     if (notice.type === 'access_invite') {
         const inviteUrl = notice.payload?.invite_url || getAppBaseUrl();
         const invitedRole = notice.payload?.invited_role || 'member';
@@ -612,62 +763,237 @@ const renderNoticeContent = (notice) => {
                 'Thank you,',
                 'Entrepreneurship Nexus',
             ].join('\n'),
-            htmlBody: `
-        <p>Hello,</p>
-        <p>You have been invited to Entrepreneurship Nexus as <strong>${invitedRole}</strong>.</p>
-        <p><a href="${inviteUrl}">Accept your invite</a></p>
-        <p>If you already have an account, sign in with the invited email address before accepting.</p>
-        <p>Thank you,<br />Entrepreneurship Nexus</p>
-      `,
+            htmlBody: wrap([
+                emailH2('You\'ve been invited'),
+                emailP(`You have been invited to join <strong>Entrepreneurship Nexus</strong> as a <strong>${invitedRole}</strong>.`),
+                emailP('Entrepreneurship Nexus connects entrepreneurs with the right resources, coaches, and organizations in your ecosystem.'),
+                emailP('If you already have an account, sign in with this email address before accepting.'),
+                ctaButton('Accept Invitation', inviteUrl),
+            ].join('')),
         };
     }
     if (notice.type === 'referral_follow_up') {
         const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
+        const referringOrgName = notice.payload?.referring_org_name || null;
+        const networkName = ecosystemName || 'the network';
+        const appUrl = getAppBaseUrl();
+        const introLine = referringOrgName
+            ? `<strong>${referringOrgName}</strong> has introduced you to <strong>${receivingOrgName}</strong>.`
+            : `You have been referred to <strong>${receivingOrgName}</strong> through ${networkName}.`;
+        const introLineText = referringOrgName
+            ? `${referringOrgName} has introduced you to ${receivingOrgName}.`
+            : `You have been referred to ${receivingOrgName} through ${networkName}.`;
         return {
-            subject: 'Confirm your Entrepreneurship Nexus referral',
+            subject: `${referringOrgName ? `${referringOrgName} introduced you to` : 'You\'ve been referred to'} ${receivingOrgName}`,
             textBody: [
                 'Hello,',
                 '',
-                `A referral introduction was logged for ${receivingOrgName}.`,
-                'We are following up so you can confirm your sharing preferences and complete your network profile.',
+                introLineText,
                 '',
-                'You can sign in to Entrepreneurship Nexus to review and manage your information.',
+                'You can create a free account to track the status of your referral and stay informed as things move forward.',
                 '',
-                'Thank you,',
-                'Entrepreneurship Nexus',
+                `Get started: ${appUrl}`,
+                '',
             ].join('\n'),
-            htmlBody: `
-        <p>Hello,</p>
-        <p>A referral introduction was logged for <strong>${receivingOrgName}</strong>.</p>
-        <p>We are following up so you can confirm your sharing preferences and complete your network profile.</p>
-        <p>You can sign in to Entrepreneurship Nexus to review and manage your information.</p>
-        <p>Thank you,<br />Entrepreneurship Nexus</p>
-      `,
+            htmlBody: wrap([
+                emailH2(`You've been referred to ${receivingOrgName}`),
+                emailP(introLine),
+                emailP('Create a free account to track the status of your referral and stay informed as things move forward.'),
+                ctaButton('Track Your Referral', appUrl),
+                emailP('<span style="font-size:13px;color:#6b7280;">If you already have an account, sign in with this email address.</span>'),
+            ].join('')),
+        };
+    }
+    if (notice.type === 'referral_new_intake') {
+        const subjectName = notice.payload?.subject_name || 'a new contact';
+        const referringOrgName = notice.payload?.referring_org_name || 'a partner organization';
+        const ventureName = notice.payload?.venture_name || null;
+        const supportNeeds = notice.payload?.support_needs || [];
+        const ventureStage = notice.payload?.venture_stage || null;
+        const referralNotes = notice.payload?.referral_notes || '';
+        const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+        const detailRows = [
+            ['Referred by', referringOrgName],
+        ];
+        if (ventureName)
+            detailRows.push(['Venture', ventureName]);
+        if (ventureStage)
+            detailRows.push(['Stage', ventureStage.replace(/_/g, ' ')]);
+        if (supportNeeds.length)
+            detailRows.push(['Support needed', supportNeeds.map((n) => n.replace(/_/g, ' ')).join(', ')]);
+        const textLines = [
+            `Hello,`,
+            '',
+            `${referringOrgName} has referred ${subjectName}${ventureName ? ` (${ventureName})` : ''} to your organization.`,
+            '',
+            referralNotes ? `Introduction notes:\n${referralNotes}` : '',
+            supportNeeds.length ? `Support needs: ${supportNeeds.join(', ')}` : '',
+            ventureStage ? `Venture stage: ${ventureStage}` : '',
+            '',
+            'This referral has been logged in Entrepreneurship Nexus. You can sign in to review it, assign it to a team member, and update its status.',
+            '',
+            `Open referral: ${manageUrl}`,
+            '',
+            'Thank you,',
+            'Entrepreneurship Nexus',
+        ].filter(Boolean);
+        return {
+            subject: `New referral: ${subjectName}${ventureName ? ` — ${ventureName}` : ''} via ${referringOrgName}`,
+            textBody: textLines.join('\n'),
+            htmlBody: wrap([
+                emailH2('New referral received'),
+                emailP(`<strong>${referringOrgName}</strong> has referred <strong>${subjectName}</strong>${ventureName ? ` of <strong>${ventureName}</strong>` : ''} to your organization.`),
+                detailBox(detailRows),
+                referralNotes ? [
+                    `<p style="margin:0 0 8px;font-size:13px;font-weight:bold;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;">Introduction notes</p>`,
+                    `<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#1a1a2e;background:#f9fafb;border-left:3px solid #1a1a2e;padding:12px 16px;border-radius:0 4px 4px 0;">${referralNotes.replace(/\n/g, '<br>')}</p>`,
+                ].join('') : '',
+                emailP('This referral is tracked in Entrepreneurship Nexus. Sign in to assign it to a team member, review the full profile, and update the status as your work progresses.'),
+                ctaButton('Review Referral', manageUrl),
+                emailP('<span style="font-size:13px;color:#6b7280;">Don\'t have an account? Your organization administrator can invite you, or contact us to get set up.</span>'),
+            ].join('')),
         };
     }
     if (notice.type === 'sender_referral_receipt') {
         const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
+        const subjectName = notice.payload?.subject_name || null;
         const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+        const introLine = subjectName
+            ? `Your referral for <strong>${subjectName}</strong> to <strong>${receivingOrgName}</strong> has been logged.`
+            : `Your referral to <strong>${receivingOrgName}</strong> has been logged in Entrepreneurship Nexus.`;
         return {
-            subject: 'Your referral is now in Entrepreneurship Nexus',
+            subject: subjectName
+                ? `Referral logged: ${subjectName} → ${receivingOrgName}`
+                : `Your referral to ${receivingOrgName} is now in Entrepreneurship Nexus`,
             textBody: [
                 'Hello,',
                 '',
-                `Your referral for ${receivingOrgName} has been logged in Entrepreneurship Nexus.`,
-                'You can sign in to review the referral status, add updates, and mark the work complete.',
+                subjectName
+                    ? `Your referral for ${subjectName} to ${receivingOrgName} has been logged in Entrepreneurship Nexus.`
+                    : `Your referral to ${receivingOrgName} has been logged in Entrepreneurship Nexus.`,
+                'You can sign in to track its status, add notes, and mark the work complete when it wraps up.',
+                '',
+                `Open referral workspace: ${manageUrl}`,
+                '',
+                'Thank you,',
+                'Entrepreneurship Nexus',
+            ].join('\n'),
+            htmlBody: wrap([
+                emailH2('Referral logged'),
+                emailP(introLine),
+                emailP('Sign in to track its status, add notes, and mark the work complete when it wraps up.'),
+                ctaButton('Open Referral Workspace', manageUrl),
+            ].join('')),
+        };
+    }
+    if (notice.type === 'referral_sender_reminder' || notice.type === 'referral_sender_follow_up') {
+        const isFollowUp = notice.type === 'referral_sender_follow_up';
+        const receivingOrgName = notice.payload?.receiving_org_name || 'your organization';
+        const referringOrgName = notice.payload?.referring_org_name || 'a partner organization';
+        const subjectLabel = notice.payload?.subject_label || 'this referral';
+        const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+        const senderName = notice.payload?.sender_name || 'A colleague';
+        const customMessage = notice.payload?.custom_message || '';
+        const defaultBody = isFollowUp
+            ? 'Additional details have been added for your team.'
+            : 'When you have a moment, please review it in Entrepreneurship Nexus and accept it if it is a fit.';
+        return {
+            subject: isFollowUp
+                ? `Follow-up on referral: ${subjectLabel}`
+                : `Reminder: referral for ${subjectLabel} is pending`,
+            textBody: [
+                `Hello ${receivingOrgName},`,
+                '',
+                isFollowUp
+                    ? `${senderName} from ${referringOrgName} shared a follow-up on the referral for ${subjectLabel}.`
+                    : `${senderName} from ${referringOrgName} is checking in on the referral for ${subjectLabel}.`,
+                customMessage || defaultBody,
+                '',
+                `Open referral workspace: ${manageUrl}`,
+                '',
+                'Thank you,',
+                'Entrepreneurship Nexus',
+            ].join('\n'),
+            htmlBody: wrap([
+                emailH2(isFollowUp ? 'Referral follow-up' : 'Referral reminder'),
+                emailP(isFollowUp
+                    ? `<strong>${senderName}</strong> from <strong>${referringOrgName}</strong> shared a follow-up on the referral for <strong>${subjectLabel}</strong>.`
+                    : `<strong>${senderName}</strong> from <strong>${referringOrgName}</strong> is checking in on the referral for <strong>${subjectLabel}</strong>.`),
+                emailP(customMessage || defaultBody),
+                ctaButton('Open Referral Workspace', manageUrl),
+            ].join('')),
+        };
+    }
+    if (notice.type === 'referral_decision_update') {
+        const decision = notice.payload?.decision === 'declined' ? 'declined' : 'accepted';
+        const recipientKind = notice.payload?.recipient_kind === 'introducer' ? 'introducer' : 'entrepreneur';
+        const receivingOrgName = notice.payload?.receiving_org_name || 'the receiving organization';
+        const referringOrgName = notice.payload?.referring_org_name || 'the introducing organization';
+        const subjectLabel = notice.payload?.subject_label || 'this referral';
+        const sharedNote = notice.payload?.shared_note || '';
+        const actionMessage = notice.payload?.action_message || '';
+        const customSubject = notice.payload?.custom_subject || '';
+        const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+        if (decision === 'accepted') {
+            const defaultHeadline = recipientKind === 'entrepreneur'
+                ? `${receivingOrgName} accepted your referral`
+                : `${receivingOrgName} accepted the referral for ${subjectLabel}`;
+            const headline = customSubject || defaultHeadline;
+            const bodyLine = recipientKind === 'entrepreneur'
+                ? `<strong>${receivingOrgName}</strong> has accepted the referral connected to you and will be following up.`
+                : `<strong>${receivingOrgName}</strong> accepted the referral that <strong>${referringOrgName}</strong> sent for <strong>${subjectLabel}</strong>.`;
+            return {
+                subject: headline,
+                textBody: [
+                    'Hello,',
+                    '',
+                    recipientKind === 'entrepreneur'
+                        ? `${receivingOrgName} accepted the referral connected to you and will be following up.`
+                        : `${receivingOrgName} accepted the referral that ${referringOrgName} sent for ${subjectLabel}.`,
+                    sharedNote ? `Shared note: ${sharedNote}` : '',
+                    actionMessage || '',
+                    '',
+                    `Referral workspace: ${manageUrl}`,
+                    '',
+                    'Thank you,',
+                    'Entrepreneurship Nexus',
+                ].filter(Boolean).join('\n'),
+                htmlBody: wrap([
+                    emailH2(headline),
+                    emailP(bodyLine),
+                    sharedNote ? emailP(`<strong>Note from ${receivingOrgName}:</strong> ${sharedNote}`) : '',
+                    actionMessage ? emailP(actionMessage) : '',
+                    ctaButton('View Referral', manageUrl),
+                ].join('')),
+            };
+        }
+        const headline = recipientKind === 'entrepreneur'
+            ? `${receivingOrgName} is unable to take this referral`
+            : `${receivingOrgName} declined the referral for ${subjectLabel}`;
+        const bodyLine = recipientKind === 'entrepreneur'
+            ? `<strong>${receivingOrgName}</strong> is not able to take on this referral at this time.`
+            : `<strong>${receivingOrgName}</strong> declined the referral that <strong>${referringOrgName}</strong> sent for <strong>${subjectLabel}</strong>.`;
+        return {
+            subject: headline,
+            textBody: [
+                'Hello,',
+                '',
+                recipientKind === 'entrepreneur'
+                    ? `${receivingOrgName} is not able to take on this referral at this time.`
+                    : `${receivingOrgName} declined the referral that ${referringOrgName} sent for ${subjectLabel}.`,
+                sharedNote ? `Reason shared: ${sharedNote}` : '',
                 '',
                 `Referral workspace: ${manageUrl}`,
                 '',
                 'Thank you,',
                 'Entrepreneurship Nexus',
-            ].join('\n'),
-            htmlBody: `
-        <p>Hello,</p>
-        <p>Your referral for <strong>${receivingOrgName}</strong> has been logged in Entrepreneurship Nexus.</p>
-        <p>You can sign in to review the referral status, add updates, and mark the work complete.</p>
-        <p><a href="${manageUrl}">Open referral workspace</a></p>
-        <p>Thank you,<br />Entrepreneurship Nexus</p>
-      `,
+            ].filter(Boolean).join('\n'),
+            htmlBody: wrap([
+                emailH2(headline),
+                emailP(bodyLine),
+                sharedNote ? emailP(`<strong>Reason shared:</strong> ${sharedNote}`) : '',
+                ctaButton('View Referral', manageUrl),
+            ].join('')),
         };
     }
     if (notice.type === 'sender_domain_claim') {
@@ -675,84 +1001,82 @@ const renderNoticeContent = (notice) => {
         const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
         const senderDomain = notice.payload?.sender_domain || 'your organization email domain';
         return {
-            subject: 'Manage your referral in Entrepreneurship Nexus',
+            subject: 'Your referral is in Entrepreneurship Nexus — sign in to manage it',
             textBody: [
                 'Hello,',
                 '',
                 `We logged a referral for ${receivingOrgName} from ${senderDomain}.`,
-                'Your organization email domain is approved for this ecosystem, so you can manage this referral in Entrepreneurship Nexus after signing in with this email address.',
+                'Your organization\'s email domain is approved for this ecosystem.',
+                'Sign in to Entrepreneurship Nexus with this email address to manage the referral, track its status, and add notes.',
                 '',
-                `Sign in and review the referral here: ${manageUrl}`,
+                `Sign in here: ${manageUrl}`,
                 '',
                 'Thank you,',
                 'Entrepreneurship Nexus',
             ].join('\n'),
-            htmlBody: `
-        <p>Hello,</p>
-        <p>We logged a referral for <strong>${receivingOrgName}</strong> from <strong>${senderDomain}</strong>.</p>
-        <p>Your organization email domain is approved for this ecosystem, so you can manage this referral in Entrepreneurship Nexus after signing in with this email address.</p>
-        <p><a href="${manageUrl}">Sign in and review the referral</a></p>
-        <p>Thank you,<br />Entrepreneurship Nexus</p>
-      `,
+            htmlBody: wrap([
+                emailH2('Referral logged — claim it in Nexus'),
+                emailP(`We logged a referral for <strong>${receivingOrgName}</strong> that came from <strong>${senderDomain}</strong>.`),
+                emailP('Your organization\'s email domain is approved for this ecosystem. Sign in to Entrepreneurship Nexus with this email address to manage the referral, track its status, and add notes.'),
+                ctaButton('Sign In & Review Referral', manageUrl),
+                emailP('<span style="font-size:13px;color:#6b7280;">New to Nexus? Use the sign-in page to create an account — your domain is already approved.</span>'),
+            ].join('')),
         };
     }
     if (notice.type === 'sender_access_request') {
         const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
         const requestAccessUrl = notice.payload?.request_access_url || getAppBaseUrl();
         return {
-            subject: 'Your referral was received by Entrepreneurship Nexus',
+            subject: 'We received your referral — request access to track it',
             textBody: [
                 'Hello,',
                 '',
-                `We received your referral for ${receivingOrgName}.`,
-                'To manage referrals directly in Entrepreneurship Nexus, sign in and use the request access flow for your organization.',
+                `We received your referral for ${receivingOrgName} and it has been logged in Entrepreneurship Nexus.`,
+                'To manage referrals and track outcomes, sign in to Nexus and request access for your organization.',
+                'If your organization already uses Nexus, an existing administrator can invite you directly.',
                 '',
                 `Open Entrepreneurship Nexus: ${requestAccessUrl}`,
-                '',
-                'If your organization already uses Nexus, an administrator can also invite you directly.',
                 '',
                 'Thank you,',
                 'Entrepreneurship Nexus',
             ].join('\n'),
-            htmlBody: `
-        <p>Hello,</p>
-        <p>We received your referral for <strong>${receivingOrgName}</strong>.</p>
-        <p>To manage referrals directly in Entrepreneurship Nexus, sign in and use the request access flow for your organization.</p>
-        <p><a href="${requestAccessUrl}">Open Entrepreneurship Nexus</a></p>
-        <p>If your organization already uses Nexus, an administrator can also invite you directly.</p>
-        <p>Thank you,<br />Entrepreneurship Nexus</p>
-      `,
+            htmlBody: wrap([
+                emailH2('Referral received'),
+                emailP(`Your referral for <strong>${receivingOrgName}</strong> has been logged in Entrepreneurship Nexus.`),
+                emailP('To manage referrals and track outcomes directly in Nexus, sign in and request access for your organization. If your organization is already on Nexus, an administrator can invite you directly.'),
+                ctaButton('Request Access', requestAccessUrl),
+            ].join('')),
         };
     }
     if (notice.type === 'sender_invite_required') {
         const receivingOrgName = notice.payload?.receiving_org_name || 'a partner organization';
         const requestAccessUrl = notice.payload?.request_access_url || getAppBaseUrl();
         return {
-            subject: 'An invite is required to manage this referral',
+            subject: 'Referral received — an invite is required to manage it',
             textBody: [
                 'Hello,',
                 '',
                 `We received your referral for ${receivingOrgName}.`,
-                'Your organization is configured for invite-based access. Please sign in and request access, or ask an existing Nexus administrator to invite you.',
+                'Your organization is configured for invite-based access in this ecosystem.',
+                'Ask an existing Nexus administrator at your organization to invite you, or sign in to request access.',
                 '',
                 `Open Entrepreneurship Nexus: ${requestAccessUrl}`,
                 '',
                 'Thank you,',
                 'Entrepreneurship Nexus',
             ].join('\n'),
-            htmlBody: `
-        <p>Hello,</p>
-        <p>We received your referral for <strong>${receivingOrgName}</strong>.</p>
-        <p>Your organization is configured for invite-based access. Please sign in and request access, or ask an existing Nexus administrator to invite you.</p>
-        <p><a href="${requestAccessUrl}">Open Entrepreneurship Nexus</a></p>
-        <p>Thank you,<br />Entrepreneurship Nexus</p>
-      `,
+            htmlBody: wrap([
+                emailH2('Referral received'),
+                emailP(`Your referral for <strong>${receivingOrgName}</strong> has been received.`),
+                emailP('Your organization is configured for invite-based access in this ecosystem. Ask an existing Nexus administrator at your organization to invite you, or sign in to request access.'),
+                ctaButton('Sign In to Request Access', requestAccessUrl),
+            ].join('')),
         };
     }
     return {
         subject: 'Notification from Entrepreneurship Nexus',
         textBody: 'A new notification is available in Entrepreneurship Nexus.',
-        htmlBody: '<p>A new notification is available in Entrepreneurship Nexus.</p>',
+        htmlBody: wrap(emailP('A new notification is available in Entrepreneurship Nexus.')),
     };
 };
 const sendPostmarkEmail = async (notice) => {
@@ -792,6 +1116,7 @@ const processInboundEmailPayload = async (payload) => {
     const routeMatch = await db.collection('inbound_routes').where('route_address', '==', routeAddress).limit(1).get();
     const route = routeMatch.empty ? null : routeMatch.docs[0].data();
     const footer = parseFooter(payload.text_body);
+    const referralNote = extractReferralNote(payload.text_body);
     const clientEmail = normalize(typeof footer?.client_email === 'string' ? footer.client_email : undefined)
         || extractEmails(payload.text_body).find((email) => email !== normalize(payload.from_email)) || '';
     const clientName = typeof footer?.client_name === 'string' ? footer.client_name : extractNameFromSubject(payload.subject);
@@ -829,9 +1154,13 @@ const processInboundEmailPayload = async (payload) => {
         received_at: now,
     });
     const receivingOrganization = await resolveReceivingOrganization(receivingOrgName, payload.to_emails || []);
-    const organization = await upsertDraftOrganization(ventureName, route?.ecosystem_id);
+    const ecosystemName = await getEcosystemName(route?.ecosystem_id);
+    const organizationResult = await upsertDraftOrganization(ventureName, route?.ecosystem_id);
+    const organization = organizationResult?.doc || null;
     const person = clientEmail
-        ? await upsertDraftPerson(clientEmail, clientName, organization?.id, route?.ecosystem_id)
+        ? await upsertDraftPerson(clientEmail, clientName, organization?.id, route?.ecosystem_id, {
+            autoLinkOrganization: !!organizationResult?.created,
+        })
         : null;
     const parseResultRef = db.collection('inbound_parse_results').doc();
     await parseResultRef.set({
@@ -859,29 +1188,65 @@ const processInboundEmailPayload = async (payload) => {
         receiving_org_id: receivingOrganization?.id || null,
         subject_person_id: person?.id || null,
         subject_org_id: organization?.id || null,
+        date: now,
         status: 'pending',
-        notes: payload.text_body || '',
+        notes: referralNote,
         intro_email_sent: true,
         source: 'bcc_intake',
         created_at: now,
     });
-    if (person && clientEmail && introContactPermission !== 'not_confirmed') {
+    // Determine receiving org's intake preferences before deciding what to send
+    const receivingOrgIntakePrefs = receivingOrganization?.get('referral_intake_prefs') || {};
+    const suppressEntrepreneurIntro = !!receivingOrgIntakePrefs.suppress_entrepreneur_intro;
+    const receivingOrgIntakeEmail = receivingOrgIntakePrefs.intake_contact_email || receivingOrganization?.get('email') || null;
+    // Resolve referring org name once (used in multiple notices below)
+    const referringOrgName = referringOrgId
+        ? ((await db.collection('organizations').doc(referringOrgId).get()).get('name') || null)
+        : null;
+    // Notify the entrepreneur — skip if the receiving org manages their own comms
+    if (!suppressEntrepreneurIntro && person && clientEmail && introContactPermission !== 'not_confirmed') {
         await enqueueNotice(person.id, clientEmail, {
             inbound_message_id: inboundMessageRef.id,
             referral_id: referralRef.id,
             receiving_org_name: receivingOrganization?.get('name') || receivingOrgName || null,
+            referring_org_name: referringOrgName,
+            ecosystem_name: ecosystemName,
             subject: payload.subject || '',
+        });
+    }
+    // Notify the receiving agency that a new referral has arrived
+    if (receivingOrgIntakeEmail) {
+        const receivingOrgDocName = receivingOrganization
+            ? (await db.collection('organizations').doc(receivingOrganization.id).get()).get('name') || receivingOrgName || null
+            : receivingOrgName || null;
+        await enqueueTypedNotice('referral_new_intake', receivingOrgIntakeEmail, {
+            inbound_message_id: inboundMessageRef.id,
+            referral_id: referralRef.id,
+            subject_name: clientName || null,
+            venture_name: ventureName || null,
+            venture_stage: ventureStage || null,
+            support_needs: supportNeeds,
+            referral_notes: referralNote || null,
+            referring_org_name: referringOrgName,
+            receiving_org_name: receivingOrgDocName,
+            ecosystem_id: route?.ecosystem_id || null,
+            ecosystem_name: ecosystemName,
+            manage_url: getReferralManageUrl(route?.ecosystem_id || null),
+        }, {
+            dedupeKey: `${referralRef.id}:new-intake:${receivingOrgIntakeEmail}`,
         });
     }
     await queueSenderReferralNotice({
         senderEmail,
         ecosystemId: route?.ecosystem_id || null,
+        ecosystemName,
         referralId: referralRef.id,
         inboundMessageId: inboundMessageRef.id,
         receivingOrgName: receivingOrganization?.get('name') || receivingOrgName || null,
         referringOrgId,
         senderDomainMatch: senderDomainInfo.match,
         subject: payload.subject || '',
+        subjectName: clientName || null,
     });
     await inboundMessageRef.update({
         parse_status: 'parsed',
@@ -1251,18 +1616,31 @@ exports.createInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
     const organizationId = req.body?.organization_id || '';
     const requestedEcosystemId = req.body?.ecosystem_id || '';
     const note = req.body?.note || '';
-    if (!email || !organizationId) {
-        res.status(400).json({ error: 'email and organization_id are required' });
+    if (!email) {
+        res.status(400).json({ error: 'email is required' });
         return;
     }
     let ecosystemId = '';
-    try {
-        const scope = await resolveInviteScope(organizationId, requestedEcosystemId || null);
-        ecosystemId = scope.ecosystemId;
+    if (organizationId) {
+        try {
+            const scope = await resolveInviteScope(organizationId, requestedEcosystemId || null);
+            ecosystemId = scope.ecosystemId;
+        }
+        catch (error) {
+            res.status(400).json({ error: error?.message || 'Unable to resolve invite scope' });
+            return;
+        }
     }
-    catch (error) {
-        res.status(400).json({ error: error?.message || 'Unable to resolve invite scope' });
-        return;
+    else {
+        if (invitedRole !== 'entrepreneur') {
+            res.status(400).json({ error: 'organization_id is required for ESO staff, coach, and admin invites' });
+            return;
+        }
+        ecosystemId = requestedEcosystemId || '';
+        if (!ecosystemId) {
+            res.status(400).json({ error: 'ecosystem_id is required when inviting an entrepreneur without an organization' });
+            return;
+        }
     }
     const manager = await requireInviteManager(req, res, invitedRole, organizationId, ecosystemId);
     if (!manager) {
@@ -1665,6 +2043,337 @@ exports.approveAccountRequest = (0, https_1.onRequest)({ invoker: 'public' }, as
     });
     res.json({ ok: true, request_id: requestId });
 });
+exports.upsertParticipation = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const ecosystemId = normalize(req.body?.ecosystem_id);
+    const providerOrgId = normalize(req.body?.provider_org_id);
+    const name = (req.body?.name || '').toString().trim();
+    const participationType = normalize(req.body?.participation_type) || 'service';
+    const recipientOrgId = normalize(req.body?.recipient_org_id);
+    const recipientPersonId = normalize(req.body?.recipient_person_id);
+    const startDate = (req.body?.start_date || '').toString().trim();
+    const endDate = (req.body?.end_date || '').toString().trim();
+    const status = normalize(req.body?.status) || 'active';
+    const description = (req.body?.description || '').toString().trim();
+    const requestedId = normalize(req.body?.id);
+    if (!ecosystemId || !providerOrgId || !name || !startDate) {
+        res.status(400).json({ error: 'ecosystem_id, provider_org_id, name, and start_date are required' });
+        return;
+    }
+    if (!recipientOrgId && !recipientPersonId) {
+        res.status(400).json({ error: 'recipient_org_id or recipient_person_id is required' });
+        return;
+    }
+    if (!['program', 'application', 'membership', 'residency', 'rental', 'event', 'service'].includes(participationType)) {
+        res.status(400).json({ error: 'Invalid participation_type' });
+        return;
+    }
+    if (!['active', 'past', 'applied', 'waitlisted'].includes(status)) {
+        res.status(400).json({ error: 'Invalid status' });
+        return;
+    }
+    const providerOrg = await db.collection('organizations').doc(providerOrgId).get();
+    if (!providerOrg.exists) {
+        res.status(404).json({ error: 'Provider organization not found' });
+        return;
+    }
+    const providerOrgEcosystemIds = (providerOrg.get('ecosystem_ids') || []);
+    if (!providerOrgEcosystemIds.includes(ecosystemId)) {
+        res.status(400).json({ error: 'Provider organization is not part of the requested ecosystem' });
+        return;
+    }
+    const authContext = await requireParticipationManager(req, res, ecosystemId, providerOrgId);
+    if (!authContext) {
+        return;
+    }
+    const now = new Date().toISOString();
+    const participationRef = requestedId
+        ? db.collection('participations').doc(requestedId)
+        : db.collection('participations').doc();
+    const existing = requestedId ? await participationRef.get() : null;
+    if (existing && existing.exists) {
+        const existingProviderOrgId = normalize(existing.get('provider_org_id'));
+        if (existingProviderOrgId !== providerOrgId) {
+            res.status(403).json({ error: 'Existing participation belongs to a different provider organization' });
+            return;
+        }
+    }
+    const payload = {
+        id: participationRef.id,
+        ecosystem_id: ecosystemId,
+        name,
+        provider_org_id: providerOrgId,
+        participation_type: participationType,
+        recipient_org_id: recipientOrgId || undefined,
+        recipient_person_id: recipientPersonId || undefined,
+        start_date: startDate,
+        end_date: endDate || undefined,
+        status: status,
+        description: description || undefined,
+        source: authContext.type === 'api_key' ? 'external_sync' : 'api',
+        created_at: existing?.exists ? (existing.get('created_at') || now) : now,
+        updated_at: now,
+        updated_by_uid: authContext.type === 'user' ? authContext.uid : undefined,
+        updated_via_api_key_id: authContext.type === 'api_key' ? authContext.key_id : undefined,
+    };
+    await participationRef.set(payload, { merge: true });
+    if (authContext.type === 'user') {
+        await logAudit(existing?.exists ? 'participation_updated' : 'participation_created', authContext.uid, {
+            participation_id: participationRef.id,
+            ecosystem_id: ecosystemId,
+            provider_org_id: providerOrgId,
+            recipient_org_id: recipientOrgId || null,
+            recipient_person_id: recipientPersonId || null,
+            status,
+            participation_type: participationType,
+        });
+    }
+    res.json({
+        ok: true,
+        participation: sanitizeParticipation(await participationRef.get()),
+    });
+});
+exports.listParticipations = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const ecosystemId = normalize(req.body?.ecosystem_id);
+    const providerOrgId = normalize(req.body?.provider_org_id);
+    const recipientOrgId = normalize(req.body?.recipient_org_id);
+    const recipientPersonId = normalize(req.body?.recipient_person_id);
+    if (!ecosystemId || !providerOrgId) {
+        res.status(400).json({ error: 'ecosystem_id and provider_org_id are required' });
+        return;
+    }
+    const authContext = await requireParticipationManager(req, res, ecosystemId, providerOrgId);
+    if (!authContext) {
+        return;
+    }
+    const snapshot = await db.collection('participations')
+        .where('ecosystem_id', '==', ecosystemId)
+        .where('provider_org_id', '==', providerOrgId)
+        .get();
+    let docs = snapshot.docs;
+    if (recipientOrgId) {
+        docs = docs.filter((doc) => normalize(doc.get('recipient_org_id')) === recipientOrgId);
+    }
+    if (recipientPersonId) {
+        docs = docs.filter((doc) => normalize(doc.get('recipient_person_id')) === recipientPersonId);
+    }
+    docs.sort((left, right) => {
+        const leftTime = new Date((left.get('start_date') || '')).getTime();
+        const rightTime = new Date((right.get('start_date') || '')).getTime();
+        return rightTime - leftTime;
+    });
+    res.json({
+        participations: docs.map((doc) => sanitizeParticipation(doc)),
+    });
+});
+exports.sendReferralReminder = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const auth = await requireUserAuth(req, res);
+    if (!auth) {
+        return;
+    }
+    const referralId = normalize(req.body?.referral_id);
+    const message = (req.body?.message || '').toString().trim();
+    const mode = normalize(req.body?.mode) || 'reminder';
+    if (!referralId) {
+        res.status(400).json({ error: 'referral_id is required' });
+        return;
+    }
+    const referralDoc = await db.collection('referrals').doc(referralId).get();
+    if (!referralDoc.exists) {
+        res.status(404).json({ error: 'Referral not found' });
+        return;
+    }
+    const referral = referralDoc.data() || {};
+    const referralEcosystemId = normalize(referral.ecosystem_id);
+    const referringOrgId = normalize(referral.referring_org_id);
+    const receivingOrgId = normalize(referral.receiving_org_id);
+    const isPlatformAdmin = auth.memberships.some((membership) => membership.system_role === 'platform_admin');
+    const isSenderScoped = auth.memberships.some((membership) => membership.organization_id === referringOrgId &&
+        membership.ecosystem_id === referralEcosystemId);
+    if (!isPlatformAdmin && !isSenderScoped) {
+        res.status(403).json({ error: 'Only the referring organization can send reminders for this referral' });
+        return;
+    }
+    const receivingOrgDoc = receivingOrgId ? await db.collection('organizations').doc(receivingOrgId).get() : null;
+    const recipientEmail = normalize(receivingOrgDoc?.get('email'));
+    if (!recipientEmail) {
+        res.status(400).json({ error: 'Receiving organization does not have an email configured' });
+        return;
+    }
+    const referringOrgDoc = referringOrgId ? await db.collection('organizations').doc(referringOrgId).get() : null;
+    const subjectPersonDoc = referral.subject_person_id ? await db.collection('people').doc(referral.subject_person_id).get() : null;
+    const subjectPersonName = subjectPersonDoc?.exists
+        ? `${subjectPersonDoc.get('first_name') || ''} ${subjectPersonDoc.get('last_name') || ''}`.trim()
+        : 'this referral';
+    const referralLabel = subjectPersonName || 'this referral';
+    const senderName = `${auth.person.get('first_name') || ''} ${auth.person.get('last_name') || ''}`.trim() || 'A colleague';
+    const senderOrgName = referringOrgDoc?.get('name') || 'a partner organization';
+    const receivingOrgName = receivingOrgDoc?.get('name') || 'your organization';
+    const manageUrl = getReferralManageUrl(referralEcosystemId);
+    const noticeType = mode === 'follow_up' ? 'referral_sender_follow_up' : 'referral_sender_reminder';
+    const payload = {
+        referral_id: referralId,
+        receiving_org_name: receivingOrgName,
+        referring_org_name: senderOrgName,
+        subject_label: referralLabel,
+        manage_url: manageUrl,
+        sender_name: senderName,
+        custom_message: message,
+    };
+    const sendResult = await sendPostmarkEmail({
+        id: `adhoc_${noticeType}_${Date.now()}`,
+        type: noticeType,
+        to_email: recipientEmail,
+        payload,
+    });
+    await logAudit(mode === 'follow_up' ? 'referral_follow_up_sent' : 'referral_reminder_sent', auth.uid, {
+        referral_id: referralId,
+        to_email: recipientEmail,
+        receiving_org_id: receivingOrgId,
+        provider_message_id: sendResult?.MessageID || null,
+    });
+    res.json({
+        ok: true,
+        to_email: recipientEmail,
+        provider_message_id: sendResult?.MessageID || null,
+    });
+});
+exports.sendReferralDecisionEmail = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const auth = await requireUserAuth(req, res);
+    if (!auth) {
+        return;
+    }
+    const referralId = normalize(req.body?.referral_id);
+    const decision = normalize(req.body?.decision) === 'declined' ? 'declined' : 'accepted';
+    const note = (req.body?.note || '').toString().trim();
+    const template = normalize(req.body?.template) || 'schedule_link';
+    const actionLink = (req.body?.action_link || '').toString().trim();
+    const message = (req.body?.message || '').toString().trim();
+    const customSubject = (req.body?.custom_subject || '').toString().trim();
+    if (!referralId) {
+        res.status(400).json({ error: 'referral_id is required' });
+        return;
+    }
+    const referralDoc = await db.collection('referrals').doc(referralId).get();
+    if (!referralDoc.exists) {
+        res.status(404).json({ error: 'Referral not found' });
+        return;
+    }
+    const referral = referralDoc.data() || {};
+    const referralEcosystemId = normalize(referral.ecosystem_id);
+    const receivingOrgId = normalize(referral.receiving_org_id);
+    const referringOrgId = normalize(referral.referring_org_id);
+    const isPlatformAdmin = auth.memberships.some((membership) => membership.system_role === 'platform_admin');
+    const isReceiverScoped = auth.memberships.some((membership) => membership.organization_id === receivingOrgId &&
+        membership.ecosystem_id === referralEcosystemId);
+    if (!isPlatformAdmin && !isReceiverScoped) {
+        res.status(403).json({ error: 'Only the receiving organization can send referral decision emails' });
+        return;
+    }
+    const receivingOrgDoc = receivingOrgId ? await db.collection('organizations').doc(receivingOrgId).get() : null;
+    const referringOrgDoc = referringOrgId ? await db.collection('organizations').doc(referringOrgId).get() : null;
+    const subjectPersonDoc = referral.subject_person_id ? await db.collection('people').doc(referral.subject_person_id).get() : null;
+    const entrepreneurEmail = normalize(subjectPersonDoc?.get('email'));
+    const introducerEmail = normalize(referringOrgDoc?.get('email'));
+    const receivingOrgName = receivingOrgDoc?.get('name') || 'The receiving organization';
+    const referringOrgName = referringOrgDoc?.get('name') || 'The introducing organization';
+    const subjectLabel = subjectPersonDoc?.exists
+        ? `${subjectPersonDoc.get('first_name') || ''} ${subjectPersonDoc.get('last_name') || ''}`.trim() || 'this referral'
+        : 'this referral';
+    const subjectFirstName = subjectPersonDoc?.exists
+        ? (subjectPersonDoc.get('first_name') || '').toString().trim() || subjectLabel
+        : subjectLabel;
+    const manageUrl = getReferralManageUrl(referralEcosystemId);
+    const applyTokens = (text) =>
+        text
+            .replace(/\{\{first_name\}\}/g, subjectFirstName)
+            .replace(/\{\{subject_name\}\}/g, subjectLabel)
+            .replace(/\{\{receiving_org\}\}/g, receivingOrgName)
+            .replace(/\{\{referring_org\}\}/g, referringOrgName);
+    let actionMessage = '';
+    if (decision === 'accepted') {
+        if (template === 'custom') {
+            actionMessage = applyTokens(message);
+        }
+        else if (template === 'book_tour' && actionLink) {
+            actionMessage = `Please use this link to schedule a tour: ${actionLink}`;
+        }
+        else if (actionLink) {
+            actionMessage = `Please use this link to schedule time with us: ${actionLink}`;
+        }
+        else if (message) {
+            actionMessage = applyTokens(message);
+        }
+    }
+    const recipients = [
+        entrepreneurEmail ? { to_email: entrepreneurEmail, recipient_kind: 'entrepreneur' } : null,
+        introducerEmail ? { to_email: introducerEmail, recipient_kind: 'introducer' } : null,
+    ].filter(Boolean);
+    if (!recipients.length) {
+        res.status(400).json({ error: 'No entrepreneur or introducer email is available for this referral' });
+        return;
+    }
+    const results = await Promise.all(recipients.map(async (recipient) => {
+        const sendResult = await sendPostmarkEmail({
+            id: `adhoc_referral_decision_${Date.now()}_${recipient.recipient_kind}`,
+            type: 'referral_decision_update',
+            to_email: recipient.to_email,
+            payload: {
+                decision,
+                recipient_kind: recipient.recipient_kind,
+                receiving_org_name: receivingOrgName,
+                referring_org_name: referringOrgName,
+                subject_label: subjectLabel,
+                shared_note: note,
+                action_message: actionMessage,
+                custom_subject: customSubject || null,
+                manage_url: manageUrl,
+                ecosystem_id: referralEcosystemId,
+            },
+        });
+        return {
+            to_email: recipient.to_email,
+            recipient_kind: recipient.recipient_kind,
+            provider_message_id: sendResult?.MessageID || null,
+        };
+    }));
+    await logAudit(decision === 'accepted' ? 'referral_acceptance_email_sent' : 'referral_decline_email_sent', auth.uid, {
+        referral_id: referralId,
+        results,
+    });
+    res.json({ ok: true, results });
+});
 exports.pushInteraction = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res)) {
         return;
@@ -1767,6 +2476,15 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, a
         return;
     }
     const now = new Date().toISOString();
+    await db.collection('ecosystems').doc('eco_new_haven').set({
+        id: 'eco_new_haven',
+        name: 'New Haven Entrepreneurship Network',
+        region: 'New Haven, CT',
+        settings: {
+            interaction_privacy_default: 'restricted',
+        },
+        pipelines: [],
+    }, { merge: true });
     await db.collection('organizations').doc('org_makehaven').set({
         id: 'org_makehaven',
         name: 'MakeHaven',
@@ -1786,10 +2504,85 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, a
         id: 'org_sbdc',
         name: 'SBDC',
         description: 'Local seed receiving organization.',
+        email: 'advisor@sbdc.org',
         tax_status: 'government',
         roles: ['eso'],
         managed_by_ids: [],
         operational_visibility: 'open',
+        authorized_eso_ids: [],
+        ecosystem_ids: ['eco_new_haven'],
+        version: 1,
+        status: 'active',
+        // suppress_entrepreneur_intro: false means Nexus WILL send the intro to the entrepreneur.
+        // Set to true if SBDC manages their own communications with referred clients.
+        referral_intake_prefs: {
+            suppress_entrepreneur_intro: false,
+            intake_contact_email: 'advisor@sbdc.org',
+        },
+        created_at: now,
+        updated_at: now,
+    }, { merge: true });
+    await db.collection('organizations').doc('org_ct_innovations').set({
+        id: 'org_ct_innovations',
+        name: 'CT Innovations',
+        description: 'Local seed partner ESO organization.',
+        tax_status: 'non_profit',
+        roles: ['eso'],
+        managed_by_ids: [],
+        operational_visibility: 'open',
+        authorized_eso_ids: [],
+        ecosystem_ids: ['eco_new_haven'],
+        version: 1,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+    }, { merge: true });
+    await db.collection('organizations').doc('org_darkstar').set({
+        id: 'org_darkstar',
+        name: 'DarkStar Marine',
+        description: 'Local seed founder venture.',
+        email: 'founder@darkstarmarine.com',
+        url: 'https://darkstarmarine.com',
+        tax_status: 'for_profit',
+        roles: ['startup'],
+        demographics: {
+            minority_owned: false,
+            woman_owned: false,
+            veteran_owned: false,
+        },
+        classification: {
+            industry_tags: ['marine', 'manufacturing'],
+        },
+        external_refs: [],
+        managed_by_ids: [],
+        operational_visibility: 'restricted',
+        authorized_eso_ids: [],
+        ecosystem_ids: ['eco_new_haven'],
+        version: 1,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+    }, { merge: true });
+    await db.collection('organizations').doc('org_progressable').set({
+        id: 'org_progressable',
+        name: 'Progressable',
+        description: 'Test entrepreneur venture for invite flow testing.',
+        email: 'jane.smith@progressable.io',
+        url: 'https://progressable.io',
+        tax_status: 'for_profit',
+        roles: ['startup'],
+        demographics: {
+            minority_owned: false,
+            woman_owned: false,
+            veteran_owned: false,
+        },
+        classification: {
+            naics_code: '541511',
+            industry_tags: ['Information & Technology'],
+        },
+        external_refs: [],
+        managed_by_ids: [],
+        operational_visibility: 'restricted',
         authorized_eso_ids: [],
         ecosystem_ids: ['eco_new_haven'],
         version: 1,
@@ -1816,12 +2609,23 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, a
         allow_auto_acknowledgement: true,
         allow_invite_prompt: true,
     }, { merge: true });
+    await db.collection('authorized_sender_domains').doc('auth_domain_ctinnovations').set({
+        id: 'auth_domain_ctinnovations',
+        ecosystem_id: 'eco_new_haven',
+        organization_id: 'org_ct_innovations',
+        domain: 'ctinnovations.org',
+        is_active: true,
+        access_policy: 'approved',
+        allow_sender_affiliation: true,
+        allow_auto_acknowledgement: true,
+        allow_invite_prompt: true,
+    }, { merge: true });
     await db.collection('inbound_routes').doc('route_newhaven_intro').set({
         id: 'route_newhaven_intro',
         route_address: 'newhaven+introduction@inbound.example.org',
         ecosystem_id: 'eco_new_haven',
         activity_type: 'introduction',
-        allowed_sender_domains: ['makehaven.org'],
+        allowed_sender_domains: ['makehaven.org', 'ctinnovations.org'],
         is_active: true,
     }, { merge: true });
     res.json({ ok: true });
@@ -1928,5 +2732,40 @@ exports.sendQueuedNotices = (0, https_1.onRequest)({ invoker: 'public' }, async 
         processed: results.length,
         results,
         requested_by: adminContext.uid,
+    });
+});
+exports.previewQueuedNotices = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res)) {
+        return;
+    }
+    setCors(res);
+    if (req.method !== 'GET') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireLocalOnlyEnvironment(res)) {
+        return;
+    }
+    const limitParam = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20;
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 20;
+    const snapshot = await db.collection('notice_queue')
+        .orderBy('created_at', 'desc')
+        .limit(limit)
+        .get();
+    res.json({
+        ok: true,
+        count: snapshot.size,
+        notices: snapshot.docs.map((doc) => {
+            const notice = doc.data();
+            return {
+                id: doc.id,
+                type: notice.type || 'unknown',
+                status: notice.status || 'unknown',
+                to_email: notice.to_email || null,
+                created_at: notice.created_at || null,
+                payload: notice.payload || {},
+                rendered: renderNoticeContent(notice),
+            };
+        }),
     });
 });

@@ -6,6 +6,9 @@ node_modules
 
 # Testing
 coverage
+output/
+playwright-report/
+test-results/
 
 # Production
 build

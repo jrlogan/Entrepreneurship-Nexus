@@ -12,6 +12,8 @@ export VITE_FIREBASE_EMULATOR_HOST="${VITE_FIREBASE_EMULATOR_HOST:-127.0.0.1}"
 export VITE_AUTH_EMULATOR_PORT="${VITE_AUTH_EMULATOR_PORT:-59099}"
 export VITE_FIRESTORE_EMULATOR_PORT="${VITE_FIRESTORE_EMULATOR_PORT:-58080}"
 export VITE_FUNCTIONS_EMULATOR_PORT="${VITE_FUNCTIONS_EMULATOR_PORT:-55001}"
+export VITE_DEV_SERVER_HOST="${VITE_DEV_SERVER_HOST:-0.0.0.0}"
+export VITE_DEV_SERVER_PORT="${VITE_DEV_SERVER_PORT:-3000}"
 
 export FIREBASE_PROJECT_ID="$VITE_FIREBASE_PROJECT_ID"
 export FIREBASE_FUNCTIONS_BASE_URL="http://${VITE_FIREBASE_EMULATOR_HOST}:${VITE_FUNCTIONS_EMULATOR_PORT}/${VITE_FIREBASE_PROJECT_ID}/us-central1"
@@ -103,16 +105,18 @@ run_with_retry "Creating local test accounts" 10 npm run simulate:seed-test-acco
 cat <<'EOF'
 
 Local test logins:
-  URL: http://localhost:3000/
+  URL: http://${VITE_DEV_SERVER_HOST}:${VITE_DEV_SERVER_PORT}/
   Platform Admin: coach@makehaven.org
   Ecosystem Manager: ecosystem.admin@newhaven.example.org
   ESO Admin: eso.admin@makehaven.org
   ESO Staff: eso.staff@makehaven.org
   ESO Coach: eso.coach@makehaven.org
   Partner ESO Admin: eso.admin@ctinnovations.org
+  Recipient ESO Admin: eso.admin@sbdc.org
+  Recipient ESO Staff: advisor@sbdc.org
   Entrepreneur: founder@darkstarmarine.com
   Password: Password123!
 
 EOF
 
-exec npm run dev -- --host 0.0.0.0
+exec npm run dev -- --host "$VITE_DEV_SERVER_HOST" --port "$VITE_DEV_SERVER_PORT"

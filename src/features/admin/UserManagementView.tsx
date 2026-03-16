@@ -24,6 +24,7 @@ type InviteFormState = {
   email: string;
   invited_role: SystemRole;
   organization_id: string;
+  ecosystem_id: string;
   note: string;
 };
 
@@ -127,7 +128,7 @@ export const UserManagementView = ({
     email: '',
     invited_role: 'eso_coach',
     organization_id: organizations[0]?.id || '',
-    ecosystem_id: ALL_ECOSYSTEMS[0]?.id || '',
+    ecosystem_id: session.viewer?.ecosystemId || ALL_ECOSYSTEMS[0]?.id || '',
     note: '',
   });
 
@@ -136,7 +137,10 @@ export const UserManagementView = ({
   const isEcosystemManager = currentRole === 'ecosystem_manager';
   const canEditUsers = isPlatformAdmin || isEcosystemManager;
   const canManageInvites = ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(currentRole);
-  const manageableMemberships = session.memberships.filter((membership) => ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(membership.system_role));
+  const manageableMemberships = useMemo(
+    () => session.memberships.filter((membership) => ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(membership.system_role)),
+    [session.memberships],
+  );
   const manageableOrganizations = useMemo(() => {
     if (isPlatformAdmin || currentRole === 'ecosystem_manager') {
       return organizations;
@@ -145,20 +149,76 @@ export const UserManagementView = ({
     const orgIds = new Set(manageableMemberships.map((membership) => membership.organization_id).filter(Boolean));
     return organizations.filter((organization) => orgIds.has(organization.id));
   }, [currentRole, isPlatformAdmin, manageableMemberships, organizations]);
+  const isSingleOrganizationEsoManager = !isPlatformAdmin && !isEcosystemManager && manageableOrganizations.length === 1;
   const selectedInviteOrganization = manageableOrganizations.find((organization) => organization.id === inviteForm.organization_id) || manageableOrganizations[0] || null;
   const derivedInviteEcosystemIds = selectedInviteOrganization?.ecosystem_ids || [];
+  const shouldLockInviteOrganization = currentRole === 'eso_admin' || isSingleOrganizationEsoManager;
+  const currentInviteEcosystemId = inviteForm.organization_id
+    ? (derivedInviteEcosystemIds[0] || inviteForm.ecosystem_id)
+    : inviteForm.ecosystem_id;
   const derivedInviteEcosystemLabel = derivedInviteEcosystemIds
     .map((ecosystemId) => ALL_ECOSYSTEMS.find((ecosystem: Ecosystem) => ecosystem.id === ecosystemId)?.name || ecosystemId)
     .join(', ');
+  const visibleInviteOrganizations = useMemo(() => {
+    if (shouldLockInviteOrganization) {
+      return manageableOrganizations;
+    }
+
+    if (!inviteForm.ecosystem_id) {
+      return manageableOrganizations;
+    }
+
+    return manageableOrganizations.filter((organization) => organization.ecosystem_ids.includes(inviteForm.ecosystem_id));
+  }, [inviteForm.ecosystem_id, manageableOrganizations, shouldLockInviteOrganization]);
+  const inviteNeedsOrganization = inviteForm.invited_role !== 'entrepreneur';
+  const canCreateInvite = !!inviteForm.email.trim() && (!inviteNeedsOrganization || !!inviteForm.organization_id);
 
   useEffect(() => {
-    setInviteForm((current) => ({
-      ...current,
-      organization_id: manageableOrganizations.some((organization) => organization.id === current.organization_id)
+    setInviteForm((current) => {
+      const nextOrganizationId = manageableOrganizations.some((organization) => organization.id === current.organization_id)
         ? current.organization_id
-        : (manageableOrganizations[0]?.id || ''),
-    }));
+        : (manageableOrganizations[0]?.id || '');
+      return nextOrganizationId === current.organization_id
+        ? current
+        : { ...current, organization_id: nextOrganizationId };
+    });
   }, [manageableOrganizations]);
+
+  useEffect(() => {
+    if (!shouldLockInviteOrganization) {
+      return;
+    }
+
+    setInviteForm((current) => {
+      const lockedOrganization = manageableOrganizations[0] || null;
+      const nextOrganizationId = current.invited_role === 'entrepreneur' ? '' : (lockedOrganization?.id || '');
+      const nextEcosystemId = lockedOrganization?.ecosystem_ids[0] || current.ecosystem_id;
+      if (nextOrganizationId === current.organization_id && nextEcosystemId === current.ecosystem_id) {
+        return current;
+      }
+
+      return {
+        ...current,
+        organization_id: nextOrganizationId,
+        ecosystem_id: nextEcosystemId,
+      };
+    });
+  }, [manageableOrganizations, shouldLockInviteOrganization]);
+
+  useEffect(() => {
+    if (!inviteForm.organization_id) {
+      return;
+    }
+
+    if (!visibleInviteOrganizations.some((organization) => organization.id === inviteForm.organization_id)) {
+      setInviteForm((current) => {
+        const nextOrganizationId = visibleInviteOrganizations[0]?.id || '';
+        return nextOrganizationId === current.organization_id
+          ? current
+          : { ...current, organization_id: nextOrganizationId };
+      });
+    }
+  }, [inviteForm.organization_id, visibleInviteOrganizations]);
 
   const loadPendingRequests = async () => {
     if (!isFirebaseEnabled() || !isPlatformAdmin) {
@@ -233,7 +293,11 @@ export const UserManagementView = ({
     setInviteActionError(null);
     setInviteResult(null);
     try {
-      const result = await callHttpFunction<InviteFormState, { invite_url: string }>('createInvite', inviteForm);
+      const payload: InviteFormState = {
+        ...inviteForm,
+        ecosystem_id: currentInviteEcosystemId,
+      };
+      const result = await callHttpFunction<InviteFormState, { invite_url: string }>('createInvite', payload);
       setInviteResult(result);
       setInviteForm((current) => ({ ...current, email: '', note: '' }));
       await loadInvites();
@@ -290,29 +354,62 @@ export const UserManagementView = ({
           <div className="space-y-4 px-6 py-4">
             <div className="grid gap-3 lg:grid-cols-2">
               <input className={FORM_INPUT_CLASS} placeholder="Invitee email" value={inviteForm.email} onChange={(event) => setInviteForm({ ...inviteForm, email: event.target.value })} />
-              <select className={FORM_SELECT_CLASS} value={inviteForm.invited_role} onChange={(event) => setInviteForm({ ...inviteForm, invited_role: event.target.value as SystemRole })}>
+              <select className={FORM_SELECT_CLASS} value={inviteForm.invited_role} onChange={(event) => setInviteForm({ ...inviteForm, invited_role: event.target.value as SystemRole, organization_id: event.target.value === 'entrepreneur' ? '' : inviteForm.organization_id })}>
                 <option value="entrepreneur">Entrepreneur</option>
                 <option value="eso_coach">ESO Coach</option>
                 <option value="eso_staff">ESO Staff</option>
                 <option value="eso_admin">ESO Admin</option>
               </select>
-              <select className={FORM_SELECT_CLASS} value={inviteForm.organization_id} onChange={(event) => setInviteForm({ ...inviteForm, organization_id: event.target.value })} disabled={currentRole === 'eso_admin' && manageableOrganizations.length <= 1}>
-                {manageableOrganizations.map((organization) => (
+              <select className={FORM_SELECT_CLASS} value={inviteForm.ecosystem_id} onChange={(event) => setInviteForm({ ...inviteForm, ecosystem_id: event.target.value })} disabled={currentRole === 'eso_admin'}>
+                {ALL_ECOSYSTEMS.map((ecosystem) => (
+                  <option key={ecosystem.id} value={ecosystem.id}>{ecosystem.name}</option>
+                ))}
+              </select>
+              <select
+                className={FORM_SELECT_CLASS}
+                value={inviteForm.organization_id}
+                onChange={(event) => setInviteForm({ ...inviteForm, organization_id: event.target.value })}
+                disabled={(shouldLockInviteOrganization || inviteForm.invited_role === 'entrepreneur')}
+              >
+                {inviteForm.invited_role === 'entrepreneur' && (
+                  <option value="">No organization yet</option>
+                )}
+                {visibleInviteOrganizations.map((organization) => (
                   <option key={organization.id} value={organization.id}>{organization.name}</option>
                 ))}
               </select>
               <div className={`${FORM_INPUT_CLASS} flex items-center bg-gray-50 text-gray-600`}>
-                {derivedInviteEcosystemLabel || 'Organization ecosystem will be used'}
+                {inviteForm.organization_id
+                  ? (derivedInviteEcosystemLabel || 'Organization ecosystem will be used')
+                  : inviteNeedsOrganization
+                    ? shouldLockInviteOrganization
+                      ? 'This invite will be created in the organization tied to your account.'
+                      : 'Select the ESO organization this staff/admin invite belongs to'
+                    : 'Entrepreneur invite without organization'}
               </div>
               <textarea className={`${FORM_INPUT_CLASS} lg:col-span-2`} rows={3} placeholder="Optional note for the invite" value={inviteForm.note} onChange={(event) => setInviteForm({ ...inviteForm, note: event.target.value })} />
             </div>
-            {currentRole === 'eso_admin' && selectedInviteOrganization && (
+            {inviteForm.invited_role !== 'entrepreneur' && visibleInviteOrganizations.length === 0 && (
+              <div className="rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                No organizations are configured in this ecosystem yet. Add the ESO organization first, then return here to invite staff into it.
+              </div>
+            )}
+            {inviteForm.invited_role === 'entrepreneur' && (
+              <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                Entrepreneurs can be invited without an organization. They can join the ecosystem first and add a venture later.
+              </div>
+            )}
+            {shouldLockInviteOrganization && selectedInviteOrganization && (
               <div className="rounded border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-                ESO admins can invite only into their own organization. Ecosystem scope is derived from the selected organization.
+                {currentRole === 'eso_admin'
+                  ? 'Your account can invite only into the organization you administer. Ecosystem scope is derived automatically from that organization.'
+                  : isSingleOrganizationEsoManager
+                  ? 'Your account manages one organization, so staff invites default to that organization automatically.'
+                  : 'ESO admins can invite only into their own organization. Ecosystem scope is derived from the selected organization.'}
               </div>
             )}
             <div className="flex items-center gap-3">
-              <button onClick={() => void handleCreateInvite()} className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+              <button onClick={() => void handleCreateInvite()} disabled={!canCreateInvite} className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
                 Create invite
               </button>
               <button onClick={() => void loadInvites()} className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">

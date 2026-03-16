@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { Person, SystemRole, Ecosystem } from '../domain/types';
+import type { PersonOrganizationAffiliation } from '../domain/people/types';
 import { ViewMode } from './types';
 import { CONFIG } from './config';
 import { getTheme } from './theme';
@@ -28,14 +29,17 @@ import {
     IconMenu,
     IconX
 } from '../shared/ui/Icons';
-import { ALL_ORGANIZATIONS } from '../data/mockData';
-
 interface AppShellProps {
   user: Person;
+  actingOrganizationName?: string | null;
+  actingOrganizations?: Array<PersonOrganizationAffiliation & { name: string }>;
   currentRole: SystemRole;
   currentEcosystem: Ecosystem;
   availableEcosystems: Ecosystem[];
   onSwitchEcosystem: (id: string) => void;
+  actingOrganizationId?: string | null;
+  onSwitchActingOrganization?: (organizationId: string) => void;
+  onSelectOrganization?: (id: string) => void;
   view: ViewMode;
   onNavigate: (view: ViewMode) => void;
   onOpenProfile: () => void;
@@ -52,18 +56,24 @@ const isMvpMode = !CONFIG.IS_DEMO_MODE;
 
 export const AppShell: React.FC<AppShellProps> = ({ 
     user, 
+    actingOrganizationName,
+    actingOrganizations = [],
     currentRole, 
     currentEcosystem, 
     availableEcosystems, 
     onSwitchEcosystem,
-    view, 
-    onNavigate, 
+    actingOrganizationId,
+    onSwitchActingOrganization,
+    onSelectOrganization,
+    view,
+    onNavigate,
     onOpenProfile,
     onSwitchUser, 
     onStartDemo, 
     children 
 }) => {
   const [isEcoDropdownOpen, setIsEcoDropdownOpen] = useState(false);
+  const [isActingOrgDropdownOpen, setIsActingOrgDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
@@ -103,11 +113,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   }) || [];
 
   // Determine the organization name the user is acting for
-  const actingOrg = ALL_ORGANIZATIONS.find(o => o.id === user.organization_id);
-  const actingContextLabel = actingOrg?.name || (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager'
+  const actingContextLabel = actingOrganizationName || (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager'
     ? 'Cross-ecosystem access'
     : 'No active organization');
-  const actingContextHint = actingOrg
+  const actingContextHint = actingOrganizationName
     ? 'Organization context'
     : (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager'
       ? 'You are operating above the organization level.'
@@ -207,15 +216,50 @@ export const AppShell: React.FC<AppShellProps> = ({
              <div className="mt-3 text-[10px] uppercase tracking-wider text-gray-400 font-bold">
                  Acting On Behalf Of
              </div>
-             <div className="flex items-center gap-2 mt-1">
-                 {actingOrg ? (
-                    <CompanyLogo src={actingOrg.logo_url} name={actingOrg.name} size="sm" className="w-6 h-6 rounded" />
-                 ) : (
-                    <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/80">ORG</div>
+             <div className="relative mt-1">
+                 <button
+                    type="button"
+                    onClick={() => actingOrganizations.length > 1 && setIsActingOrgDropdownOpen((open) => !open)}
+                    className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left ${actingOrganizations.length > 1 ? 'hover:bg-white/5' : ''}`}
+                 >
+                     {actingOrganizationName ? (
+                        <CompanyLogo src={null} name={actingOrganizationName} size="sm" className="w-6 h-6 rounded" />
+                     ) : (
+                        <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/80">ORG</div>
+                     )}
+                     <div className={`text-sm font-medium ${theme.itemText} truncate flex-1`}>
+                         {actingContextLabel}
+                     </div>
+                     {actingOrganizations.length > 1 && <span className={`text-[10px] ${theme.headerSub}`}>▼</span>}
+                 </button>
+                 {actingOrganizationId && onSelectOrganization && (
+                     <button
+                         type="button"
+                         onClick={() => onSelectOrganization(actingOrganizationId)}
+                         className={`mt-0.5 text-[11px] ${theme.headerSub} hover:text-white/80 underline-offset-2 hover:underline block`}
+                         title="View org profile"
+                     >
+                         View org profile →
+                     </button>
                  )}
-                 <div className={`text-sm font-medium ${theme.itemText} truncate`}>
-                     {actingContextLabel}
-                 </div>
+                 {isActingOrgDropdownOpen && actingOrganizations.length > 1 && (
+                    <div className="absolute top-full left-0 z-50 mt-1 w-full overflow-hidden rounded bg-white text-xs shadow-lg">
+                      {actingOrganizations.map((affiliation) => (
+                        <button
+                          key={affiliation.organization_id}
+                          type="button"
+                          onClick={() => {
+                            onSwitchActingOrganization?.(affiliation.organization_id);
+                            setIsActingOrgDropdownOpen(false);
+                          }}
+                          className={`block w-full px-3 py-2 text-left text-gray-800 hover:bg-gray-100 ${affiliation.name === actingOrganizationName ? 'bg-indigo-50 font-bold' : ''}`}
+                        >
+                          <div>{affiliation.name}</div>
+                          {affiliation.role_title && <div className="text-[10px] text-gray-500">{affiliation.role_title}</div>}
+                        </button>
+                      ))}
+                    </div>
+                 )}
              </div>
              <div className={`mt-1 text-[11px] ${theme.headerSub}`}>
                  {actingContextHint}
@@ -364,24 +408,28 @@ export const AppShell: React.FC<AppShellProps> = ({
                    iconColor={theme.itemIcon} 
                    hoverClass={theme.itemHover}
                  />
-                 <SidebarItem 
-                   active={view === 'my_projects'} 
-                   onClick={() => handleNav('my_projects')} 
-                   label="Initiatives" 
-                   icon={<IconBriefcase className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
-                 <SidebarItem 
-                   active={view === 'todos'} 
-                   onClick={() => handleNav('todos')} 
-                   label="Tasks & Advice" 
-                   icon={<IconList className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
-                   hoverClass={theme.itemHover}
-                 />
+                 {canAccessInitiatives && (
+                   <SidebarItem 
+                     active={view === 'my_projects'} 
+                     onClick={() => handleNav('my_projects')} 
+                     label="Initiatives" 
+                     icon={<IconBriefcase className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+                 {canAccessTasksAdvice && (
+                   <SidebarItem 
+                     active={view === 'todos'} 
+                     onClick={() => handleNav('todos')} 
+                     label="Tasks & Advice" 
+                     icon={<IconList className={iconClass} />} 
+                     textColor={theme.itemText} 
+                     iconColor={theme.itemIcon} 
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
                </>
              )}
 

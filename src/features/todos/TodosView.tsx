@@ -86,6 +86,11 @@ export const TodosView = () => {
     // New Task State
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
     const [newTask, setNewTask] = useState<{title: string, description: string, due: string}>({ title: '', description: '', due: '' });
+
+    // Inline feedback state
+    const [referralSuccessMsg, setReferralSuccessMsg] = useState('');
+    const [liveSessionError, setLiveSessionError] = useState('');
+    const [audioError, setAudioError] = useState('');
     
     // Refs
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -212,7 +217,8 @@ export const TodosView = () => {
                 notes: suggestion.description || `AI suggested referral to ${targetName}`
             };
             repos.referrals.add(newReferral);
-            alert(`Referral request to ${targetOrg?.name || targetName} created!`);
+            setReferralSuccessMsg(`Referral request to ${targetOrg?.name || targetName} created!`);
+            setTimeout(() => setReferralSuccessMsg(''), 3000);
         } else {
             repos.todos.add({
                 id: `todo_${Date.now()}_${Math.random()}`,
@@ -362,14 +368,16 @@ export const TodosView = () => {
                     onerror: (err) => {
                         console.error("Live session error", err);
                         disconnectLiveSession();
-                        alert("Connection lost. Please try again.");
+                        setLiveSessionError("Connection lost. Please try again.");
+                        setTimeout(() => setLiveSessionError(''), 5000);
                     }
                 }
             });
 
         } catch (err) {
             console.error("Failed to start live session", err);
-            alert("Could not start audio session. Check permissions.");
+            setAudioError("Could not start audio session. Check permissions.");
+            setTimeout(() => setAudioError(''), 5000);
         }
     };
 
@@ -543,6 +551,8 @@ export const TodosView = () => {
                                             ))}
                                         </div>
                                     )}
+                                    {liveSessionError && <p className="text-sm text-red-200 mt-2 text-center">{liveSessionError}</p>}
+                                    {audioError && <p className="text-sm text-red-200 mt-2 text-center">{audioError}</p>}
                                 </div>
                             </div>
                         ) : (
@@ -590,6 +600,8 @@ export const TodosView = () => {
                     </div>
                 </div>
             )}
+
+            {referralSuccessMsg && <p className="text-sm text-green-600 mt-2">{referralSuccessMsg}</p>}
 
             {/* AI Proposed Suggestions (Visible even if advisor closed, until dismissed/accepted) */}
             {pendingSuggestions.length > 0 && (

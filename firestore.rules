@@ -23,6 +23,58 @@ service cloud.firestore {
         personDoc().data.system_role == 'platform_admin';
     }
 
+    function isEcosystemManager() {
+      return hasPersonDoc() &&
+        personDoc().data.system_role == 'ecosystem_manager';
+    }
+
+    function isNetworkAdmin() {
+      return isPlatformAdmin() || isEcosystemManager();
+    }
+
+    function isEsoOperator() {
+      return hasPersonDoc() &&
+        ['eso_admin', 'eso_staff', 'eso_coach'].hasAny([currentSystemRole()]);
+    }
+
+    function currentSystemRole() {
+      return hasPersonDoc() ? personDoc().data.system_role : null;
+    }
+
+    function currentOrgId() {
+      return hasPersonDoc() ? personDoc().data.primary_organization_id : null;
+    }
+
+    function isReceivingOrgOperator(referral) {
+      return hasPersonDoc() &&
+        currentOrgId() != null &&
+        referral.receiving_org_id == currentOrgId() &&
+        ['eso_admin', 'eso_staff', 'eso_coach'].hasAny([currentSystemRole()]);
+    }
+
+    function isReferralSubjectOrgOperator(referral) {
+      return hasPersonDoc() &&
+        currentOrgId() != null &&
+        referral.subject_org_id == currentOrgId();
+    }
+
+    function canCreateReferral() {
+      return isNetworkAdmin() || (
+        hasPersonDoc() &&
+        currentOrgId() != null &&
+        (
+          request.resource.data.referring_org_id == currentOrgId() ||
+          request.resource.data.subject_org_id == currentOrgId()
+        )
+      );
+    }
+
+    function canManageReferral(referral) {
+      return isNetworkAdmin() ||
+        isReceivingOrgOperator(referral) ||
+        isReferralSubjectOrgOperator(referral);
+    }
+
     function isOwnAccountRequest(requestId) {
       return isAuthenticated() && request.auth.uid == requestId;
     }
@@ -59,7 +111,8 @@ service cloud.firestore {
 
     match /organizations/{organizationId} {
       allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
     }
 
     match /network_profiles/{profileId} {
@@ -70,12 +123,14 @@ service cloud.firestore {
 
     match /referrals/{referralId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isPlatformAdmin();
+      allow create: if canCreateReferral();
+      allow update, delete: if canManageReferral(resource.data);
     }
 
     match /interactions/{interactionId} {
       allow read: if isAuthenticated();
-      allow create, update, delete: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
     }
 
     match /pipelines/{pipelineId} {
@@ -85,7 +140,13 @@ service cloud.firestore {
 
     match /initiatives/{initiativeId} {
       allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin();
+      allow write: if isPlatformAdmin() || isEsoOperator();
+    }
+
+    match /participations/{participationId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
     }
 
     match /inbound_routes/{routeId} {

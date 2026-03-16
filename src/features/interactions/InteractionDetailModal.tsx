@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Interaction, Organization, Person, Referral, Todo } from '../../domain/types';
 import { acceptSuggestion } from '../../domain/advisor/logic';
 import { Modal, Badge } from '../../shared/ui/Components';
@@ -14,6 +14,8 @@ interface InteractionDetailModalProps {
 export const InteractionDetailModal = ({ interaction, onClose, organizations }: InteractionDetailModalProps) => {
     const repos = useRepos();
     const viewer = useViewer();
+    const [taskAddedMsg, setTaskAddedMsg] = useState('');
+    const [referralMsg, setReferralMsg] = useState('');
 
     if (!interaction) return null;
 
@@ -28,7 +30,7 @@ export const InteractionDetailModal = ({ interaction, onClose, organizations }: 
         // We need the actor (Person object). Using a quick lookup from viewer context.
         const actor = repos.people.getById(viewer.personId);
         if (!actor) {
-            alert("Error: Current user context invalid.");
+            console.error("Error: Current user context invalid.");
             return;
         }
 
@@ -41,7 +43,8 @@ export const InteractionDetailModal = ({ interaction, onClose, organizations }: 
                 ...result.todo_payload
             } as Todo;
             repos.todos.add(newTodo);
-            alert("Task added to your list.");
+            setTaskAddedMsg("Task added to your list.");
+            setTimeout(() => setTaskAddedMsg(''), 3000);
         }
 
         // 2. Create Referral if payload exists (Mock logic: create pending referral)
@@ -51,7 +54,8 @@ export const InteractionDetailModal = ({ interaction, onClose, organizations }: 
                 ...result.referral_payload
             } as Referral;
             repos.referrals.add(newReferral);
-            alert("Referral draft created.");
+            setReferralMsg("Referral draft created.");
+            setTimeout(() => setReferralMsg(''), 3000);
         }
 
         // 3. Update Interaction locally to reflect acceptance
@@ -155,6 +159,8 @@ export const InteractionDetailModal = ({ interaction, onClose, organizations }: 
                     </div>
                 </div>
 
+                {taskAddedMsg && <p className="text-sm text-green-600 mt-2">{taskAddedMsg}</p>}
+                {referralMsg && <p className="text-sm text-green-600 mt-2">{referralMsg}</p>}
                 <div className="flex justify-end pt-2">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium text-sm">Close</button>
                 </div>
