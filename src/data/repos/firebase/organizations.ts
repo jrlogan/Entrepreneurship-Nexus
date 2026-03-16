@@ -39,8 +39,12 @@ export class FirebaseOrganizationsRepo {
     const scope = ecosystemId || viewer.ecosystemId;
     if (!scope) return [];
 
-    const constraints = [whereIn('ecosystem_ids', [scope]), whereNotEquals('status', 'archived')];
-    const orgs = (await queryCollection<Organization>('organizations', constraints)).map(normalizeOrganization);
+    // Note: Firestore does not support combining array-contains-any with != in a single query.
+    // Filter archived orgs in memory instead.
+    const constraints = [whereIn('ecosystem_ids', [scope])];
+    const orgs = (await queryCollection<Organization>('organizations', constraints))
+      .filter(org => org.status !== 'archived')
+      .map(normalizeOrganization);
 
     return orgs.map(org => {
       const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
