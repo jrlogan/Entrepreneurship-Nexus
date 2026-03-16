@@ -1,5 +1,5 @@
 
-# Entrepreneurship Nexus (EcosystemOS)
+ # Entrepreneurship Nexus (EcosystemOS)
 
 A centralized 'System of Systems' for entrepreneurial ecosystems, featuring federated data, HSDS-compliant tracking, and AI-driven longitudinal impact measurement.
 
