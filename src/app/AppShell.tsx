@@ -84,7 +84,6 @@ export const AppShell: React.FC<AppShellProps> = ({
   const isPrivileged = canManageUsers(currentRole);
   const isSuper = isSystemAdmin(currentRole);
   const isClient = isEntrepreneur(currentRole);
-  const showMvpEsoNav = isMvpMode && !isClient;
   const featureFlags = currentEcosystem.settings.feature_flags || {};
   const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
   const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
@@ -94,11 +93,16 @@ export const AppShell: React.FC<AppShellProps> = ({
   const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
   const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
   const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
-  const canAccessApiConsole = isPrivileged && featureFlags.api_console === true;
-  const canAccessDataQuality = isPrivileged && featureFlags.data_quality === true;
-  const canAccessDataStandards = isPrivileged && featureFlags.data_standards === true;
-  const canAccessMetricsManager = isSuper && featureFlags.metrics_manager === true;
-  const canAccessInboundIntake = (currentRole === 'platform_admin' || currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true;
+  const hasAnyWorkflowFeature = canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives || canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout;
+  // In MVP mode show the simplified nav — unless feature flags have unlocked specific workflow views.
+  const showMvpEsoNav = isMvpMode && !isClient && !hasAnyWorkflowFeature;
+  const isPlatformAdmin = currentRole === 'platform_admin';
+  // Platform admin always sees all system views (they configure the flags; feature flags gate other roles only).
+  const canAccessApiConsole = isPlatformAdmin || (isPrivileged && featureFlags.api_console === true);
+  const canAccessDataQuality = isPlatformAdmin || (isPrivileged && featureFlags.data_quality === true);
+  const canAccessDataStandards = isPlatformAdmin || (isPrivileged && featureFlags.data_standards === true);
+  const canAccessMetricsManager = isPlatformAdmin || (isSuper && featureFlags.metrics_manager === true);
+  const canAccessInboundIntake = isPlatformAdmin || ((currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true);
 
   const iconClass = "w-5 h-5";
   const isDemoMode = CONFIG.IS_DEMO_MODE;
@@ -437,13 +441,22 @@ export const AppShell: React.FC<AppShellProps> = ({
              {isPrivileged && (
                <>
                  <div className={`pt-4 pb-1 px-4 text-xs font-bold uppercase tracking-wider ${theme.headerSub}`}>System</div>
-                 {isSuper && <SidebarItem 
-                   active={view === 'ecosystem_config'} 
-                   onClick={() => handleNav('ecosystem_config')} 
-                   label="Ecosystem Config" 
-                   icon={<IconSettings className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
+                 {isPlatformAdmin && <SidebarItem
+                   active={view === 'platform_admin'}
+                   onClick={() => handleNav('platform_admin')}
+                   label="Platform Admin"
+                   icon={<IconShield className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />}
+                 {isSuper && <SidebarItem
+                   active={view === 'ecosystem_config'}
+                   onClick={() => handleNav('ecosystem_config')}
+                   label="Ecosystem Config"
+                   icon={<IconSettings className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
                  />}
                  {isSuper && canAccessProcesses && (

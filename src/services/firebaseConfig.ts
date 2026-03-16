@@ -28,6 +28,8 @@ const envConfig: ExtendedFirebaseOptions = {
   databaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID,
 };
 
+export const isEmulatorMode = useEmulators;
+
 export const hasFirebaseConfig = Boolean(
   useEmulators || (
     envConfig.apiKey &&

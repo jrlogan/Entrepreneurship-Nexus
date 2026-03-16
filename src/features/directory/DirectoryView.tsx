@@ -17,9 +17,10 @@ interface DirectoryViewProps {
     interactions: Interaction[];
     onSelect: (id: string) => void;
     onAdd: () => void;
+    onRefresh: () => void;
 }
 
-export const DirectoryView = ({ organizations, interactions, onSelect, onAdd }: DirectoryViewProps) => {
+export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, onRefresh }: DirectoryViewProps) => {
     const viewer = useViewer();
     const repos = useRepos();
     const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -36,6 +37,7 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd }: 
             : [...(org.managed_by_ids || []), viewer.orgId];
         await repos.organizations.update(org.id, { managed_by_ids: next });
         setTogglingClientId(null);
+        onRefresh();
     };
 
     const activityByOrganizationId = useMemo(() => {

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { MetricDefinition, MetricSetDefinition, MetricScope, MetricAssignment } from '../../domain/metrics/reporting_types';
 import { Card, Badge, FORM_LABEL_CLASS, FORM_INPUT_CLASS, FORM_SELECT_CLASS, Modal } from '../../shared/ui/Components';
@@ -14,7 +14,10 @@ export const MetricsManagerView = () => {
     const metricSets = repos.flexibleMetrics.getMetricSets();
     const assignments = repos.flexibleMetrics.listAssignments(viewer);
     const definitions = repos.flexibleMetrics.getDefinitions();
-    const organizations = repos.organizations.getAll(viewer, viewer.ecosystemId);
+    const [organizations, setOrganizations] = useState<any[]>([]);
+    useEffect(() => {
+        repos.organizations.getAll(viewer, viewer.ecosystemId).then(setOrganizations);
+    }, [repos, viewer, refresh]);
 
     // --- Create Set Modal State ---
     const [isCreateSetOpen, setIsCreateSetOpen] = useState(false);

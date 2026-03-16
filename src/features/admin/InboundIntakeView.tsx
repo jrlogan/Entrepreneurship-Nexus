@@ -112,7 +112,10 @@ export const InboundIntakeView = () => {
 
   const parseResultByMessageId = new Map(parseResults.map((result) => [result.inbound_message_id, result]));
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
-  const scopedMessages = messages.filter((message) => message.ecosystem_id === viewer.ecosystemId);
+  // Platform admins see all messages including unrouted ones (ecosystem_id: null); others see only their ecosystem.
+  const scopedMessages = canViewRawIntake
+    ? messages.slice().sort((a, b) => b.received_at.localeCompare(a.received_at))
+    : messages.filter((message) => message.ecosystem_id === viewer.ecosystemId);
   const scopedAuthorizedDomains = authorizedDomains
     .filter((domain) => domain.ecosystem_id === viewer.ecosystemId)
     .sort((a, b) => a.domain.localeCompare(b.domain));
@@ -125,6 +128,33 @@ export const InboundIntakeView = () => {
     const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active').length;
     return activeKeys > 0 || activeWebhooks > 0;
   }), [visibleEsoOrganizations]);
+
+  const [newRoute, setNewRoute] = useState({ route_address: '', activity_type: 'introduction' as InboundActivityType });
+  const [isSavingRoute, setIsSavingRoute] = useState(false);
+
+  const handleCreateRoute = async () => {
+    if (!newRoute.route_address.trim()) return;
+    setIsSavingRoute(true);
+    setError(null);
+    try {
+      const id = `route_${Date.now()}`;
+      const routeDoc: InboundRoute = {
+        id,
+        route_address: newRoute.route_address.trim().toLowerCase(),
+        ecosystem_id: viewer.ecosystemId,
+        activity_type: newRoute.activity_type,
+        allowed_sender_domains: [],
+        is_active: true,
+      };
+      await setDocument('inbound_routes', id, routeDoc);
+      setNewRoute({ route_address: '', activity_type: 'introduction' });
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to create route.');
+    } finally {
+      setIsSavingRoute(false);
+    }
+  };
 
   const [selectedMessage, setSelectedMessage] = useState<InboundMessage | null>(null);
   const [reviewData, setReviewData] = useState({
@@ -258,6 +288,39 @@ export const InboundIntakeView = () => {
         </Card>
 
         <Card title="Inbound Routes & Authorized Domains" className="xl:col-span-2">
+          {canManageAuthorizedDomains && (
+            <div className="mb-4 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-indigo-300 bg-indigo-50/50 p-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Route address (email)</label>
+                <input
+                  className={FORM_INPUT_CLASS}
+                  placeholder="referrals@inbound.entrepreneurship.nexus"
+                  value={newRoute.route_address}
+                  onChange={e => setNewRoute({ ...newRoute, route_address: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Activity type</label>
+                <select
+                  className={FORM_SELECT_CLASS}
+                  value={newRoute.activity_type}
+                  onChange={e => setNewRoute({ ...newRoute, activity_type: e.target.value as InboundActivityType })}
+                >
+                  <option value="introduction">introduction</option>
+                  <option value="referral">referral</option>
+                  <option value="followup">followup</option>
+                  <option value="outcome">outcome</option>
+                </select>
+              </div>
+              <button
+                onClick={() => void handleCreateRoute()}
+                disabled={!newRoute.route_address.trim() || isSavingRoute}
+                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {isSavingRoute ? 'Saving...' : '+ Add Route'}
+              </button>
+            </div>
+          )}
           {scopedRoutes.length === 0 ? (
             <p className="text-sm text-gray-500">No inbound routes configured for this ecosystem yet.</p>
           ) : (
@@ -522,8 +585,6 @@ export const InboundIntakeView = () => {
         ) : (
           <div className="space-y-4">
             {scopedMessages
-              .slice()
-              .sort((a, b) => b.received_at.localeCompare(a.received_at))
               .map((message) => {
                 const parseResult = parseResultByMessageId.get(message.id);
                 return (

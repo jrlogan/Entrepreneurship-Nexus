@@ -39,7 +39,8 @@ import { calculatePipelineProgress, calculateDaysBetween, detectDuplicates } fro
 // Repos & Context
 import { AppRepos } from '../data/repos';
 import { AppDataProvider } from '../data/AppDataContext';
-import { setDocument } from '../services/firestoreClient';
+import { setDocument, getDocument } from '../services/firestoreClient';
+import { isEmulatorMode } from '../services/firebaseConfig';
 
 // Shared
 import { Modal } from '../shared/ui/Components';
@@ -63,6 +64,7 @@ import { EcosystemConfigView } from '../features/admin/EcosystemConfigView';
 import { UserManagementView } from '../features/admin/UserManagementView';
 import { MetricsManagerView } from '../features/admin/MetricsManagerView';
 import { InboundIntakeView } from '../features/admin/InboundIntakeView';
+import { PlatformAdminView } from '../features/admin/PlatformAdminView';
 import { AuthGateView } from '../features/auth/AuthGateView';
 import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
@@ -299,8 +301,11 @@ const App = () => {
   const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
 
   useEffect(() => {
+    setOrganizations([]);
     if (viewerContext) {
-      repos.organizations.getAll(viewerContext, currentEcosystemId).then(setOrganizations);
+      repos.organizations.getAll(viewerContext, currentEcosystemId)
+        .then(setOrganizations)
+        .catch(() => setOrganizations([]));
     }
   }, [repos, viewerContext, currentEcosystemId, dataVersion]);
 
@@ -412,7 +417,42 @@ const App = () => {
     }, 'replace');
   }, [view, selectedOrgId, selectedPersonId, selectedTab, currentEcosystemId]);
 
-  const currentEcosystem = ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId) || DEFAULT_ECO;
+  const [ecosystemOverrides, setEcosystemOverrides] = useState<Record<string, Partial<Ecosystem>>>(() => {
+    // Seed from localStorage immediately (works in all environments)
+    const initial: Record<string, Partial<Ecosystem>> = {};
+    ALL_ECOSYSTEMS.forEach(eco => {
+      try {
+        const raw = localStorage.getItem(`eco_override_${eco.id}`);
+        if (raw) initial[eco.id] = JSON.parse(raw);
+      } catch {}
+    });
+    return initial;
+  });
+  useEffect(() => {
+    // Overlay with Firestore data when available (production)
+    if (isEmulatorMode) return;
+    ALL_ECOSYSTEMS.forEach(eco => {
+      getDocument('ecosystems', eco.id).then(doc => {
+        if (doc) setEcosystemOverrides(prev => ({ ...prev, [eco.id]: doc as Partial<Ecosystem> }));
+      }).catch(() => {});
+    });
+  }, []);
+
+  const baseEcosystem = ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId) || DEFAULT_ECO;
+  const override = ecosystemOverrides[currentEcosystemId] || {};
+  const currentEcosystem: Ecosystem = {
+    ...baseEcosystem,
+    ...override,
+    settings: {
+      ...baseEcosystem.settings,
+      ...(override.settings || {}),
+      // Deep-merge feature_flags so a partial override doesn't wipe base flags
+      feature_flags: {
+        ...(baseEcosystem.settings.feature_flags || {}),
+        ...(override.settings?.feature_flags || {}),
+      },
+    },
+  };
   const featureFlags = currentEcosystem.settings.feature_flags || {};
   const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
   const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
@@ -422,11 +462,13 @@ const App = () => {
   const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
   const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
   const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
-  const canAccessApiConsole = ['eso_admin', 'ecosystem_manager', 'platform_admin'].includes(currentRole) && featureFlags.api_console === true;
-  const canAccessDataQuality = ['eso_admin', 'ecosystem_manager', 'platform_admin'].includes(currentRole) && featureFlags.data_quality === true;
-  const canAccessDataStandards = ['eso_admin', 'ecosystem_manager', 'platform_admin'].includes(currentRole) && featureFlags.data_standards === true;
-  const canAccessMetricsManager = ['ecosystem_manager', 'platform_admin'].includes(currentRole) && featureFlags.metrics_manager === true;
-  const canAccessInboundIntake = currentRole === 'platform_admin' && featureFlags.inbound_intake === true;
+  const isPlatformAdmin = currentRole === 'platform_admin';
+  const canAccessApiConsole = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.api_console === true);
+  const canAccessDataQuality = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_quality === true);
+  const canAccessDataStandards = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_standards === true);
+  const canAccessMetricsManager = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.metrics_manager === true);
+  const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
+  const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
     const viewFeatureBlocked =
@@ -441,7 +483,8 @@ const App = () => {
       (view === 'data_quality' && !canAccessDataQuality) ||
       (view === 'data_standards' && !canAccessDataStandards) ||
       (view === 'metrics_manager' && !canAccessMetricsManager) ||
-      (view === 'inbound_intake' && !canAccessInboundIntake);
+      (view === 'inbound_intake' && !canAccessInboundIntake) ||
+      (view === 'platform_admin' && !canAccessPlatformAdmin);
 
     if (viewFeatureBlocked) {
       setView(currentRole === 'entrepreneur' ? 'my_ventures' : 'referrals');
@@ -455,6 +498,7 @@ const App = () => {
     canAccessInteractions,
     canAccessInitiatives,
     canAccessMetricsManager,
+    canAccessPlatformAdmin,
     canAccessProcesses,
     canAccessReports,
     canAccessTasksAdvice,
@@ -504,7 +548,7 @@ const App = () => {
         actingOrganizations={actingOrganizations}
         currentRole={currentRole}
         currentEcosystem={currentEcosystem}
-        availableEcosystems={ALL_ECOSYSTEMS.filter(e => activeUser.memberships?.some(m => m.ecosystem_id === e.id))}
+        availableEcosystems={currentRole === 'platform_admin' ? ALL_ECOSYSTEMS : ALL_ECOSYSTEMS.filter(e => activeUser.memberships?.some(m => m.ecosystem_id === e.id))}
         onSwitchEcosystem={(ecosystemId) => applyRoute({
           view,
           orgId: selectedOrgId,
@@ -526,11 +570,12 @@ const App = () => {
                ) : null
            )}
            {view === 'directory' && (
-              <DirectoryView 
-                organizations={organizations} 
+              <DirectoryView
+                organizations={organizations}
                 interactions={interactions}
                 onSelect={navigateToOrg}
                 onAdd={() => setIsAddOrgOpen(true)}
+                onRefresh={() => setDataVersion(v => v + 1)}
               />
            )}
            {view === 'contacts' && (
@@ -599,7 +644,15 @@ const App = () => {
                ) : null
            )}
            {view === 'ecosystem_config' && (
-               <EcosystemConfigView ecosystem={currentEcosystem} />
+               <EcosystemConfigView
+                 ecosystem={currentEcosystem}
+                 allEcosystems={ALL_ECOSYSTEMS.map(e => {
+                   const ov = ecosystemOverrides[e.id];
+                   if (!ov) return e;
+                   return { ...e, ...ov, settings: { ...e.settings, ...(ov.settings || {}) } };
+                 })}
+                 viewerRole={currentRole}
+               />
            )}
            {view === 'metrics_manager' && (
                canAccessMetricsManager ? (
@@ -610,6 +663,9 @@ const App = () => {
                canAccessInboundIntake ? (
                <InboundIntakeView />
                ) : null
+           )}
+           {view === 'platform_admin' && canAccessPlatformAdmin && (
+               <PlatformAdminView onNavigate={handleNavigate} />
            )}
            {view === 'my_ventures' && (
                <MyVenturesView 
@@ -712,7 +768,7 @@ const App = () => {
            )}
            
            {/* Fallback for other views */}
-           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake'].includes(view) && (
+           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin'].includes(view) && (
               <div className="flex items-center justify-center h-full text-gray-400">
                 View "{view}" is under construction.
               </div>
