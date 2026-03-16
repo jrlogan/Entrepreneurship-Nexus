@@ -693,7 +693,8 @@ const getPostmarkConfig = () => {
     const serverToken = getRequiredEnv('POSTMARK_SERVER_TOKEN');
     const fromEmail = getRequiredEnv('POSTMARK_FROM_EMAIL');
     const messageStream = getRequiredEnv('POSTMARK_MESSAGE_STREAM') || 'outbound';
-    return { serverToken, fromEmail, messageStream };
+    const safeModeRedirect = getRequiredEnv('POSTMARK_SAFE_MODE_REDIRECT');
+    return { serverToken, fromEmail, messageStream, safeModeRedirect };
 };
 // ---------------------------------------------------------------------------
 // Email layout helpers
@@ -1086,6 +1087,10 @@ const sendPostmarkEmail = async (notice) => {
         throw new Error('Postmark outbound configuration is incomplete');
     }
     const content = renderNoticeContent(notice);
+    const toEmail = config.safeModeRedirect || notice.to_email;
+    const subject = config.safeModeRedirect
+        ? `[REDIRECTED to ${notice.to_email}] ${content.subject}`
+        : content.subject;
     const response = await fetch('https://api.postmarkapp.com/email', {
         method: 'POST',
         headers: {
@@ -1095,8 +1100,8 @@ const sendPostmarkEmail = async (notice) => {
         },
         body: JSON.stringify({
             From: config.fromEmail,
-            To: notice.to_email,
-            Subject: content.subject,
+            To: toEmail,
+            Subject: subject,
             TextBody: content.textBody,
             HtmlBody: content.htmlBody,
             MessageStream: config.messageStream,
