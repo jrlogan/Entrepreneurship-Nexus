@@ -99,6 +99,7 @@ export interface Organization {
 
   // Multi-tenancy
   ecosystem_ids: string[]; // Organizations can participate in multiple ecosystems
+  removed_from_ecosystem_ids?: string[]; // Ecosystems this org was explicitly removed from (soft remove per ecosystem)
   
   // External ID Mapping
   external_ids?: Record<string, string>; // Added: Map of external system names to their specific IDs

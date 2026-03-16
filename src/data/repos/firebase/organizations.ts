@@ -1,4 +1,4 @@
-import { queryCollection, whereEquals, getDocument, setDocument, updateDocument, whereIn } from '../../../services/firestoreClient';
+import { queryCollection, whereEquals, whereNotEquals, getDocument, setDocument, updateDocument, deleteDocument, whereIn } from '../../../services/firestoreClient';
 import type { Organization, ApiKey, Webhook } from '../../../domain/organizations/types';
 import type { ViewerContext } from '../../../domain/access/policy';
 import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/access/policy';
@@ -39,7 +39,7 @@ export class FirebaseOrganizationsRepo {
     const scope = ecosystemId || viewer.ecosystemId;
     if (!scope) return [];
 
-    const constraints = [whereIn('ecosystem_ids', [scope])];
+    const constraints = [whereIn('ecosystem_ids', [scope]), whereNotEquals('status', 'archived')];
     const orgs = (await queryCollection<Organization>('organizations', constraints)).map(normalizeOrganization);
 
     return orgs.map(org => {
@@ -89,6 +89,22 @@ export class FirebaseOrganizationsRepo {
         updated_at: org.updated_at || now,
     };
     await setDocument('organizations', org.id, doc);
+  }
+
+  async getArchived(ecosystemId: string): Promise<Organization[]> {
+    // Platform-archived orgs still in this ecosystem
+    const [globalArchived, ecosystemRemoved] = await Promise.all([
+      queryCollection<Organization>('organizations', [whereIn('ecosystem_ids', [ecosystemId]), whereEquals('status', 'archived')]),
+      queryCollection<Organization>('organizations', [whereIn('removed_from_ecosystem_ids', [ecosystemId])]),
+    ]);
+    const seen = new Set<string>();
+    return [...globalArchived, ...ecosystemRemoved]
+      .map(normalizeOrganization)
+      .filter(o => { if (seen.has(o.id)) return false; seen.add(o.id); return true; });
+  }
+
+  async delete(id: string): Promise<void> {
+    await deleteDocument('organizations', id);
   }
 
   async update(id: string, updates: Partial<Organization>): Promise<void> {

@@ -59,8 +59,9 @@ interface SotsPreview {
     city?: string;
 }
 
-export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization, esoDomains: string[]) => void, onCancel: () => void }) => {
+export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Organization, esoDomains: string[]) => void, onCancel: () => void, saveError?: string | null }) => {
     // Form State
+    const [isSaving, setIsSaving] = useState(false);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [role, setRole] = useState<OrganizationRole>('startup');
@@ -171,10 +172,11 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization, e
         setDomainInput('');
     };
 
-    const handleSubmit = () => {
-        if (!name.trim()) return;
-
-        onSave({
+    const handleSubmit = async () => {
+        if (!name.trim() || isSaving) return;
+        setIsSaving(true);
+        try {
+        await onSave({
             id: generateId('org'),
             name,
             description: description || '',
@@ -194,6 +196,9 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization, e
             ecosystem_ids: [],
             version: 1,
         }, esoDomains);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -420,6 +425,12 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization, e
                     </div>
                 )}
 
+                {saveError && (
+                    <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                        {saveError}
+                    </div>
+                )}
+
                 <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
                     <button
                         onClick={onCancel}
@@ -429,10 +440,10 @@ export const AddOrgForm = ({ onSave, onCancel }: { onSave: (org: Organization, e
                     </button>
                     <button
                         onClick={handleSubmit}
-                        disabled={!name.trim()}
+                        disabled={!name.trim() || isSaving}
                         className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Add Organization
+                        {isSaving ? 'Saving...' : 'Add Organization'}
                     </button>
                 </div>
             </div>

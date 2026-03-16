@@ -148,6 +148,19 @@ export class OrganizationsRepo {
     return Promise.resolve();
   }
 
+  async getArchived(ecosystemId: string): Promise<Organization[]> {
+    return Promise.resolve(ALL_ORGANIZATIONS.filter(o =>
+      (o.status === 'archived' && o.ecosystem_ids?.includes(ecosystemId)) ||
+      o.removed_from_ecosystem_ids?.includes(ecosystemId)
+    ));
+  }
+
+  async delete(id: string): Promise<void> {
+    const idx = ALL_ORGANIZATIONS.findIndex(o => o.id === id);
+    if (idx >= 0) ALL_ORGANIZATIONS.splice(idx, 1);
+    return Promise.resolve();
+  }
+
   /**
    * Update with Audit Logging
    * @param actor - Identify who made the change (API Key ID or User ID)

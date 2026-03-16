@@ -3,7 +3,8 @@ import React, { useMemo, useState } from 'react';
 import { Organization, DuplicateMatch } from '../../domain/types';
 import { detectDuplicates } from '../../domain/logic';
 import { Badge, Modal, InfoBanner } from '../../shared/ui/Components';
-import { useRepos } from '../../data/AppDataContext';
+import { useRepos, useViewer } from '../../data/AppDataContext';
+import { useAuthSession } from '../../app/useAuthSession';
 
 interface MergeReviewModalProps {
     orgA: Organization;
@@ -106,11 +107,17 @@ const MergeReviewModal = ({ orgA, orgB, confidence, onClose, onMerge }: MergeRev
     );
 };
 
-export const DataQualityView = ({ organizations, onRefresh }: { organizations: Organization[], onRefresh?: () => void }) => {
+export const DataQualityView = ({ organizations, archivedOrganizations, onRefresh }: { organizations: Organization[], archivedOrganizations?: Organization[], onRefresh?: () => void }) => {
     const repos = useRepos();
+    const viewer = useViewer();
+    const session = useAuthSession();
+    const currentRole = session.viewer?.role || session.person?.system_role || 'entrepreneur';
+    const isPlatformAdmin = currentRole === 'platform_admin';
+    const canSeeArchived = ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(currentRole);
     const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
     const [resolvedCount, setResolvedCount] = useState(0);
     const [mergeCandidate, setMergeCandidate] = useState<{ orgA: Organization, orgB: Organization, confidence: number } | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
     const duplicates = useMemo(() => {
         return detectDuplicates(organizations).filter(d => !ignoredIds.includes(d.primary_id + d.duplicate_id));
@@ -146,6 +153,31 @@ export const DataQualityView = ({ organizations, onRefresh }: { organizations: O
     const handleIgnore = (match: DuplicateMatch) => {
         setIgnoredIds(prev => [...prev, match.primary_id + match.duplicate_id]);
         setResolvedCount(prev => prev + 1);
+    };
+
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+    const handleDelete = async (org: Organization) => {
+        setDeletingId(org.id);
+        setConfirmDeleteId(null);
+        try {
+            await repos.organizations.delete(org.id);
+            if (onRefresh) onRefresh();
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    const handleRestore = async (org: Organization) => {
+        // Re-add this ecosystem to the org's ecosystem_ids and clear it from removed list
+        const updatedEcosystemIds = [...new Set([...(org.ecosystem_ids || []), viewer.ecosystemId])];
+        const updatedRemovedIds = (org.removed_from_ecosystem_ids || []).filter(id => id !== viewer.ecosystemId);
+        await repos.organizations.update(org.id, {
+            ecosystem_ids: updatedEcosystemIds,
+            removed_from_ecosystem_ids: updatedRemovedIds,
+            ...(org.status === 'archived' ? { status: 'active' } : {}),
+        });
+        if (onRefresh) onRefresh();
     };
     
     return (
@@ -216,13 +248,80 @@ export const DataQualityView = ({ organizations, onRefresh }: { organizations: O
             </div>
 
             {mergeCandidate && (
-                <MergeReviewModal 
+                <MergeReviewModal
                     orgA={mergeCandidate.orgA}
                     orgB={mergeCandidate.orgB}
                     confidence={mergeCandidate.confidence}
                     onClose={() => setMergeCandidate(null)}
                     onMerge={handleMergeConfirm}
                 />
+            )}
+
+            {canSeeArchived && archivedOrganizations && archivedOrganizations.length > 0 && (
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-bold text-lg text-gray-800">Archived / Removed Organizations</h3>
+                        <Badge color="gray">{archivedOrganizations.length}</Badge>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-4">
+                        {isPlatformAdmin
+                            ? 'Records soft-deleted via merge or admin action. Restore them or permanently delete.'
+                            : 'Organizations removed from your ecosystem. You can restore them if removed by mistake.'}
+                    </p>
+                    <div className="space-y-2">
+                        {archivedOrganizations.map(org => {
+                            const isEcosystemRemoved = org.removed_from_ecosystem_ids?.includes(viewer.ecosystemId);
+                            return (
+                                <div key={org.id} className="rounded border border-gray-200 bg-gray-50">
+                                    <div className="flex items-center justify-between px-4 py-3">
+                                        <div>
+                                            <span className="font-medium text-gray-800 text-sm">{org.name}</span>
+                                            {org.url && <span className="ml-2 text-xs text-gray-400">{org.url}</span>}
+                                            <span className="ml-2 text-xs text-gray-400">
+                                                {isEcosystemRemoved && org.status !== 'archived' ? '· Removed from ecosystem' : '· Archived'}
+                                            </span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleRestore(org)}
+                                                className="px-3 py-1 text-xs font-medium text-indigo-600 border border-indigo-200 rounded hover:bg-indigo-50 transition-colors"
+                                            >
+                                                Restore
+                                            </button>
+                                            {isPlatformAdmin && (
+                                                confirmDeleteId === org.id ? (
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="text-xs text-red-600 font-medium">Sure?</span>
+                                                        <button
+                                                            onClick={() => handleDelete(org)}
+                                                            disabled={deletingId === org.id}
+                                                            className="px-2 py-1 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+                                                        >
+                                                            {deletingId === org.id ? '...' : 'Yes, delete'}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setConfirmDeleteId(null)}
+                                                            className="px-2 py-1 text-xs text-gray-500 border border-gray-200 rounded hover:bg-gray-100"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => setConfirmDeleteId(org.id)}
+                                                        className="px-3 py-1 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+                                                    >
+                                                        Delete Permanently
+                                                    </button>
+                                                )
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             )}
         </div>
     );

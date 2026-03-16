@@ -61,6 +61,7 @@ export const OrganizationDetailView = ({
     const [orgTemplateDrafts, setOrgTemplateDrafts] = useState<Array<{id: string; name: string; subject?: string; body: string}>>(org.referral_templates || []);
     const [isSavingOrgTemplates, setIsSavingOrgTemplates] = useState(false);
     const [orgTemplatesSavedAt, setOrgTemplatesSavedAt] = useState<number | null>(null);
+    const [pendingAction, setPendingAction] = useState<'remove_ecosystem' | 'archive' | 'delete' | null>(null);
     useEffect(() => { setOrgTemplateDrafts(org.referral_templates || []); }, [org.referral_templates]);
 
     React.useEffect(() => {
@@ -168,6 +169,25 @@ export const OrganizationDetailView = ({
         if (service.status === 'waitlisted') return 'yellow' as const;
         if (service.status === 'past') return 'gray' as const;
         return 'green' as const;
+    };
+
+    const isPlatformAdmin = viewer.role === 'platform_admin';
+    const isEcosystemAdmin = viewer.role === 'ecosystem_manager' || viewer.role === 'eso_admin';
+
+    const handleConfirmAction = async () => {
+        if (!pendingAction) return;
+        if (pendingAction === 'remove_ecosystem') {
+            const updatedIds = (org.ecosystem_ids || []).filter(id => id !== viewer.ecosystemId);
+            const removedIds = [...(org.removed_from_ecosystem_ids || []), viewer.ecosystemId];
+            await repos.organizations.update(org.id, { ecosystem_ids: updatedIds, removed_from_ecosystem_ids: removedIds });
+        } else if (pendingAction === 'archive') {
+            await repos.organizations.update(org.id, { status: 'archived' });
+        } else if (pendingAction === 'delete') {
+            await repos.organizations.delete(org.id);
+        }
+        setPendingAction(null);
+        onRefresh?.();
+        onBack();
     };
 
     const updateReferralStatus = async (ref: Referral, action: 'accept' | 'complete') => {
@@ -362,6 +382,35 @@ export const OrganizationDetailView = ({
                          </button>
                      </>
                  )}
+                 {(isPlatformAdmin || isEcosystemAdmin) && (
+                    <div className="flex gap-2 border-l border-gray-200 pl-2 ml-1">
+                        {isEcosystemAdmin && !isPlatformAdmin && (
+                            <button
+                                onClick={() => setPendingAction('remove_ecosystem')}
+                                className="px-3 py-2 border border-orange-200 bg-white text-orange-600 text-xs font-medium rounded hover:bg-orange-50"
+                                title="Remove this organization from your ecosystem only"
+                            >
+                                Remove from Ecosystem
+                            </button>
+                        )}
+                        {isPlatformAdmin && (
+                            <>
+                                <button
+                                    onClick={() => setPendingAction('archive')}
+                                    className="px-3 py-2 border border-orange-200 bg-white text-orange-600 text-xs font-medium rounded hover:bg-orange-50"
+                                >
+                                    Archive
+                                </button>
+                                <button
+                                    onClick={() => setPendingAction('delete')}
+                                    className="px-3 py-2 border border-red-200 bg-white text-red-600 text-xs font-medium rounded hover:bg-red-50"
+                                >
+                                    Delete
+                                </button>
+                            </>
+                        )}
+                    </div>
+                 )}
                  {!canViewDetails && !isOwnOrganization && (
                      <>
                          <button
@@ -384,6 +433,35 @@ export const OrganizationDetailView = ({
                  )}
               </div>
            </div>
+
+           {/* Inline confirmation banner */}
+           {pendingAction && (
+               <div className={`rounded-lg border px-5 py-4 flex items-center justify-between gap-4 ${pendingAction === 'delete' ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'}`}>
+                   <div>
+                       <p className={`font-medium text-sm ${pendingAction === 'delete' ? 'text-red-800' : 'text-orange-800'}`}>
+                           {pendingAction === 'remove_ecosystem' && `Remove "${org.name}" from this ecosystem? It will remain in any other ecosystems it belongs to.`}
+                           {pendingAction === 'archive' && `Archive "${org.name}"? It will be hidden from all directories but the record is preserved.`}
+                           {pendingAction === 'delete' && `Permanently delete "${org.name}"? This cannot be undone.`}
+                       </p>
+                   </div>
+                   <div className="flex gap-2 flex-shrink-0">
+                       <button
+                           onClick={() => setPendingAction(null)}
+                           className="px-3 py-1.5 text-sm border border-gray-300 bg-white text-gray-700 rounded hover:bg-gray-50"
+                       >
+                           Cancel
+                       </button>
+                       <button
+                           onClick={handleConfirmAction}
+                           className={`px-3 py-1.5 text-sm font-medium text-white rounded ${pendingAction === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600'}`}
+                       >
+                           {pendingAction === 'remove_ecosystem' && 'Remove from Ecosystem'}
+                           {pendingAction === 'archive' && 'Archive'}
+                           {pendingAction === 'delete' && 'Delete Permanently'}
+                       </button>
+                   </div>
+               </div>
+           )}
 
            <Modal isOpen={isSupportRequestOpen} onClose={() => setIsSupportRequestOpen(false)} title={`Request Support from ${org.name}`}>
                <div className="space-y-4">

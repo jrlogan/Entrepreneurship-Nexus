@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
+import { collection, doc, deleteDoc, getDoc, getDocs, query, setDoc, updateDoc, where, type QueryConstraint } from 'firebase/firestore';
 import { getFirestoreDb } from './firebaseApp';
 
 export const getCollection = (name: string) => {
@@ -27,6 +27,7 @@ export const queryCollection = async <T>(collectionName: string, constraints: Qu
 };
 
 export const whereEquals = (field: string, value: unknown) => where(field, '==', value);
+export const whereNotEquals = (field: string, value: unknown) => where(field, '!=', value);
 
 export const whereIn = (field: string, value: unknown[]) => where(field, 'array-contains-any', value);
 
@@ -37,6 +38,14 @@ export const setDocument = async <T>(collectionName: string, id: string, data: T
   }
 
   await setDoc(doc(db, collectionName, id), data as object, { merge });
+};
+
+export const deleteDocument = async (collectionName: string, id: string) => {
+  const db = getFirestoreDb();
+  if (!db) {
+    throw new Error('Firestore is not configured.');
+  }
+  await deleteDoc(doc(db, collectionName, id));
 };
 
 export const updateDocument = async <T>(collectionName: string, id: string, data: Partial<T>) => {

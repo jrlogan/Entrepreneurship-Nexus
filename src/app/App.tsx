@@ -293,6 +293,7 @@ const App = () => {
   // Fetch Scoped Data based on Current Ecosystem AND Permissions
   // Dependent on dataVersion to trigger re-fetch/re-render when data changes
   const [organizations, setOrganizations] = useState<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]>([]);
+  const [archivedOrganizations, setArchivedOrganizations] = useState<Organization[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
@@ -306,8 +307,14 @@ const App = () => {
       repos.organizations.getAll(viewerContext, currentEcosystemId)
         .then(setOrganizations)
         .catch(() => setOrganizations([]));
+      const canSeeArchived = ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(currentRole);
+      if (canSeeArchived && repos.organizations.getArchived) {
+        repos.organizations.getArchived(currentEcosystemId)
+          .then(setArchivedOrganizations)
+          .catch(() => setArchivedOrganizations([]));
+      }
     }
-  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+  }, [repos, viewerContext, currentEcosystemId, dataVersion, currentRole]);
 
   useEffect(() => {
     if (viewerContext) {
@@ -345,6 +352,7 @@ const App = () => {
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(initialRoute.personId || null);
   const [selectedTab, setSelectedTab] = useState<string | undefined>(initialRoute.tab);
   const [isAddOrgOpen, setIsAddOrgOpen] = useState(false);
+  const [addOrgError, setAddOrgError] = useState<string | null>(null);
   const [isSwitchUserOpen, setIsSwitchUserOpen] = useState(false);
   const [showDemo, setShowDemo] = useState(CONFIG.IS_DEMO_MODE);
   const selectedOrganization = selectedOrgId ? organizations.find((organization) => organization.id === selectedOrgId) || null : null;
@@ -630,7 +638,7 @@ const App = () => {
            )}
            {view === 'data_quality' && (
                canAccessDataQuality ? (
-               <DataQualityView organizations={organizations} onRefresh={refreshData} />
+               <DataQualityView organizations={organizations} archivedOrganizations={archivedOrganizations} onRefresh={refreshData} />
                ) : null
            )}
            {view === 'data_standards' && (
@@ -800,9 +808,12 @@ const App = () => {
       )}
 
       {/* Modals */}
-      <Modal isOpen={isAddOrgOpen} onClose={() => setIsAddOrgOpen(false)} title="Add New Organization">
+      <Modal isOpen={isAddOrgOpen} onClose={() => { setIsAddOrgOpen(false); setAddOrgError(null); }} title="Add New Organization">
           <AddOrgForm
+            saveError={addOrgError}
             onSave={async (org, esoDomains) => {
+                setAddOrgError(null);
+                try {
                 const newOrg = { ...org, ecosystem_ids: [currentEcosystemId] };
                 await repos.organizations.add(newOrg);
 
@@ -857,9 +868,13 @@ const App = () => {
                 }
 
                 refreshData();
-                setIsAddOrgOpen(false); 
-            }} 
-            onCancel={() => setIsAddOrgOpen(false)} 
+                setIsAddOrgOpen(false);
+                setAddOrgError(null);
+                } catch (err: any) {
+                    setAddOrgError(err?.message || 'Failed to save organization. Check your permissions.');
+                }
+            }}
+            onCancel={() => { setIsAddOrgOpen(false); setAddOrgError(null); }}
           />
       </Modal>
 

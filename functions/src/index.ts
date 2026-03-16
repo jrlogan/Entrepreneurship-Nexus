@@ -1492,7 +1492,16 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     ? null
     : (senderDomainInfo.match?.organization_id || null);
 
-  const receivingOrganization = await resolveReceivingOrganization(receivingOrgName, payload.to_emails || []);
+  // Resolve receiving org from footer name or TO email domains.
+  // Fallback: if the sender belongs to a known org (via authorized_sender_domains) and no other
+  // receiving org is found, assume they are introducing to their own org (self-intake pattern).
+  let receivingOrganization = await resolveReceivingOrganization(receivingOrgName, payload.to_emails || []);
+  if (!receivingOrganization && senderDomainInfo.match?.organization_id) {
+    const senderOrg = await db.collection('organizations').doc(senderDomainInfo.match.organization_id).get();
+    if (senderOrg.exists) {
+      receivingOrganization = senderOrg;
+    }
+  }
 
   const needsReviewReasons = [
     ...(clientEmail ? [] : ['missing_client_email']),
