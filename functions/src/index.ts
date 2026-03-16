@@ -1333,20 +1333,29 @@ const createReferralFromInboundMessage = async (args: {
   personEmail: string;
   personName?: string | null;
   ventureName?: string | null;
+  subjectOrgId?: string | null;
   receivingOrgId: string;
   referringOrgId?: string | null;
   ecosystemId?: string | null;
   approvedBy?: string | null; // uid or 'system' for auto-approve
 }) => {
   const now = new Date().toISOString();
-  const { message, messageRef, parseResult, personEmail, personName, ventureName,
+  const { message, messageRef, parseResult, personEmail, personName, ventureName, subjectOrgId,
     receivingOrgId, referringOrgId, ecosystemId, approvedBy } = args;
 
-  const organizationResult = await upsertDraftOrganization(ventureName ?? undefined, ecosystemId ?? undefined);
-  const organization = organizationResult?.doc || null;
+  let organization: FirebaseFirestore.DocumentSnapshot | null = null;
+  let autoLinkOrganization = false;
+  if (subjectOrgId) {
+    const snap = await db.collection('organizations').doc(subjectOrgId).get();
+    if (snap.exists) organization = snap;
+  } else {
+    const organizationResult = await upsertDraftOrganization(ventureName ?? undefined, ecosystemId ?? undefined);
+    organization = organizationResult?.doc || null;
+    autoLinkOrganization = !!organizationResult?.created;
+  }
 
   const person = await upsertDraftPerson(personEmail, personName ?? undefined, organization?.id, ecosystemId ?? undefined, {
-    autoLinkOrganization: !!organizationResult?.created,
+    autoLinkOrganization,
   });
 
   const referralNote = extractReferralNote(message.text_body);
@@ -1646,6 +1655,7 @@ export const approveInboundMessage = onRequest({ invoker: 'public' }, async (req
   const finalPersonEmail = normalize(req.body?.person_email || parseResult.candidate_person_email);
   const finalPersonName = req.body?.person_name || parseResult.candidate_person_name;
   const finalVentureName = req.body?.venture_name || parseResult.candidate_venture_name;
+  const finalSubjectOrgId = req.body?.subject_org_id || null;
   const finalReceivingOrgId = req.body?.receiving_org_id || parseResult.candidate_receiving_org_id;
   const finalReferringOrgId = req.body?.referring_org_id || parseResult.candidate_referring_org_id;
   const ecosystemId = message.ecosystem_id;
@@ -1661,7 +1671,8 @@ export const approveInboundMessage = onRequest({ invoker: 'public' }, async (req
     parseResult,
     personEmail: finalPersonEmail,
     personName: finalPersonName || null,
-    ventureName: finalVentureName || null,
+    ventureName: finalSubjectOrgId ? null : (finalVentureName || null),
+    subjectOrgId: finalSubjectOrgId,
     receivingOrgId: finalReceivingOrgId,
     referringOrgId: finalReferringOrgId || null,
     ecosystemId,

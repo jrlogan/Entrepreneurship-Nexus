@@ -36,6 +36,7 @@ export const InboundIntakeView = () => {
   const [isSavingDomain, setIsSavingDomain] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleEsoOrganizations, setVisibleEsoOrganizations] = useState<Organization[]>([]);
+  const [allEcosystemOrganizations, setAllEcosystemOrganizations] = useState<Organization[]>([]);
   const [newDomain, setNewDomain] = useState('');
   const [newDomainOrgId, setNewDomainOrgId] = useState('');
   const [newDomainPolicy, setNewDomainPolicy] = useState<NonNullable<AuthorizedSenderDomain['access_policy']>>('approved');
@@ -48,6 +49,7 @@ export const InboundIntakeView = () => {
         setRoutes([]);
         setAuthorizedDomains([]);
         setVisibleEsoOrganizations([]);
+        setAllEcosystemOrganizations([]);
         setError(null);
         return;
     }
@@ -59,6 +61,7 @@ export const InboundIntakeView = () => {
       if (isFirebaseEnabled() && session.authUser) {
         const organizations = await repos.organizations.getAll(viewer, viewer.ecosystemId);
         setVisibleEsoOrganizations(organizations.filter((organization) => organization.roles.includes('eso')));
+        setAllEcosystemOrganizations(organizations.slice().sort((a, b) => a.name.localeCompare(b.name)));
 
         const firestoreRoutes = await queryCollection<InboundRoute>('inbound_routes');
         setRoutes(firestoreRoutes);
@@ -82,6 +85,7 @@ export const InboundIntakeView = () => {
       } else {
         const organizations = await repos.organizations.getAll(viewer, viewer.ecosystemId);
         setVisibleEsoOrganizations(organizations.filter((organization) => organization.roles.includes('eso')));
+        setAllEcosystemOrganizations(organizations.slice().sort((a, b) => a.name.localeCompare(b.name)));
         setMessages(await repos.inboundMessages.getMessages());
         setParseResults(await repos.inboundMessages.getParseResults());
         setNoticeQueue([]);
@@ -219,6 +223,7 @@ export const InboundIntakeView = () => {
     person_email: '',
     person_name: '',
     venture_name: '',
+    subject_org_id: '',
     receiving_org_id: '',
     referring_org_id: '',
   });
@@ -226,11 +231,16 @@ export const InboundIntakeView = () => {
 
   const handleOpenReview = (message: InboundMessage) => {
     const result = parseResultByMessageId.get(message.id);
+    const ventureName = result?.candidate_venture_name || '';
+    const matchedOrg = ventureName
+      ? allEcosystemOrganizations.find((o) => o.name.toLowerCase() === ventureName.toLowerCase())
+      : undefined;
     setSelectedMessage(message);
     setReviewData({
       person_email: result?.candidate_person_email || '',
       person_name: result?.candidate_person_name || '',
-      venture_name: result?.candidate_venture_name || '',
+      venture_name: matchedOrg ? '' : ventureName,
+      subject_org_id: matchedOrg ? matchedOrg.id : '',
       receiving_org_id: result?.candidate_receiving_org_id || '',
       referring_org_id: result?.candidate_referring_org_id || '',
     });
@@ -746,12 +756,25 @@ export const InboundIntakeView = () => {
                   />
                 </div>
                 <div>
-                  <label className={FORM_LABEL_CLASS}>Client Venture / Organization</label>
-                  <input
-                    className={FORM_INPUT_CLASS}
-                    value={reviewData.venture_name}
-                    onChange={(e) => setReviewData({ ...reviewData, venture_name: e.target.value })}
-                  />
+                  <label className={FORM_LABEL_CLASS}>Client Organization</label>
+                  <select
+                    className={FORM_SELECT_CLASS}
+                    value={reviewData.subject_org_id}
+                    onChange={(e) => setReviewData({ ...reviewData, subject_org_id: e.target.value, venture_name: '' })}
+                  >
+                    <option value="">-- New org (enter name below) --</option>
+                    {allEcosystemOrganizations.map((org) => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                  {!reviewData.subject_org_id && (
+                    <input
+                      className={`${FORM_INPUT_CLASS} mt-1`}
+                      placeholder="New org name (optional)"
+                      value={reviewData.venture_name}
+                      onChange={(e) => setReviewData({ ...reviewData, venture_name: e.target.value })}
+                    />
+                  )}
                 </div>
               </div>
 
