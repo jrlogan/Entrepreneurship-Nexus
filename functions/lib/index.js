@@ -493,6 +493,22 @@ const getInboundIntakeUrl = (ecosystemId) => {
     }
     return `${baseUrl}?view=inbound_intake&eco=${encodeURIComponent(ecosystemId)}`;
 };
+// When no route is configured, look up sender domain across ALL ecosystems to auto-route the message.
+const findAuthorizedSenderDomainAnyEcosystem = async (fromEmail) => {
+    const domain = getEmailDomain(fromEmail);
+    if (!domain) {
+        return { match: null, domain };
+    }
+    const snapshot = await db.collection('authorized_sender_domains')
+        .where('domain', '==', domain)
+        .where('is_active', '==', true)
+        .limit(1)
+        .get();
+    if (!snapshot.empty) {
+        return { match: snapshot.docs[0].data(), domain };
+    }
+    return { match: null, domain };
+};
 const findAuthorizedSenderDomain = async (ecosystemId, fromEmail, fallbackDomains = []) => {
     const domain = getEmailDomain(fromEmail);
     if (!ecosystemId || !domain) {
@@ -1063,6 +1079,89 @@ const sendPostmarkEmail = async (notice) => {
     }
     return json;
 };
+// Shared logic: create a referral from a fully-parsed inbound message.
+// Called by both auto-approve (trusted sender, no review needed) and the manual approveInboundMessage endpoint.
+const createReferralFromInboundMessage = async (args) => {
+    const now = new Date().toISOString();
+    const { message, messageRef, parseResult, personEmail, personName, ventureName, receivingOrgId, referringOrgId, ecosystemId, approvedBy } = args;
+    const organizationResult = await upsertDraftOrganization(ventureName ?? undefined, ecosystemId ?? undefined);
+    const organization = organizationResult?.doc || null;
+    const person = await upsertDraftPerson(personEmail, personName ?? undefined, organization?.id, ecosystemId ?? undefined, {
+        autoLinkOrganization: !!organizationResult?.created,
+    });
+    const referralNote = (0, emailParsing_1.extractReferralNote)(message.text_body);
+    const referralRef = db.collection('referrals').doc();
+    await referralRef.set({
+        id: referralRef.id,
+        ecosystem_id: ecosystemId || null,
+        referring_org_id: referringOrgId || null,
+        receiving_org_id: receivingOrgId,
+        subject_person_id: person.id || null,
+        subject_org_id: organization?.id || null,
+        date: message.received_at || now,
+        status: 'pending',
+        notes: referralNote,
+        intro_email_sent: true,
+        source: 'bcc_intake',
+        created_at: now,
+    });
+    const receivingOrganization = await db.collection('organizations').doc(receivingOrgId).get();
+    const receivingOrgIntakePrefs = receivingOrganization?.get('referral_intake_prefs') || {};
+    const suppressEntrepreneurIntro = !!receivingOrgIntakePrefs.suppress_entrepreneur_intro;
+    const receivingOrgIntakeEmail = receivingOrgIntakePrefs.intake_contact_email || receivingOrganization?.get('email') || null;
+    const referringOrgName = referringOrgId
+        ? ((await db.collection('organizations').doc(referringOrgId).get()).get('name') || null)
+        : null;
+    const ecosystemName = await getEcosystemName(ecosystemId);
+    const introContactPermission = parseResult.intro_contact_permission || 'unknown';
+    if (!suppressEntrepreneurIntro && introContactPermission !== 'not_confirmed') {
+        await enqueueNotice(person.id, personEmail, {
+            inbound_message_id: message.id,
+            referral_id: referralRef.id,
+            receiving_org_name: receivingOrganization?.get('name') || null,
+            referring_org_name: referringOrgName,
+            ecosystem_name: ecosystemName,
+            subject: message.subject || '',
+        });
+    }
+    if (receivingOrgIntakeEmail) {
+        await enqueueTypedNotice('referral_new_intake', receivingOrgIntakeEmail, {
+            inbound_message_id: message.id,
+            referral_id: referralRef.id,
+            subject_name: personName || null,
+            venture_name: ventureName || null,
+            venture_stage: parseResult.venture_stage || null,
+            support_needs: parseResult.support_needs || [],
+            referral_notes: referralNote || null,
+            referring_org_name: referringOrgName,
+            receiving_org_name: receivingOrganization?.get('name') || null,
+            ecosystem_id: ecosystemId || null,
+            ecosystem_name: ecosystemName,
+            manage_url: getReferralManageUrl(ecosystemId || null),
+        }, {
+            dedupeKey: `${referralRef.id}:new-intake:${receivingOrgIntakeEmail}`,
+        });
+    }
+    const senderDomainInfo = await findAuthorizedSenderDomain(ecosystemId, message.from_email);
+    await queueSenderReferralNotice({
+        senderEmail: message.from_email,
+        ecosystemId: ecosystemId || null,
+        ecosystemName,
+        referralId: referralRef.id,
+        inboundMessageId: message.id,
+        receivingOrgName: receivingOrganization?.get('name') || null,
+        referringOrgId: referringOrgId || null,
+        senderDomainMatch: senderDomainInfo.match,
+        subject: message.subject || '',
+        subjectName: personName || null,
+    });
+    await messageRef.update({
+        review_status: 'approved',
+        approved_at: now,
+        approved_by: approvedBy || 'system',
+    });
+    return { referralId: referralRef.id, personId: person.id, organizationId: organization?.id || null };
+};
 const processInboundEmailPayload = async (payload) => {
     const routeAddress = normalize(payload.route_address || payload.to_emails?.[0] || '');
     const routeMatch = await db.collection('inbound_routes').where('route_address', '==', routeAddress).limit(1).get();
@@ -1085,8 +1184,18 @@ const processInboundEmailPayload = async (payload) => {
             };
         }
     }
+    // 2. Resolve ecosystem: prefer route match; fall back to sender domain lookup across all ecosystems.
+    //    This allows emails from trusted partners to be auto-routed even without a configured inbound route.
+    let resolvedEcosystemId = route?.ecosystem_id || null;
+    let senderDomainInfo = await findAuthorizedSenderDomain(resolvedEcosystemId, senderEmail, route?.allowed_sender_domains || []);
+    if (!resolvedEcosystemId && !senderDomainInfo.match) {
+        const crossEcosystemMatch = await findAuthorizedSenderDomainAnyEcosystem(senderEmail);
+        if (crossEcosystemMatch.match) {
+            resolvedEcosystemId = crossEcosystemMatch.match.ecosystem_id;
+            senderDomainInfo = crossEcosystemMatch;
+        }
+    }
     const footer = (0, emailParsing_1.parseFooter)(payload.text_body);
-    const referralNote = (0, emailParsing_1.extractReferralNote)(payload.text_body);
     const footerEmail = typeof footer?.client_email === 'string' ? normalize(footer.client_email) : undefined;
     const { clientEmail, additionalCcEmails: ccEmails } = (0, emailParsing_1.extractClientEmail)({
         footerEmail,
@@ -1103,10 +1212,16 @@ const processInboundEmailPayload = async (payload) => {
         : 'unknown');
     const supportNeeds = Array.isArray(footer?.support_needs) ? footer.support_needs : [];
     const ventureStage = Array.isArray(footer?.venture_stage) ? footer.venture_stage[0] : undefined;
-    const senderDomainInfo = await findAuthorizedSenderDomain(route?.ecosystem_id, senderEmail, route?.allowed_sender_domains || []);
     const referringOrgId = senderDomainInfo.match?.allow_sender_affiliation === false
         ? null
         : (senderDomainInfo.match?.organization_id || null);
+    const receivingOrganization = await resolveReceivingOrganization(receivingOrgName, payload.to_emails || []);
+    const needsReviewReasons = [
+        ...(clientEmail ? [] : ['missing_client_email']),
+        ...(senderDomainInfo.match ? [] : ['unknown_sender_domain']),
+        ...(receivingOrganization ? [] : ['unknown_receiving_org']),
+        ...(ccEmails.length > 0 ? ['multiple_cc_entrepreneurs'] : []),
+    ];
     const inboundMessageRef = db.collection('inbound_messages').doc();
     const now = new Date().toISOString();
     await inboundMessageRef.set({
@@ -1115,7 +1230,7 @@ const processInboundEmailPayload = async (payload) => {
         provider_message_id: providerMessageId,
         message_id_header: payload.message_id_header || null,
         route_address: routeAddress,
-        ecosystem_id: route?.ecosystem_id || null,
+        ecosystem_id: resolvedEcosystemId,
         activity_type: route?.activity_type || 'introduction',
         from_email: senderEmail,
         to_emails: payload.to_emails || [],
@@ -1128,15 +1243,8 @@ const processInboundEmailPayload = async (payload) => {
         review_status: 'needs_review',
         received_at: now,
     });
-    const receivingOrganization = await resolveReceivingOrganization(receivingOrgName, payload.to_emails || []);
     const parseResultRef = db.collection('inbound_parse_results').doc();
-    const needsReviewReasons = [
-        ...(clientEmail ? [] : ['missing_client_email']),
-        ...(senderDomainInfo.match ? [] : ['unknown_sender_domain']),
-        ...(receivingOrganization ? [] : ['unknown_receiving_org']),
-        ...(ccEmails.length > 0 ? ['multiple_cc_entrepreneurs'] : []),
-    ];
-    await parseResultRef.set({
+    const parseResultData = {
         id: parseResultRef.id,
         inbound_message_id: inboundMessageRef.id,
         candidate_person_email: clientEmail || null,
@@ -1151,7 +1259,37 @@ const processInboundEmailPayload = async (payload) => {
         confidence: (clientEmail && receivingOrganization) ? 0.85 : 0.45,
         needs_review_reasons: needsReviewReasons,
         parsed_at: now,
-    });
+    };
+    await parseResultRef.set(parseResultData);
+    // 3. Auto-approve if sender is trusted, all required fields resolved, and no ambiguity.
+    //    TODO: Add more sophisticated routing logic when ESOs operate in multiple ecosystems.
+    const canAutoApprove = needsReviewReasons.length === 0 &&
+        !!clientEmail &&
+        !!receivingOrganization &&
+        senderDomainInfo.match?.access_policy !== 'blocked' &&
+        senderDomainInfo.match?.access_policy !== 'invite_only' &&
+        senderDomainInfo.match?.access_policy !== 'request_access';
+    if (canAutoApprove && clientEmail && receivingOrganization) {
+        await createReferralFromInboundMessage({
+            message: { ...inboundMessageRef, id: inboundMessageRef.id, ...payload, ecosystem_id: resolvedEcosystemId, received_at: now },
+            messageRef: inboundMessageRef,
+            parseResult: parseResultData,
+            personEmail: clientEmail,
+            personName: clientName || null,
+            ventureName: ventureName || null,
+            receivingOrgId: receivingOrganization.id,
+            referringOrgId: referringOrgId || null,
+            ecosystemId: resolvedEcosystemId,
+            approvedBy: 'system',
+        });
+        return {
+            ok: true,
+            inbound_message_id: inboundMessageRef.id,
+            parse_result_id: parseResultRef.id,
+            review_required: false,
+            auto_approved: true,
+        };
+    }
     return {
         ok: true,
         inbound_message_id: inboundMessageRef.id,
@@ -1212,100 +1350,27 @@ exports.approveInboundMessage = (0, https_1.onRequest)({ invoker: 'public' }, as
         res.status(400).json({ error: 'Person email and receiving organization ID are required for approval' });
         return;
     }
-    const now = new Date().toISOString();
-    // 1. Resolve or create organization (Venture)
-    const organizationResult = await upsertDraftOrganization(finalVentureName, ecosystemId);
-    const organization = organizationResult?.doc || null;
-    // 2. Resolve or create person (Entrepreneur)
-    const person = await upsertDraftPerson(finalPersonEmail, finalPersonName, organization?.id, ecosystemId, {
-        autoLinkOrganization: !!organizationResult?.created,
-    });
-    // 3. Create real referral
-    const referralNote = (0, emailParsing_1.extractReferralNote)(message.text_body);
-    const referralRef = db.collection('referrals').doc();
-    await referralRef.set({
-        id: referralRef.id,
-        ecosystem_id: ecosystemId || null,
-        referring_org_id: finalReferringOrgId || null,
-        receiving_org_id: finalReceivingOrgId || null,
-        subject_person_id: person.id || null,
-        subject_org_id: organization?.id || null,
-        date: message.received_at || now,
-        status: 'pending',
-        notes: referralNote,
-        intro_email_sent: true,
-        source: 'bcc_intake',
-        created_at: now,
-    });
-    // 4. Send notices
-    const receivingOrganization = await db.collection('organizations').doc(finalReceivingOrgId).get();
-    const receivingOrgIntakePrefs = receivingOrganization?.get('referral_intake_prefs') || {};
-    const suppressEntrepreneurIntro = !!receivingOrgIntakePrefs.suppress_entrepreneur_intro;
-    const receivingOrgIntakeEmail = receivingOrgIntakePrefs.intake_contact_email || receivingOrganization?.get('email') || null;
-    const referringOrgName = finalReferringOrgId
-        ? ((await db.collection('organizations').doc(finalReferringOrgId).get()).get('name') || null)
-        : null;
-    const ecosystemName = await getEcosystemName(ecosystemId);
-    // Notice to entrepreneur
-    const introContactPermission = parseResult.intro_contact_permission || 'unknown';
-    if (!suppressEntrepreneurIntro && finalPersonEmail && introContactPermission !== 'not_confirmed') {
-        await enqueueNotice(person.id, finalPersonEmail, {
-            inbound_message_id: message.id,
-            referral_id: referralRef.id,
-            receiving_org_name: receivingOrganization?.get('name') || null,
-            referring_org_name: referringOrgName,
-            ecosystem_name: ecosystemName,
-            subject: message.subject || '',
-        });
-    }
-    // Notice to receiving agency
-    if (receivingOrgIntakeEmail) {
-        await enqueueTypedNotice('referral_new_intake', receivingOrgIntakeEmail, {
-            inbound_message_id: message.id,
-            referral_id: referralRef.id,
-            subject_name: finalPersonName || null,
-            venture_name: finalVentureName || null,
-            venture_stage: parseResult.venture_stage || null,
-            support_needs: parseResult.support_needs || [],
-            referral_notes: referralNote || null,
-            referring_org_name: referringOrgName,
-            receiving_org_name: receivingOrganization?.get('name') || null,
-            ecosystem_id: ecosystemId || null,
-            ecosystem_name: ecosystemName,
-            manage_url: getReferralManageUrl(ecosystemId || null),
-        }, {
-            dedupeKey: `${referralRef.id}:new-intake:${receivingOrgIntakeEmail}`,
-        });
-    }
-    // Notice to sender (receipt)
-    const senderDomainInfo = await findAuthorizedSenderDomain(ecosystemId, message.from_email);
-    await queueSenderReferralNotice({
-        senderEmail: message.from_email,
-        ecosystemId: ecosystemId || null,
-        ecosystemName,
-        referralId: referralRef.id,
-        inboundMessageId: message.id,
-        receivingOrgName: receivingOrganization?.get('name') || null,
-        referringOrgId: finalReferringOrgId,
-        senderDomainMatch: senderDomainInfo.match,
-        subject: message.subject || '',
-        subjectName: finalPersonName || null,
-    });
-    // 5. Update message status
-    await messageDoc.ref.update({
-        review_status: 'approved',
-        approved_at: now,
-        approved_by: auth.uid,
+    const result = await createReferralFromInboundMessage({
+        message,
+        messageRef: messageDoc.ref,
+        parseResult,
+        personEmail: finalPersonEmail,
+        personName: finalPersonName || null,
+        ventureName: finalVentureName || null,
+        receivingOrgId: finalReceivingOrgId,
+        referringOrgId: finalReferringOrgId || null,
+        ecosystemId,
+        approvedBy: auth.uid,
     });
     await logAudit('inbound_message_approved', auth.uid, {
         inbound_message_id: message.id,
-        referral_id: referralRef.id,
+        referral_id: result.referralId,
     });
     res.json({
         ok: true,
-        referral_id: referralRef.id,
-        person_id: person.id,
-        organization_id: organization?.id || null,
+        referral_id: result.referralId,
+        person_id: result.personId,
+        organization_id: result.organizationId,
     });
 });
 exports.rejectInboundMessage = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {

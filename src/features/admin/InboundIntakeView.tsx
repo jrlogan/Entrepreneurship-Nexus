@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { Card, Badge, FORM_INPUT_CLASS, FORM_SELECT_CLASS, InfoBanner } from '../../shared/ui/Components';
+import { Card, Badge, Modal, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, InfoBanner } from '../../shared/ui/Components';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 import { queryCollection, setDocument } from '../../services/firestoreClient';
 import { useAuthSession } from '../../app/useAuthSession';
-import type { AuthorizedSenderDomain, InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
+import type { AuthorizedSenderDomain, InboundActivityType, InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
 import type { Organization } from '../../domain/organizations/types';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 
@@ -110,7 +110,7 @@ export const InboundIntakeView = () => {
     );
   }
 
-  const parseResultByMessageId = new Map(parseResults.map((result) => [result.inbound_message_id, result]));
+  const parseResultByMessageId = new Map<string, InboundParseResult>(parseResults.map((result) => [result.inbound_message_id, result]));
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
   // Platform admins see all messages including unrouted ones (ecosystem_id: null); others see only their ecosystem.
   const scopedMessages = canViewRawIntake
@@ -153,6 +153,64 @@ export const InboundIntakeView = () => {
       setError(err?.message || 'Unable to create route.');
     } finally {
       setIsSavingRoute(false);
+    }
+  };
+
+  const sendQueuedNotices = async () => {
+    setIsSending(true);
+    setError(null);
+    try {
+      await callHttpFunction('sendQueuedNotices', {});
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to send queued notices.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const updateAuthorizedDomain = (id: string, patch: Partial<AuthorizedSenderDomain>) => {
+    setAuthorizedDomains(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d));
+  };
+
+  const addAuthorizedDomain = async () => {
+    if (!newDomain.trim()) return;
+    setIsSavingDomain(true);
+    setError(null);
+    try {
+      const id = `domain_${Date.now()}`;
+      const doc: AuthorizedSenderDomain = {
+        id,
+        domain: newDomain.trim().toLowerCase(),
+        ecosystem_id: viewer.ecosystemId,
+        organization_id: newDomainOrgId,
+        access_policy: newDomainPolicy,
+        is_active: true,
+        allow_sender_affiliation: newDomainPolicy === 'approved',
+        allow_auto_acknowledgement: newDomainPolicy === 'approved',
+        allow_invite_prompt: newDomainPolicy === 'approved' || newDomainPolicy === 'invite_only',
+      };
+      await setDocument('authorized_sender_domains', id, doc);
+      setNewDomain('');
+      setNewDomainOrgId('');
+      setNewDomainPolicy('approved');
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to add domain.');
+    } finally {
+      setIsSavingDomain(false);
+    }
+  };
+
+  const persistAuthorizedDomain = async (domain: AuthorizedSenderDomain) => {
+    setIsSavingDomain(true);
+    setError(null);
+    try {
+      await setDocument('authorized_sender_domains', domain.id, domain, true);
+    } catch (err: any) {
+      setError(err?.message || 'Unable to save domain.');
+    } finally {
+      setIsSavingDomain(false);
     }
   };
 
