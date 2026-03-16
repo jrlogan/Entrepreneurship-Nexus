@@ -126,69 +126,71 @@ export const InboundIntakeView = () => {
     return activeKeys > 0 || activeWebhooks > 0;
   }), [visibleEsoOrganizations]);
 
-  const sendQueuedNotices = async () => {
-    setIsSending(true);
+  const [selectedMessage, setSelectedMessage] = useState<InboundMessage | null>(null);
+  const [reviewData, setReviewData] = useState({
+    person_email: '',
+    person_name: '',
+    venture_name: '',
+    receiving_org_id: '',
+    referring_org_id: '',
+  });
+  const [isApproving, setIsApproving] = useState(false);
+
+  const handleOpenReview = (message: InboundMessage) => {
+    const result = parseResultByMessageId.get(message.id);
+    setSelectedMessage(message);
+    setReviewData({
+      person_email: result?.candidate_person_email || '',
+      person_name: result?.candidate_person_name || '',
+      venture_name: result?.candidate_venture_name || '',
+      receiving_org_id: result?.candidate_receiving_org_id || '',
+      referring_org_id: result?.candidate_referring_org_id || '',
+    });
+    setError(null);
+  };
+
+  const approveMessage = async () => {
+    if (!selectedMessage) return;
+    setIsApproving(true);
     setError(null);
     try {
-      await callHttpFunction('sendQueuedNotices', { limit: 10 });
+      await callHttpFunction('approveInboundMessage', {
+        inbound_message_id: selectedMessage.id,
+        ...reviewData,
+      });
+      setSelectedMessage(null);
       await loadData();
     } catch (err: any) {
-      setError(err?.message || 'Unable to send queued notices.');
+      setError(err?.message || 'Unable to approve message.');
     } finally {
-      setIsSending(false);
+      setIsApproving(false);
     }
   };
 
-  const updateAuthorizedDomain = (domainId: string, updates: Partial<AuthorizedSenderDomain>) => {
-    setAuthorizedDomains((current) => current.map((domain) => (
-      domain.id === domainId ? { ...domain, ...updates } : domain
-    )));
-  };
+  const rejectMessage = async () => {
+    if (!selectedMessage) return;
+    const reason = window.prompt('Reason for rejection:');
+    if (reason === null) return;
 
-  const persistAuthorizedDomain = async (domainRecord: AuthorizedSenderDomain) => {
-    setIsSavingDomain(true);
+    setIsApproving(true);
     setError(null);
     try {
-      await setDocument('authorized_sender_domains', domainRecord.id, domainRecord);
+      await callHttpFunction('rejectInboundMessage', {
+        inbound_message_id: selectedMessage.id,
+        reason,
+      });
+      setSelectedMessage(null);
+      await loadData();
     } catch (err: any) {
-      setError(err?.message || 'Unable to save authorized domain.');
+      setError(err?.message || 'Unable to reject message.');
     } finally {
-      setIsSavingDomain(false);
+      setIsApproving(false);
     }
-  };
-
-  const addAuthorizedDomain = async () => {
-    const normalizedDomain = newDomain.trim().toLowerCase();
-    if (!normalizedDomain || !newDomainOrgId) {
-      setError('Domain and organization are required.');
-      return;
-    }
-
-    const domainId = `auth_domain_${viewer.ecosystemId}_${normalizedDomain.replace(/[^a-z0-9]+/g, '_')}`;
-    const record: AuthorizedSenderDomain = {
-      id: domainId,
-      ecosystem_id: viewer.ecosystemId,
-      organization_id: newDomainOrgId,
-      domain: normalizedDomain,
-      is_active: true,
-      access_policy: newDomainPolicy,
-      allow_sender_affiliation: newDomainPolicy === 'approved',
-      allow_auto_acknowledgement: newDomainPolicy === 'approved',
-      allow_invite_prompt: newDomainPolicy === 'approved' || newDomainPolicy === 'invite_only',
-    };
-
-    setAuthorizedDomains((current) => {
-      const withoutDuplicate = current.filter((domain) => domain.id !== domainId);
-      return [...withoutDuplicate, record];
-    });
-    await persistAuthorizedDomain(record);
-    setNewDomain('');
-    setNewDomainOrgId('');
-    setNewDomainPolicy('approved');
   };
 
   return (
     <div className="space-y-6">
+      {/* ... previous header and summary cards ... */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Inbound Intake</h2>
         <div className="flex items-center gap-3">
@@ -537,6 +539,14 @@ export const InboundIntakeView = () => {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        {message.review_status === 'needs_review' && (
+                          <button
+                            onClick={() => handleOpenReview(message)}
+                            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+                          >
+                            Review
+                          </button>
+                        )}
                         <Badge color="indigo">{message.activity_type}</Badge>
                         <Badge color={message.parse_status === 'parsed' ? 'green' : message.parse_status === 'failed' ? 'red' : 'yellow'}>
                           {message.parse_status}
@@ -546,6 +556,11 @@ export const InboundIntakeView = () => {
                         </Badge>
                       </div>
                     </div>
+                    {(message as any).rejection_reason && (
+                      <div className="mt-2 text-xs text-red-600 font-medium italic">
+                        Rejection reason: {(message as any).rejection_reason}
+                      </div>
+                    )}
                     <div className="mt-3 grid gap-4 lg:grid-cols-2">
                       <div>
                         <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Body Preview</div>
@@ -574,6 +589,110 @@ export const InboundIntakeView = () => {
           </div>
         )}
       </Card>
+      )}
+
+      {selectedMessage && (
+        <Modal
+          isOpen={!!selectedMessage}
+          onClose={() => setSelectedMessage(null)}
+          title="Review Inbound Introduction"
+          wide
+        >
+          <div className="space-y-4">
+            <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
+              <div className="font-semibold text-gray-700">Inbound Message</div>
+              <div className="mt-1">From: <span className="font-mono">{selectedMessage.from_email}</span></div>
+              <div className="mt-1">Subject: {selectedMessage.subject}</div>
+              <div className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 text-xs border border-gray-100">
+                {selectedMessage.text_body}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Client Name</label>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={reviewData.person_name}
+                    onChange={(e) => setReviewData({ ...reviewData, person_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Client Email</label>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={reviewData.person_email}
+                    onChange={(e) => setReviewData({ ...reviewData, person_email: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Client Venture / Organization</label>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={reviewData.venture_name}
+                    onChange={(e) => setReviewData({ ...reviewData, venture_name: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Receiving Organization</label>
+                  <select
+                    className={FORM_SELECT_CLASS}
+                    value={reviewData.receiving_org_id}
+                    onChange={(e) => setReviewData({ ...reviewData, receiving_org_id: e.target.value })}
+                  >
+                    <option value="">Select receiver...</option>
+                    {visibleEsoOrganizations.map((org) => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Referring Organization (Attributed)</label>
+                  <select
+                    className={FORM_SELECT_CLASS}
+                    value={reviewData.referring_org_id}
+                    onChange={(e) => setReviewData({ ...reviewData, referring_org_id: e.target.value })}
+                  >
+                    <option value="">Select referrer...</option>
+                    {visibleEsoOrganizations.map((org) => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500 italic">Determined by sender email domain.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between gap-3 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => void rejectMessage()}
+                disabled={isApproving}
+                className="rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Reject Introduction
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setSelectedMessage(null)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void approveMessage()}
+                  disabled={isApproving || !reviewData.person_email || !reviewData.receiving_org_id}
+                  className="rounded bg-indigo-600 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isApproving ? 'Approving...' : 'Approve & Create Referral'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import type { Person, SystemRole } from '../../../domain/people/types';
 import type { EcosystemMembership } from '../../../domain/people/types';
-import { getDocument, queryCollection, whereEquals } from '../../../services/firestoreClient';
+import { getDocument, queryCollection, updateDocument, whereEquals } from '../../../services/firestoreClient';
 
 interface FirestorePersonRecord {
   id: string;

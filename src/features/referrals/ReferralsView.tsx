@@ -344,7 +344,7 @@ export const ReferralsView = ({
         setIsProcessing(true);
         try {
             await repos.referrals.assignOwner(selectedReferral.id, assignedOwnerId);
-            setSelectedReferral({ ...selectedReferral, owner_id: assignedOwnerId });
+            setSelectedReferral(null); // Close modal on success
             setFeedbackTone('success');
             setFeedbackMessage('Owner assigned.');
             setActivePanel(null);
@@ -371,12 +371,9 @@ export const ReferralsView = ({
         setFeedbackMessage(null);
         try {
             await repos.referrals.assignOwner(selectedReferral.id, assignedOwnerId);
-            setSelectedReferral({
-                ...selectedReferral,
-                owner_id: assignedOwnerId,
-            });
+            setSelectedReferral(null); // Close modal on success
             setFeedbackTone('success');
-            setFeedbackMessage('Reviewer assignment saved. They can now accept, decline, or reassign this referral.');
+            setFeedbackMessage('Reviewer assignment saved.');
             setPendingAction(null);
             onRefresh?.();
         } catch (error: any) {
@@ -647,6 +644,7 @@ export const ReferralsView = ({
                     <tbody className="bg-white divide-y divide-gray-200">
                         {filteredReferrals.map(ref => {
                             const subjectPerson = people.find(p => p.id === ref.subject_person_id);
+                            const subjectOrg = organizations.find((o: any) => o.id === ref.subject_org_id);
                             const statusPresentation = getStatusPresentation(ref);
                             return (
                                 <tr key={ref.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleOpen(ref)}>
@@ -700,7 +698,24 @@ export const ReferralsView = ({
                                             ) : (
                                                 getReferralLabel(ref)
                                             )}
-                                            <div className="mt-1 text-xs text-gray-500">{getReferralTypeLabel(ref)}</div>
+                                            {subjectOrg && (
+                                                <div className="mt-0.5">
+                                                    {onSelectOrganization ? (
+                                                        <button
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onSelectOrganization(subjectOrg.id);
+                                                            }}
+                                                            className="text-xs text-gray-500 hover:text-indigo-600 hover:underline"
+                                                        >
+                                                            {subjectOrg.name}
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-500">{subjectOrg.name}</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <div className="mt-1 text-xs text-gray-400">{getReferralTypeLabel(ref)}</div>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -795,7 +810,7 @@ export const ReferralsView = ({
                          )}
 
                         {/* Actions: Incoming & Pending */}
-                         {selectedReferral.receiving_org_id === currentOrgId && selectedReferral.status === 'pending' && (
+                         {((selectedReferral.receiving_org_id === currentOrgId) || isSystemAdmin) && selectedReferral.status === 'pending' && (
                              <div className="space-y-3">
                                  <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-4">
                                      {selectedReferral.owner_id ? (() => {
@@ -978,7 +993,7 @@ export const ReferralsView = ({
                          )}
 
                          {/* Actions: Accepted (Manage Referral) */}
-                         {selectedReferral.receiving_org_id === currentOrgId && selectedReferral.status === 'accepted' && (() => {
+                         {(selectedReferral.receiving_org_id === currentOrgId || isSystemAdmin) && selectedReferral.status === 'accepted' && (() => {
                              const TAG_SUGGESTIONS = [
                                  'Series A', 'Series B', 'Seed Round', 'Angel Investment',
                                  '$10k Grant', '$25k Grant', '$50k Grant', '$100k Grant',

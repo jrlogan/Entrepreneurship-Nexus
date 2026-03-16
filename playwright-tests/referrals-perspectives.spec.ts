@@ -71,7 +71,7 @@ test('referral assignment and acceptance are visible from sender, receiver, assi
     await expect(receiverAdmin.page.getByRole('button', { name: 'Assign reviewer' })).toBeEnabled();
     await receiverAdmin.page.getByRole('button', { name: 'Assign reviewer' }).click();
     await expect(receiverAdmin.page.locator('main')).toContainText('Reviewer assignment saved');
-    await closeReferralModal(receiverAdmin.page);
+    // await closeReferralModal(receiverAdmin.page); // REMOVED: modal now auto-closes
     await expect(receiverAdmin.page.locator('tbody tr').first()).toContainText('MakeHaven Staff');
   } finally {
     await receiverAdmin.context.close();

@@ -18,14 +18,26 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/people/$(request.auth.uid));
     }
 
+    function currentSystemRole() {
+      return hasPersonDoc() ? personDoc().data.system_role : null;
+    }
+
+    // organization_id is the canonical field; primary_organization_id is the legacy alias.
+    // Both are written by createTestAccount. Check organization_id first, fall back to primary.
+    function currentOrgId() {
+      return hasPersonDoc() ? (
+        personDoc().data.organization_id != '' ?
+          personDoc().data.organization_id :
+          personDoc().data.primary_organization_id
+      ) : null;
+    }
+
     function isPlatformAdmin() {
-      return hasPersonDoc() &&
-        personDoc().data.system_role == 'platform_admin';
+      return hasPersonDoc() && personDoc().data.system_role == 'platform_admin';
     }
 
     function isEcosystemManager() {
-      return hasPersonDoc() &&
-        personDoc().data.system_role == 'ecosystem_manager';
+      return hasPersonDoc() && personDoc().data.system_role == 'ecosystem_manager';
     }
 
     function isNetworkAdmin() {
@@ -33,26 +45,26 @@ service cloud.firestore {
     }
 
     function isEsoOperator() {
-      return hasPersonDoc() &&
-        ['eso_admin', 'eso_staff', 'eso_coach'].hasAny([currentSystemRole()]);
+      return hasPersonDoc() && (
+        personDoc().data.system_role == 'eso_admin' ||
+        personDoc().data.system_role == 'eso_staff' ||
+        personDoc().data.system_role == 'eso_coach'
+      );
     }
 
-    function currentSystemRole() {
-      return hasPersonDoc() ? personDoc().data.system_role : null;
-    }
-
-    function currentOrgId() {
-      return hasPersonDoc() ? personDoc().data.primary_organization_id : null;
-    }
-
-    function isReceivingOrgOperator(referral) {
-      return hasPersonDoc() &&
+    function isReceivingOrgMember(referral) {
+      return isEsoOperator() &&
         currentOrgId() != null &&
-        referral.receiving_org_id == currentOrgId() &&
-        ['eso_admin', 'eso_staff', 'eso_coach'].hasAny([currentSystemRole()]);
+        referral.receiving_org_id == currentOrgId();
     }
 
-    function isReferralSubjectOrgOperator(referral) {
+    function isReferringOrgMember(referral) {
+      return isEsoOperator() &&
+        currentOrgId() != null &&
+        referral.referring_org_id == currentOrgId();
+    }
+
+    function isSubjectOrgMember(referral) {
       return hasPersonDoc() &&
         currentOrgId() != null &&
         referral.subject_org_id == currentOrgId();
@@ -71,8 +83,9 @@ service cloud.firestore {
 
     function canManageReferral(referral) {
       return isNetworkAdmin() ||
-        isReceivingOrgOperator(referral) ||
-        isReferralSubjectOrgOperator(referral);
+        isReceivingOrgMember(referral) ||
+        isReferringOrgMember(referral) ||
+        isSubjectOrgMember(referral);
     }
 
     function isOwnAccountRequest(requestId) {
@@ -82,7 +95,7 @@ service cloud.firestore {
     match /people/{personId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && request.resource.data.auth_uid == request.auth.uid;
-      allow update: if isSelf(personId) || isPlatformAdmin();
+      allow update: if isSelf(personId) || isNetworkAdmin();
       allow delete: if isPlatformAdmin();
     }
 
@@ -151,26 +164,26 @@ service cloud.firestore {
 
     match /inbound_routes/{routeId} {
       allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin();
+      allow write: if isNetworkAdmin();
     }
 
     match /authorized_sender_domains/{domainId} {
       allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin();
+      allow write: if isNetworkAdmin();
     }
 
     match /inbound_messages/{messageId} {
-      allow read: if isPlatformAdmin();
+      allow read: if isNetworkAdmin();
       allow write: if false;
     }
 
     match /inbound_parse_results/{resultId} {
-      allow read: if isPlatformAdmin();
+      allow read: if isNetworkAdmin();
       allow write: if false;
     }
 
     match /notice_queue/{noticeId} {
-      allow read: if isPlatformAdmin();
+      allow read: if isNetworkAdmin();
       allow write: if false;
     }
 
@@ -179,3 +192,4 @@ service cloud.firestore {
     }
   }
 }
+

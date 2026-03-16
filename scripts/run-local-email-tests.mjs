@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { flushFirestoreEmulator } from './helpers/firestore-emulator-rest.mjs';
 import { getAdminDocument, listAdminDocuments } from './helpers/firestore-emulator-admin.mjs';
+import { signInWithPassword } from './helpers/emulator-auth.mjs';
 import { LOCAL_EMAIL_FIXTURES, getFixtureById } from './local-email-fixtures.mjs';
 
 const projectId = process.env.FIREBASE_PROJECT_ID || 'entrepreneurship-nexus-local';
@@ -8,10 +9,14 @@ const region = process.env.FIREBASE_FUNCTIONS_REGION || 'us-central1';
 const baseUrl = process.env.FIREBASE_FUNCTIONS_BASE_URL || `http://127.0.0.1:55001/${projectId}/${region}`;
 const routeAddress = process.env.NEXUS_MAIL_TEST_ROUTE_ADDRESS || 'newhaven+introduction@inbound.example.org';
 const webhookSecret = process.env.POSTMARK_INBOUND_WEBHOOK_SECRET || 'local-postmark-secret';
+const adminEmail = 'coach@makehaven.org';
+const adminPassword = process.env.TEST_USERS_PASSWORD || 'Password123!';
 
 const args = process.argv.slice(2);
 const shouldReset = args.includes('--reset');
 const fixtureIds = args.filter((arg) => !arg.startsWith('--'));
+
+let idToken = null;
 
 const selectedFixtures = fixtureIds.length > 0
   ? fixtureIds.map((id) => {
@@ -92,6 +97,49 @@ const invokeFixture = async (fixture) => {
   return json;
 };
 
+const approveMessage = async (inboundMessageId, parseResult) => {
+    const url = `${baseUrl}/approveInboundMessage`;
+    
+    const body = {
+        inbound_message_id: inboundMessageId,
+        person_email: parseResult.candidate_person_email,
+        person_name: parseResult.candidate_person_name,
+        venture_name: parseResult.candidate_venture_name,
+        receiving_org_id: parseResult.candidate_receiving_org_id || 'org_sbdc',
+        referring_org_id: parseResult.candidate_referring_org_id
+    };
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        if (attempt > 1) {
+            await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+            },
+            body: JSON.stringify(body),
+        });
+
+        const json = await response.json().catch(() => ({}));
+        if (response.ok) {
+            return json;
+        }
+        
+        lastError = json?.error || `Approval failed with status ${response.status}`;
+        if (lastError !== 'Inbound message not found') {
+            // Log full error for debugging
+            console.error(`Approval error for ${inboundMessageId}: ${lastError}`, { body });
+            break; 
+        }
+    }
+
+    throw new Error(`Approval failed for ${inboundMessageId}: ${lastError}`);
+};
+
 const includesAll = (haystack, needles = []) => needles.every((needle) => haystack.includes(needle));
 const excludesAll = (haystack, needles = []) => needles.every((needle) => !haystack.includes(needle));
 
@@ -114,22 +162,30 @@ const remediationForCheck = (check) => {
   return 'Inspect the fixture payload and resulting Firestore records to decide whether parsing, policy, or manual review needs adjustment.';
 };
 
-const evaluateFixture = async (fixture, result) => {
-  const parseResult = result.parse_result_id ? await getAdminDocument('inbound_parse_results', result.parse_result_id) : null;
-  const referral = result.referral_id ? await getAdminDocument('referrals', result.referral_id) : null;
+const evaluateFixture = async (fixture, intakeResult) => {
+  const parseResultDoc = await getAdminDocument('inbound_parse_results', intakeResult.parse_result_id);
+  if (!parseResultDoc) {
+      throw new Error(`Parse result not found for fixture ${fixture.id}`);
+  }
+  const parseResult = parseResultDoc.fields;
+
+  // Manual Approval to trigger referral and notices
+  const approvalResult = await approveMessage(intakeResult.inbound_message_id, parseResult);
+  
+  const referral = approvalResult.referral_id ? await getAdminDocument('referrals', approvalResult.referral_id) : null;
   const allNotices = await listAdminDocuments('notice_queue');
-  const relatedNotices = allNotices.filter((doc) => doc.fields?.payload?.inbound_message_id === result.inbound_message_id);
+  const relatedNotices = allNotices.filter((doc) => doc.fields?.payload?.inbound_message_id === intakeResult.inbound_message_id);
 
   const checks = [];
-  const reviewReasons = parseResult?.fields?.needs_review_reasons || [];
+  const reviewReasons = parseResult?.needs_review_reasons || [];
   const noticeTypes = relatedNotices.map((doc) => doc.fields?.type).filter(Boolean);
   const note = referral?.fields?.notes || '';
 
   if ('candidateReferringOrgId' in fixture.expected) {
     checks.push({
       label: 'candidate_referring_org_id',
-      ok: (parseResult?.fields?.candidate_referring_org_id || null) === fixture.expected.candidateReferringOrgId,
-      actual: parseResult?.fields?.candidate_referring_org_id || null,
+      ok: (parseResult?.candidate_referring_org_id || null) === fixture.expected.candidateReferringOrgId,
+      actual: parseResult?.candidate_referring_org_id || null,
       expected: fixture.expected.candidateReferringOrgId,
     });
   }
@@ -207,8 +263,9 @@ const evaluateFixture = async (fixture, result) => {
   return {
     fixture: fixture.id,
     description: fixture.description,
-    response: result,
-    parse_result: parseResult?.fields || null,
+    response: intakeResult,
+    approval: approvalResult,
+    parse_result: parseResult || null,
     referral: referral?.fields || null,
     notice_types: noticeTypes,
     checks: checks.map((check) => ({
@@ -222,6 +279,10 @@ const evaluateFixture = async (fixture, result) => {
 if (shouldReset) {
   await resetLocalData();
 }
+
+// Ensure we have an auth token for approval
+const authRes = await signInWithPassword(adminEmail, adminPassword);
+idToken = authRes.idToken;
 
 const reports = [];
 for (const fixture of selectedFixtures) {
