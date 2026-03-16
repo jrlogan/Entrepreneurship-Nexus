@@ -199,6 +199,8 @@ export const APIConsoleView = () => {
     const viewer = useViewer();
     const [activeTab, setActiveTab] = useState<'overview' | 'simulator' | 'sync_guide' | 'webhooks' | 'docs'>('overview');
     const [organizations, setOrganizations] = useState<any[]>([]);
+    const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+    const [webhooks, setWebhooks] = useState<Webhook[]>([]);
     const manageableEsoOrganizations = useMemo(() => {
         if (viewer.role === 'platform_admin') {
             return organizations.filter(org => org.roles.includes('eso'));
@@ -212,31 +214,39 @@ export const APIConsoleView = () => {
         return ownOrg && ownOrg.roles.includes('eso') ? [ownOrg] : [];
     }, [organizations, viewer.ecosystemId, viewer.orgId, viewer.role]);
 
+    const loadOrganizations = async () => {
+        const nextOrganizations = await repos.organizations.getAll(viewer);
+        setOrganizations(Array.isArray(nextOrganizations) ? nextOrganizations : []);
+    };
+
     useEffect(() => {
         let cancelled = false;
 
-        const loadOrganizations = async () => {
+        const loadVisibleOrganizations = async () => {
             const nextOrganizations = await repos.organizations.getAll(viewer);
             if (!cancelled) {
-                setOrganizations(nextOrganizations);
+                setOrganizations(Array.isArray(nextOrganizations) ? nextOrganizations : []);
             }
         };
 
-        void loadOrganizations();
+        void loadVisibleOrganizations();
         return () => {
             cancelled = true;
         };
-    }, [repos, viewer]);
+    }, [repos.organizations, viewer.ecosystemId, viewer.orgId, viewer.role]);
     
     // Key Management State
-    const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
     const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false);
     const [newKeyLabel, setNewKeyLabel] = useState('');
     const [createdKeySecret, setCreatedKeySecret] = useState<string | null>(null);
+    const [keyCreateError, setKeyCreateError] = useState<string | null>(null);
     const [selectedIntegrationOrgId, setSelectedIntegrationOrgId] = useState('');
 
+    // Confirm states for destructive actions
+    const [confirmRevokeKeyId, setConfirmRevokeKeyId] = useState<string | null>(null);
+    const [confirmDeleteWebhookId, setConfirmDeleteWebhookId] = useState<string | null>(null);
+
     // Webhook Management State
-    const [webhooks, setWebhooks] = useState<Webhook[]>([]);
     const [isCreateWebhookModalOpen, setIsCreateWebhookModalOpen] = useState(false);
     const [newWebhookUrl, setNewWebhookUrl] = useState('');
     const [newWebhookDesc, setNewWebhookDesc] = useState('');
@@ -273,8 +283,8 @@ export const APIConsoleView = () => {
         return organizations
             .filter(org => org.roles.includes('eso'))
             .map(org => {
-                const apiKeysForOrg = repos.organizations.getApiKeys(org.id);
-                const webhooksForOrg = repos.organizations.getWebhooks(org.id);
+                const apiKeysForOrg = Array.isArray(org.api_keys) ? org.api_keys : [];
+                const webhooksForOrg = Array.isArray(org.webhooks) ? org.webhooks : [];
                 const activeApiKeys = apiKeysForOrg.filter(key => key.status === 'active').length;
                 const activeWebhooks = webhooksForOrg.filter(hook => hook.status === 'active').length;
                 const syncedSources = new Set((org.external_refs || []).map(ref => ref.source)).size;
@@ -298,7 +308,7 @@ export const APIConsoleView = () => {
                 const bScore = b.activeApiKeys + b.activeWebhooks + b.syncedSources;
                 return bScore - aScore;
             });
-    }, [organizations, repos.organizations, viewer.role]);
+    }, [organizations, viewer.role]);
 
     const conflicts = useMemo(() => detectDuplicates(organizations), [organizations]);
     const showFederatedSyncStatus = viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
@@ -315,51 +325,86 @@ export const APIConsoleView = () => {
     }, [manageableEsoOrganizations, viewer.orgId]);
 
     useEffect(() => {
-        if (!selectedIntegrationOrgId) {
-            setApiKeys([]);
-            setWebhooks([]);
-            return;
-        }
+        let cancelled = false;
 
-        setApiKeys(repos.organizations.getApiKeys(selectedIntegrationOrgId));
-        setWebhooks(repos.organizations.getWebhooks(selectedIntegrationOrgId));
-    }, [selectedIntegrationOrgId, repos, isCreateKeyModalOpen, isCreateWebhookModalOpen]); 
+        const loadIntegrationConfig = async () => {
+            if (!selectedIntegrationOrgId) {
+                if (!cancelled) {
+                    setApiKeys([]);
+                    setWebhooks([]);
+                }
+                return;
+            }
+
+            const [nextApiKeys, nextWebhooks] = await Promise.all([
+                repos.organizations.getApiKeys(selectedIntegrationOrgId),
+                repos.organizations.getWebhooks(selectedIntegrationOrgId),
+            ]);
+
+            if (!cancelled) {
+                setApiKeys(Array.isArray(nextApiKeys) ? nextApiKeys : []);
+                setWebhooks(Array.isArray(nextWebhooks) ? nextWebhooks : []);
+            }
+        };
+
+        void loadIntegrationConfig();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedIntegrationOrgId, repos.organizations, isCreateKeyModalOpen, isCreateWebhookModalOpen]); 
 
     // --- API Key Handlers ---
-    const handleCreateKey = () => {
+    const handleCreateKey = async () => {
         if (!selectedIntegrationOrgId) {
             return;
         }
-        const key = repos.organizations.generateApiKey(selectedIntegrationOrgId, newKeyLabel || 'New API Key');
-        if (key) {
+        setKeyCreateError(null);
+        try {
+            const key = await repos.organizations.generateApiKey(selectedIntegrationOrgId, newKeyLabel || 'New API Key');
+            if (!key) {
+                setKeyCreateError('Unable to create API key for the selected organization.');
+                return;
+            }
             setCreatedKeySecret(key.prefix); 
-            setApiKeys(repos.organizations.getApiKeys(selectedIntegrationOrgId));
+            await loadOrganizations();
+            const nextApiKeys = await repos.organizations.getApiKeys(selectedIntegrationOrgId);
+            setApiKeys(Array.isArray(nextApiKeys) ? nextApiKeys : []);
+        } catch (error: any) {
+            setKeyCreateError(error?.message || 'Unable to create API key.');
         }
     };
 
     const handleRevokeKey = (id: string) => {
-        if (confirm('Are you sure you want to revoke this key? This action cannot be undone and may break active integrations.')) {
-            repos.organizations.revokeApiKey(selectedIntegrationOrgId, id);
-            setApiKeys(prev => prev.map(k => k.id === id ? { ...k, status: 'revoked' } : k));
-        }
+        setConfirmRevokeKeyId(id);
+    };
+
+    const doRevokeKey = async (id: string) => {
+        await repos.organizations.revokeApiKey(selectedIntegrationOrgId, id);
+        const nextApiKeys = await repos.organizations.getApiKeys(selectedIntegrationOrgId);
+        setApiKeys(Array.isArray(nextApiKeys) ? nextApiKeys : []);
+        await loadOrganizations();
+        setConfirmRevokeKeyId(null);
     };
 
     const closeCreateKeyModal = () => {
         setIsCreateKeyModalOpen(false);
         setCreatedKeySecret(null);
         setNewKeyLabel('');
+        setKeyCreateError(null);
     };
 
     // --- Webhook Handlers ---
-    const handleCreateWebhook = () => {
+    const handleCreateWebhook = async () => {
         if (!newWebhookUrl || !selectedIntegrationOrgId) return;
-        repos.organizations.addWebhook(selectedIntegrationOrgId, {
+        await repos.organizations.addWebhook(selectedIntegrationOrgId, {
             url: newWebhookUrl,
             description: newWebhookDesc,
             events: newWebhookEvents,
             payload_format: newWebhookFormat
         });
-        setWebhooks(repos.organizations.getWebhooks(selectedIntegrationOrgId));
+        const nextWebhooks = await repos.organizations.getWebhooks(selectedIntegrationOrgId);
+        setWebhooks(Array.isArray(nextWebhooks) ? nextWebhooks : []);
+        await loadOrganizations();
         setIsCreateWebhookModalOpen(false);
         setNewWebhookUrl('');
         setNewWebhookDesc('');
@@ -368,10 +413,15 @@ export const APIConsoleView = () => {
     };
 
     const handleDeleteWebhook = (id: string) => {
-        if (confirm('Delete this webhook?')) {
-            repos.organizations.deleteWebhook(selectedIntegrationOrgId, id);
-            setWebhooks(repos.organizations.getWebhooks(selectedIntegrationOrgId));
-        }
+        setConfirmDeleteWebhookId(id);
+    };
+
+    const doDeleteWebhook = async (id: string) => {
+        await repos.organizations.deleteWebhook(selectedIntegrationOrgId, id);
+        const nextWebhooks = await repos.organizations.getWebhooks(selectedIntegrationOrgId);
+        setWebhooks(Array.isArray(nextWebhooks) ? nextWebhooks : []);
+        await loadOrganizations();
+        setConfirmDeleteWebhookId(null);
     };
 
     const toggleWebhookEvent = (event: string) => {
@@ -606,7 +656,15 @@ export const APIConsoleView = () => {
                                     <div className="flex items-center gap-3">
                                         <Badge color={key.status === 'active' ? 'green' : 'red'}>{key.status}</Badge>
                                         {key.status === 'active' && (
-                                            <button onClick={() => handleRevokeKey(key.id)} className="text-xs text-red-600 hover:underline">Revoke</button>
+                                            confirmRevokeKeyId === key.id ? (
+                                                <span className="text-xs text-red-700">
+                                                    Revoke this key?{' '}
+                                                    <button onClick={() => void doRevokeKey(key.id)} className="font-bold underline mr-1">Yes</button>
+                                                    <button onClick={() => setConfirmRevokeKeyId(null)} className="text-gray-500 underline">Cancel</button>
+                                                </span>
+                                            ) : (
+                                                <button onClick={() => handleRevokeKey(key.id)} className="text-xs text-red-600 hover:underline">Revoke</button>
+                                            )
                                         )}
                                     </div>
                                 </div>
@@ -780,9 +838,17 @@ export const APIConsoleView = () => {
                                         <button className="text-indigo-600 hover:underline">Reveal</button>
                                     </div>
 
-                                    <div className="pt-2 border-t border-gray-100 flex justify-end gap-3">
+                                    <div className="pt-2 border-t border-gray-100 flex justify-end gap-3 items-center">
                                         <button className="text-xs text-gray-500 hover:text-gray-900">View Logs</button>
-                                        <button onClick={() => handleDeleteWebhook(hook.id)} className="text-xs text-red-600 hover:text-red-900 font-bold">Delete</button>
+                                        {confirmDeleteWebhookId === hook.id ? (
+                                            <span className="text-xs text-red-700">
+                                                Delete this webhook?{' '}
+                                                <button onClick={() => void doDeleteWebhook(hook.id)} className="font-bold underline mr-1">Yes</button>
+                                                <button onClick={() => setConfirmDeleteWebhookId(null)} className="text-gray-500 underline">Cancel</button>
+                                            </span>
+                                        ) : (
+                                            <button onClick={() => handleDeleteWebhook(hook.id)} className="text-xs text-red-600 hover:text-red-900 font-bold">Delete</button>
+                                        )}
                                     </div>
                                 </div>
                             </Card>
@@ -854,6 +920,11 @@ export const APIConsoleView = () => {
                         <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 border border-yellow-200">
                             <strong>Note:</strong> You will only be shown the secret key once.
                         </div>
+                        {keyCreateError && (
+                            <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                                {keyCreateError}
+                            </div>
+                        )}
                         <div className="flex justify-end gap-2 pt-2">
                             <button onClick={closeCreateKeyModal} className="px-4 py-2 border rounded hover:bg-gray-50 text-sm">Cancel</button>
                             <button onClick={handleCreateKey} disabled={!newKeyLabel || !selectedIntegrationOrgId} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm disabled:opacity-50">Create</button>

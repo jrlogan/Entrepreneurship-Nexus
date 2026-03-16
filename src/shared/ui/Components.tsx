@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CONFIG } from '../../app/config';
 
 export interface CardProps {
   title: React.ReactNode;
@@ -75,11 +76,11 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({ active, onClick, label
   </button>
 );
 
-export const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose: () => void, title: string, children?: React.ReactNode }) => {
+export const Modal = ({ isOpen, onClose, title, wide, children }: { isOpen: boolean, onClose: () => void, title: string, wide?: boolean, children?: React.ReactNode }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 m-4 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto relative">
+      <div className={`bg-white rounded-lg shadow-xl w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} p-6 m-4 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto relative`}>
         <div className="flex justify-between items-center mb-4 border-b pb-2">
             <h3 className="text-lg font-bold text-gray-900">{title}</h3>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 font-bold text-xl">&times;</button>
@@ -134,6 +135,20 @@ export interface DemoLinkProps {
 
 export const DemoLink: React.FC<DemoLinkProps> = ({ href, children, className, title = "External Resource", description = "In a live environment, this would open an external website or tool." }) => {
     const [showModal, setShowModal] = useState(false);
+
+    if (!CONFIG.IS_DEMO_MODE) {
+        return (
+            <a
+                href={href}
+                className={className}
+                title={title}
+                target={href.startsWith('http://') || href.startsWith('https://') ? '_blank' : undefined}
+                rel={href.startsWith('http://') || href.startsWith('https://') ? 'noreferrer' : undefined}
+            >
+                {children}
+            </a>
+        );
+    }
 
     return (
         <>

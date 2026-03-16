@@ -124,4 +124,12 @@ export class ReferralsRepo {
     }
     return Promise.resolve();
   }
+
+  async update(id: string, updates: Partial<Referral>): Promise<void> {
+    const ref = MOCK_REFERRALS.find(r => r.id === id);
+    if (ref) {
+      Object.assign(ref, updates);
+    }
+    return Promise.resolve();
+  }
 }

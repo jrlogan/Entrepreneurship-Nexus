@@ -23,6 +23,7 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
     const [notes, setNotes] = useState('');
     const [sendEmail, setSendEmail] = useState(false);
     const [availablePeople, setAvailablePeople] = useState<Person[]>([]);
+    const [formError, setFormError] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -76,12 +77,13 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
     );
 
     const handleSave = () => {
+        setFormError('');
         if (!receivingOrgId) {
-            alert('Please select a recipient organization.');
+            setFormError('Please select a recipient organization.');
             return;
         }
         if (!activeSubjectId) {
-            alert('Please select an organization to refer.');
+            setFormError('Please select an organization to refer.');
             return;
         }
 
@@ -125,8 +127,9 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
                     <p className="text-sm text-gray-600">Send a warm introduction for <strong>{subjectOrg.name}</strong> to another support organization in the network.</p>
                 ) : (
                     <div>
-                        <label className={FORM_LABEL_CLASS}>Organization to Refer</label>
+                        <label htmlFor="referral-subject-org" className={FORM_LABEL_CLASS}>Organization to Refer</label>
                         <select 
+                            id="referral-subject-org"
                             className={FORM_SELECT_CLASS} 
                             value={selectedSubjectId} 
                             onChange={e => {
@@ -145,9 +148,10 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
 
                 {activeSubjectId && (
                     <div>
-                        <label className={FORM_LABEL_CLASS}>Person / Contact</label>
+                        <label htmlFor={availablePeople.length > 0 ? 'referral-subject-person' : 'referral-contact-name'} className={FORM_LABEL_CLASS}>Person / Contact</label>
                         {availablePeople.length > 0 ? (
                             <select 
+                                id="referral-subject-person"
                                 className={FORM_SELECT_CLASS}
                                 value={selectedPersonId}
                                 onChange={e => setSelectedPersonId(e.target.value)}
@@ -160,6 +164,7 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
                         ) : (
                             <div>
                                 <input 
+                                    id="referral-contact-name"
                                     className={FORM_INPUT_CLASS}
                                     placeholder="Contact Name (e.g. John Doe)"
                                     value={contactName}
@@ -172,8 +177,8 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
                 )}
                 
                 <div>
-                    <label className={FORM_LABEL_CLASS}>Recipient Organization (ESO)</label>
-                    <select className={FORM_SELECT_CLASS} value={receivingOrgId} onChange={e => setReceivingOrgId(e.target.value)}>
+                    <label htmlFor="referral-recipient-org" className={FORM_LABEL_CLASS}>Recipient Organization (ESO)</label>
+                    <select id="referral-recipient-org" className={FORM_SELECT_CLASS} value={receivingOrgId} onChange={e => setReceivingOrgId(e.target.value)}>
                         <option value="">-- Select Partner --</option>
                         {targetOrgs.map(o => (
                             <option key={o.id} value={o.id}>{o.name}</option>
@@ -182,8 +187,9 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
                 </div>
 
                 <div>
-                    <label className={FORM_LABEL_CLASS}>Introduction / Notes</label>
+                    <label htmlFor="referral-notes" className={FORM_LABEL_CLASS}>Introduction / Notes</label>
                     <textarea 
+                        id="referral-notes"
                         className={FORM_TEXTAREA_CLASS} 
                         rows={4} 
                         value={notes} 
@@ -225,13 +231,14 @@ I'd like to introduce ${subjectPerson ? `${subjectPerson.first_name} ${subjectPe
 ${notes || '(Your notes will appear here...)'}
 
 Best,
-${currentUser?.first_name || 'Staff'} ${currentUser?.last_name || ''}
+[Your name]
 ${referringOrg?.name || 'Organization'}`}
                             </div>
                         </div>
                     </div>
                 )}
 
+                {formError && <p className="text-sm text-red-600 mt-2">{formError}</p>}
                 <div className="flex justify-end pt-2 gap-2">
                     <button onClick={onClose} className="px-4 py-2 border rounded hover:bg-gray-50 text-sm">Cancel</button>
                     <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">Send Referral</button>

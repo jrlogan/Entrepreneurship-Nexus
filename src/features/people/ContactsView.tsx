@@ -97,12 +97,12 @@ export const ContactsView = ({
                         >
                             All
                         </button>
-                        <button 
-                            type="button" 
+                        <button
+                            type="button"
                             onClick={() => setFilter('my_org_network')}
                             className={`px-4 py-2 text-sm font-medium border-t border-b border-gray-200 hover:bg-gray-100 ${filter === 'my_org_network' ? 'bg-gray-100 text-indigo-700 z-10 ring-2 ring-indigo-500' : 'bg-white text-gray-900'}`}
                         >
-                            My Clients
+                            Our Clients
                         </button>
                         <button 
                             type="button" 

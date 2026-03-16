@@ -260,6 +260,7 @@ export const MAKEHAVEN: Organization = {
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
+  support_offerings: ['workspace', 'product_development', 'business_coaching', 'networking'],
   ecosystem_ids: ['eco_new_haven', 'eco_ct_makers'],
   // New: Example Webhooks for API Demo
   webhooks: [
@@ -305,6 +306,7 @@ export const CT_INNOVATIONS: Organization = {
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
+  support_offerings: ['funding', 'business_coaching', 'networking'],
   ecosystem_ids: ['eco_new_haven']
 };
 
@@ -363,6 +365,7 @@ export const DARK_STAR_LLC: Organization = {
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
+  support_offerings: ['workspace', 'networking', 'marketing'],
   ecosystem_ids: ['eco_new_haven']
 };
 
@@ -465,6 +468,7 @@ export const STEALTH_STARTUP: Organization = {
   managed_by_ids: [],
   operational_visibility: 'restricted',
   authorized_eso_ids: [],
+  support_offerings: [],
   ecosystem_ids: ['eco_new_haven']
 };
 
@@ -915,6 +919,7 @@ export const MOCK_SERVICES: Service[] = [
     name: 'Makerspace Membership',
     provider_org_id: 'org_makehaven',
     recipient_person_id: 'person_002', // Sarah Connor
+    participation_type: 'membership',
     start_date: '2023-01-10',
     status: 'active',
     description: 'Full access to woodshop and metalshop.'
@@ -924,8 +929,30 @@ export const MOCK_SERVICES: Service[] = [
     name: 'Incubator Office Rental',
     provider_org_id: 'org_makehaven',
     recipient_org_id: 'org_darkstar_001', // Linked to company
+    participation_type: 'rental',
     start_date: '2023-03-01',
     status: 'active',
     description: 'Office 304, 2 desks.'
+  },
+  {
+    id: 'svc_003',
+    name: 'ClimateHaven Accelerator Application',
+    provider_org_id: 'org_ct_innovations',
+    recipient_org_id: 'org_darkstar_001',
+    participation_type: 'application',
+    start_date: '2026-02-10',
+    status: 'applied',
+    description: 'Application submitted for the spring hardware commercialization cohort.'
+  },
+  {
+    id: 'svc_004',
+    name: 'Advanced Composites Bootcamp',
+    provider_org_id: 'org_makehaven',
+    recipient_person_id: 'EAZOJGUdrqn2TbbbKBqon8OUOSoJ',
+    participation_type: 'event',
+    start_date: '2025-11-06',
+    end_date: '2025-11-08',
+    status: 'past',
+    description: 'Three-day technical bootcamp on marine composites and fabrication workflows.'
   }
 ];

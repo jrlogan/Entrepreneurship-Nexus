@@ -49,6 +49,30 @@ await setDocument(projectId, 'organization_aliases', 'alias_mail_test_receiver',
   ecosystem_id: ecosystemId,
 });
 
+await setDocument(projectId, 'authorized_sender_domains', 'auth_domain_mail_test_sender_makehaven', {
+  id: 'auth_domain_mail_test_sender_makehaven',
+  ecosystem_id: ecosystemId,
+  organization_id: senderOrgId,
+  domain: 'makehaven.org',
+  is_active: true,
+  access_policy: 'approved',
+  allow_sender_affiliation: true,
+  allow_auto_acknowledgement: true,
+  allow_invite_prompt: true,
+});
+
+await setDocument(projectId, 'authorized_sender_domains', 'auth_domain_mail_test_sender_nexus', {
+  id: 'auth_domain_mail_test_sender_nexus',
+  ecosystem_id: ecosystemId,
+  organization_id: senderOrgId,
+  domain: 'entrepreneurship.nexus',
+  is_active: true,
+  access_policy: 'approved',
+  allow_sender_affiliation: true,
+  allow_auto_acknowledgement: true,
+  allow_invite_prompt: true,
+});
+
 await setDocument(projectId, 'inbound_routes', 'route_mail_test_intro', {
   id: 'route_mail_test_intro',
   route_address: routeAddress,

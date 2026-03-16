@@ -75,6 +75,72 @@ Manual flow:
 8. Simulate a Postmark-style inbound webhook with `npm run simulate:postmark-inbound`
 9. Run an end-to-end invite acceptance flow with `npm run simulate:full-invite-flow`
 10. Seed the full local role matrix with `npm run simulate:seed-test-accounts`
+11. Run the local inbound email fixture suite with `npm run simulate:local-email-tests -- --reset`
+12. Preview queued local notice emails with `npm run simulate:preview-local-notices`
+
+Local email fixture suite:
+
+- Runs named scenarios for:
+  - approved known ESO staff
+  - approved unknown staff
+  - Gmail / unapproved senders
+  - reply-chain / quoted-thread cases
+  - approved-domain plus aliases
+  - no-footer fallback parsing
+  - signature-heavy trailing noise
+  - malformed footer cases
+- Validates:
+  - inferred referring org
+  - review reasons
+  - queued notice types
+  - clean referral notes
+  - default owner assignment state
+  - referral date presence
+- Emits remediation hints when a check fails so you know whether the next fix belongs in parsing, sender-domain policy, or manual-review handling.
+
+Examples:
+
+```bash
+# Reset the local emulator, reseed, and run all fixtures
+npm run simulate:local-email-tests -- --reset
+
+# Run one targeted fixture
+npm run simulate:local-email-tests -- gmail-request-access
+
+# Run multiple targeted fixtures after local data is already seeded
+npm run simulate:local-email-tests -- approved-known-staff reply-chain-top-posted
+
+# Preview queued notice emails rendered from the local emulator
+npm run simulate:preview-local-notices
+```
+
+Suggested local iteration loop for email-intake changes:
+
+1. Run `npm run simulate:local-email-tests -- --reset`
+2. If a fixture fails, read the failed check plus its remediation hint in the JSON output
+3. Fix the relevant area:
+   - parsing / note cleanup in `functions/src/index.ts`
+   - sender-domain policy / org mapping in `authorized_sender_domains`
+   - receiver-side/manual-review behavior in the app UI
+4. Rerun the single failing fixture first, for example:
+```bash
+npm run simulate:local-email-tests -- signature-noise-after-footer
+```
+5. When the targeted case passes, rerun the full suite
+6. Only then repeat the same scenario on staging with a real email through Postmark
+
+Common remediation rules:
+
+- `unknown_sender_domain` when you expected an ESO:
+  add or correct the sender domain policy record for that ecosystem/org
+- `missing_client_email` on a real intro:
+  tighten fallback parsing or require the sender to use the structured footer
+- wrong sender notice type:
+  verify whether the sender should be treated as a known user, approved-domain claimant, invite-only user, or request-access case
+- referral note includes thread junk or signature spam:
+  adjust note extraction before testing again on staging
+- owner is `null` on a new pending referral:
+  this is expected until the receiving organization accepts the referral or explicitly assigns an owner
 
 Local defaults:
 
@@ -86,6 +152,8 @@ Local defaults:
 - ESO staff: `eso.staff@makehaven.org`
 - ESO coach: `eso.coach@makehaven.org`
 - partner ESO admin: `eso.admin@ctinnovations.org`
+- recipient ESO admin: `eso.admin@sbdc.org`
+- recipient ESO staff: `advisor@sbdc.org`
 - entrepreneur: `founder@darkstarmarine.com`
 
 ## Firebase Deployment

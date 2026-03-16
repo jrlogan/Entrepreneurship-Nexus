@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { Card, Badge, InfoBanner } from '../../shared/ui/Components';
+import { Card, Badge, FORM_INPUT_CLASS, FORM_SELECT_CLASS, InfoBanner } from '../../shared/ui/Components';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
-import { queryCollection } from '../../services/firestoreClient';
+import { queryCollection, setDocument } from '../../services/firestoreClient';
 import { useAuthSession } from '../../app/useAuthSession';
-import type { InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
+import type { AuthorizedSenderDomain, InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
 import type { Organization } from '../../domain/organizations/types';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 
@@ -25,14 +25,20 @@ export const InboundIntakeView = () => {
   const currentRole = session.viewer?.role || session.person?.system_role || 'entrepreneur';
   const canViewInboundIntake = currentRole === 'platform_admin' || currentRole === 'ecosystem_manager';
   const canViewRawIntake = currentRole === 'platform_admin';
+  const canManageAuthorizedDomains = currentRole === 'platform_admin';
   const [messages, setMessages] = useState<InboundMessage[]>([]);
   const [parseResults, setParseResults] = useState<InboundParseResult[]>([]);
   const [noticeQueue, setNoticeQueue] = useState<NoticeQueueItem[]>([]);
   const [routes, setRoutes] = useState<InboundRoute[]>([]);
+  const [authorizedDomains, setAuthorizedDomains] = useState<AuthorizedSenderDomain[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isSavingDomain, setIsSavingDomain] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleEsoOrganizations, setVisibleEsoOrganizations] = useState<Organization[]>([]);
+  const [newDomain, setNewDomain] = useState('');
+  const [newDomainOrgId, setNewDomainOrgId] = useState('');
+  const [newDomainPolicy, setNewDomainPolicy] = useState<NonNullable<AuthorizedSenderDomain['access_policy']>>('approved');
 
   const loadData = async () => {
     if (!canViewInboundIntake) {
@@ -40,6 +46,7 @@ export const InboundIntakeView = () => {
         setParseResults([]);
         setNoticeQueue([]);
         setRoutes([]);
+        setAuthorizedDomains([]);
         setVisibleEsoOrganizations([]);
         setError(null);
         return;
@@ -55,6 +62,8 @@ export const InboundIntakeView = () => {
 
         const firestoreRoutes = await queryCollection<InboundRoute>('inbound_routes');
         setRoutes(firestoreRoutes);
+        const firestoreDomains = await queryCollection<AuthorizedSenderDomain>('authorized_sender_domains');
+        setAuthorizedDomains(firestoreDomains);
 
         if (canViewRawIntake) {
           const [firestoreMessages, firestoreParseResults, firestoreNoticeQueue] = await Promise.all([
@@ -77,6 +86,7 @@ export const InboundIntakeView = () => {
         setParseResults(await repos.inboundMessages.getParseResults());
         setNoticeQueue([]);
         setRoutes(await repos.inboundMessages.getRoutes());
+        setAuthorizedDomains([]);
       }
     } catch (err: any) {
       setError(err?.message || 'Unable to load inbound intake data.');
@@ -103,28 +113,84 @@ export const InboundIntakeView = () => {
   const parseResultByMessageId = new Map(parseResults.map((result) => [result.inbound_message_id, result]));
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
   const scopedMessages = messages.filter((message) => message.ecosystem_id === viewer.ecosystemId);
-  const authorizedSenderDomains = Array.from(new Set(scopedRoutes.flatMap((route) => route.allowed_sender_domains || []))).sort();
+  const scopedAuthorizedDomains = authorizedDomains
+    .filter((domain) => domain.ecosystem_id === viewer.ecosystemId)
+    .sort((a, b) => a.domain.localeCompare(b.domain));
+  const authorizedSenderDomains = Array.from(new Set([
+    ...scopedRoutes.flatMap((route) => route.allowed_sender_domains || []),
+    ...scopedAuthorizedDomains.map((domain) => domain.domain),
+  ])).sort();
   const activeIntegrationOrganizations = useMemo(() => visibleEsoOrganizations.filter((organization) => {
     const activeKeys = (organization.api_keys || []).filter((key) => key.status === 'active').length;
     const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active').length;
     return activeKeys > 0 || activeWebhooks > 0;
   }), [visibleEsoOrganizations]);
 
-  const sendQueuedNotices = async () => {
-    setIsSending(true);
+  const [selectedMessage, setSelectedMessage] = useState<InboundMessage | null>(null);
+  const [reviewData, setReviewData] = useState({
+    person_email: '',
+    person_name: '',
+    venture_name: '',
+    receiving_org_id: '',
+    referring_org_id: '',
+  });
+  const [isApproving, setIsApproving] = useState(false);
+
+  const handleOpenReview = (message: InboundMessage) => {
+    const result = parseResultByMessageId.get(message.id);
+    setSelectedMessage(message);
+    setReviewData({
+      person_email: result?.candidate_person_email || '',
+      person_name: result?.candidate_person_name || '',
+      venture_name: result?.candidate_venture_name || '',
+      receiving_org_id: result?.candidate_receiving_org_id || '',
+      referring_org_id: result?.candidate_referring_org_id || '',
+    });
+    setError(null);
+  };
+
+  const approveMessage = async () => {
+    if (!selectedMessage) return;
+    setIsApproving(true);
     setError(null);
     try {
-      await callHttpFunction('sendQueuedNotices', { limit: 10 });
+      await callHttpFunction('approveInboundMessage', {
+        inbound_message_id: selectedMessage.id,
+        ...reviewData,
+      });
+      setSelectedMessage(null);
       await loadData();
     } catch (err: any) {
-      setError(err?.message || 'Unable to send queued notices.');
+      setError(err?.message || 'Unable to approve message.');
     } finally {
-      setIsSending(false);
+      setIsApproving(false);
+    }
+  };
+
+  const rejectMessage = async () => {
+    if (!selectedMessage) return;
+    const reason = window.prompt('Reason for rejection:');
+    if (reason === null) return;
+
+    setIsApproving(true);
+    setError(null);
+    try {
+      await callHttpFunction('rejectInboundMessage', {
+        inbound_message_id: selectedMessage.id,
+        reason,
+      });
+      setSelectedMessage(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to reject message.');
+    } finally {
+      setIsApproving(false);
     }
   };
 
   return (
     <div className="space-y-6">
+      {/* ... previous header and summary cards ... */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Inbound Intake</h2>
         <div className="flex items-center gap-3">
@@ -210,6 +276,38 @@ export const InboundIntakeView = () => {
                     </div>
                   </div>
                 ))}
+                {scopedAuthorizedDomains.length > 0 && (
+                  <div className="rounded-md border border-dashed border-indigo-200 bg-indigo-50/40 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Approved domain registry</div>
+                    <div className="mt-2 space-y-2">
+                      {scopedAuthorizedDomains.map((domainRecord) => {
+                        const org = visibleEsoOrganizations.find((organization) => organization.id === domainRecord.organization_id);
+                        return (
+                          <div key={domainRecord.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                            <div className="font-medium text-gray-900">{domainRecord.domain}</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge color="indigo">{org?.name || domainRecord.organization_id}</Badge>
+                              <Badge color={
+                                domainRecord.access_policy === 'invite_only'
+                                  ? 'yellow'
+                                  : domainRecord.access_policy === 'request_access'
+                                    ? 'purple'
+                                    : domainRecord.access_policy === 'blocked'
+                                      ? 'red'
+                                      : 'green'
+                              }>
+                                {domainRecord.access_policy || 'approved'}
+                              </Badge>
+                              {domainRecord.allow_sender_affiliation !== false && <Badge color="green">sender affiliation</Badge>}
+                              {domainRecord.allow_auto_acknowledgement !== false && <Badge color="purple">sender receipt</Badge>}
+                              {domainRecord.allow_invite_prompt !== false && <Badge color="gray">claim prompt</Badge>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
             </div>
           )}
         </Card>
@@ -245,6 +343,143 @@ export const InboundIntakeView = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Authorized Sender Domain Policies">
+        {!isFirebaseEnabled() ? (
+          <p className="text-sm text-gray-500">Domain policy editing is available when Firebase is enabled.</p>
+        ) : (
+          <div className="space-y-4">
+            {canManageAuthorizedDomains && (
+              <div className="grid gap-3 rounded-md border border-gray-200 bg-gray-50 p-4 lg:grid-cols-[2fr_2fr_1.2fr_auto]">
+                <input
+                  className={FORM_INPUT_CLASS}
+                  placeholder="agency.org"
+                  value={newDomain}
+                  onChange={(event) => setNewDomain(event.target.value)}
+                />
+                <select
+                  className={FORM_SELECT_CLASS}
+                  value={newDomainOrgId}
+                  onChange={(event) => setNewDomainOrgId(event.target.value)}
+                >
+                  <option value="">Select ESO organization</option>
+                  {visibleEsoOrganizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>{organization.name}</option>
+                  ))}
+                </select>
+                <select
+                  className={FORM_SELECT_CLASS}
+                  value={newDomainPolicy}
+                  onChange={(event) => setNewDomainPolicy(event.target.value as NonNullable<AuthorizedSenderDomain['access_policy']>)}
+                >
+                  <option value="approved">approved</option>
+                  <option value="invite_only">invite_only</option>
+                  <option value="request_access">request_access</option>
+                  <option value="blocked">blocked</option>
+                </select>
+                <button
+                  onClick={() => void addAuthorizedDomain()}
+                  className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                  disabled={isSavingDomain}
+                >
+                  Add domain
+                </button>
+              </div>
+            )}
+
+            {scopedAuthorizedDomains.length === 0 ? (
+              <p className="text-sm text-gray-500">No sender domain policies configured for this ecosystem yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {scopedAuthorizedDomains.map((domainRecord) => (
+                  <div key={domainRecord.id} className="rounded-md border border-gray-200 p-4">
+                    <div className="grid gap-3 lg:grid-cols-[2fr_2fr_1.2fr_auto]">
+                      <input
+                        className={FORM_INPUT_CLASS}
+                        value={domainRecord.domain}
+                        disabled={!canManageAuthorizedDomains}
+                        onChange={(event) => updateAuthorizedDomain(domainRecord.id, { domain: event.target.value.toLowerCase() })}
+                      />
+                      <select
+                        className={FORM_SELECT_CLASS}
+                        value={domainRecord.organization_id}
+                        disabled={!canManageAuthorizedDomains}
+                        onChange={(event) => updateAuthorizedDomain(domainRecord.id, { organization_id: event.target.value })}
+                      >
+                        {visibleEsoOrganizations.map((organization) => (
+                          <option key={organization.id} value={organization.id}>{organization.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        className={FORM_SELECT_CLASS}
+                        value={domainRecord.access_policy || 'approved'}
+                        disabled={!canManageAuthorizedDomains}
+                        onChange={(event) => {
+                          const policy = event.target.value as NonNullable<AuthorizedSenderDomain['access_policy']>;
+                          updateAuthorizedDomain(domainRecord.id, {
+                            access_policy: policy,
+                            allow_sender_affiliation: policy === 'approved',
+                            allow_auto_acknowledgement: policy === 'approved',
+                            allow_invite_prompt: policy === 'approved' || policy === 'invite_only',
+                          });
+                        }}
+                      >
+                        <option value="approved">approved</option>
+                        <option value="invite_only">invite_only</option>
+                        <option value="request_access">request_access</option>
+                        <option value="blocked">blocked</option>
+                      </select>
+                      {canManageAuthorizedDomains ? (
+                        <button
+                          onClick={() => void persistAuthorizedDomain(domainRecord)}
+                          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          disabled={isSavingDomain}
+                        >
+                          Save
+                        </button>
+                      ) : (
+                        <div className="flex items-center justify-end">
+                          <Badge color={domainRecord.is_active ? 'green' : 'gray'}>{domainRecord.is_active ? 'active' : 'inactive'}</Badge>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { is_active: !domainRecord.is_active })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${domainRecord.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        {domainRecord.is_active ? 'active' : 'inactive'}
+                      </button>
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { allow_sender_affiliation: !(domainRecord.allow_sender_affiliation !== false) })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${(domainRecord.allow_sender_affiliation !== false) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        sender affiliation
+                      </button>
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { allow_auto_acknowledgement: !(domainRecord.allow_auto_acknowledgement !== false) })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${(domainRecord.allow_auto_acknowledgement !== false) ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        sender receipt
+                      </button>
+                      <button
+                        onClick={() => updateAuthorizedDomain(domainRecord.id, { allow_invite_prompt: !(domainRecord.allow_invite_prompt !== false) })}
+                        disabled={!canManageAuthorizedDomains}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${(domainRecord.allow_invite_prompt !== false) ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700'} ${!canManageAuthorizedDomains ? 'opacity-60' : ''}`}
+                      >
+                        claim prompt
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -304,6 +539,14 @@ export const InboundIntakeView = () => {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        {message.review_status === 'needs_review' && (
+                          <button
+                            onClick={() => handleOpenReview(message)}
+                            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+                          >
+                            Review
+                          </button>
+                        )}
                         <Badge color="indigo">{message.activity_type}</Badge>
                         <Badge color={message.parse_status === 'parsed' ? 'green' : message.parse_status === 'failed' ? 'red' : 'yellow'}>
                           {message.parse_status}
@@ -313,6 +556,11 @@ export const InboundIntakeView = () => {
                         </Badge>
                       </div>
                     </div>
+                    {(message as any).rejection_reason && (
+                      <div className="mt-2 text-xs text-red-600 font-medium italic">
+                        Rejection reason: {(message as any).rejection_reason}
+                      </div>
+                    )}
                     <div className="mt-3 grid gap-4 lg:grid-cols-2">
                       <div>
                         <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Body Preview</div>
@@ -341,6 +589,110 @@ export const InboundIntakeView = () => {
           </div>
         )}
       </Card>
+      )}
+
+      {selectedMessage && (
+        <Modal
+          isOpen={!!selectedMessage}
+          onClose={() => setSelectedMessage(null)}
+          title="Review Inbound Introduction"
+          wide
+        >
+          <div className="space-y-4">
+            <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
+              <div className="font-semibold text-gray-700">Inbound Message</div>
+              <div className="mt-1">From: <span className="font-mono">{selectedMessage.from_email}</span></div>
+              <div className="mt-1">Subject: {selectedMessage.subject}</div>
+              <div className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded bg-white p-2 text-xs border border-gray-100">
+                {selectedMessage.text_body}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Client Name</label>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={reviewData.person_name}
+                    onChange={(e) => setReviewData({ ...reviewData, person_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Client Email</label>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={reviewData.person_email}
+                    onChange={(e) => setReviewData({ ...reviewData, person_email: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Client Venture / Organization</label>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={reviewData.venture_name}
+                    onChange={(e) => setReviewData({ ...reviewData, venture_name: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Receiving Organization</label>
+                  <select
+                    className={FORM_SELECT_CLASS}
+                    value={reviewData.receiving_org_id}
+                    onChange={(e) => setReviewData({ ...reviewData, receiving_org_id: e.target.value })}
+                  >
+                    <option value="">Select receiver...</option>
+                    {visibleEsoOrganizations.map((org) => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={FORM_LABEL_CLASS}>Referring Organization (Attributed)</label>
+                  <select
+                    className={FORM_SELECT_CLASS}
+                    value={reviewData.referring_org_id}
+                    onChange={(e) => setReviewData({ ...reviewData, referring_org_id: e.target.value })}
+                  >
+                    <option value="">Select referrer...</option>
+                    {visibleEsoOrganizations.map((org) => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500 italic">Determined by sender email domain.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between gap-3 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => void rejectMessage()}
+                disabled={isApproving}
+                className="rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Reject Introduction
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setSelectedMessage(null)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void approveMessage()}
+                  disabled={isApproving || !reviewData.person_email || !reviewData.receiving_org_id}
+                  className="rounded bg-indigo-600 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isApproving ? 'Approving...' : 'Approve & Create Referral'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

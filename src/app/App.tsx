@@ -74,6 +74,7 @@ import { ViewMode } from './types';
 import { CONFIG } from './config';
 import { useAuthContext } from './AuthProvider';
 import { resolveSessionPerson } from '../domain/auth/resolveSessionPerson';
+import { getActiveOrganizationAffiliations } from '../domain/people/affiliations';
 import { isFirebaseEnabled } from '../services/firebaseApp';
 
 // Ecosystem data for config view (still static for now as it's config)
@@ -150,10 +151,19 @@ const App = () => {
 
   // Context Management
   const [currentEcosystemId, setCurrentEcosystemId] = useState<string>(initialRoute.ecosystemId || demoUser.memberships?.[0]?.ecosystem_id || DEFAULT_ECO.id);
+  const [currentActingOrgId, setCurrentActingOrgId] = useState<string>('');
   const activeMemberships = useMemo(() => activeUser?.memberships || [], [activeUser]);
   const currentMembership = activeMemberships.find(m => m.ecosystem_id === currentEcosystemId) || activeMemberships[0] || null;
   const currentRole = currentMembership?.system_role || activeUser?.system_role || 'entrepreneur';
-  const currentOrgId = currentMembership?.organization_id || activeUser?.organization_id || '';
+  const activeOrganizationAffiliations = useMemo(
+    () => getActiveOrganizationAffiliations(activeUser, currentEcosystemId),
+    [activeUser, currentEcosystemId]
+  );
+  const currentOrgId = currentActingOrgId
+    || currentMembership?.organization_id
+    || activeOrganizationAffiliations[0]?.organization_id
+    || activeUser?.organization_id
+    || '';
 
   useEffect(() => {
     if (!activeUser) {
@@ -165,6 +175,27 @@ const App = () => {
       setCurrentEcosystemId(activeUser.memberships?.[0]?.ecosystem_id || activeUser.ecosystem_id || DEFAULT_ECO.id);
     }
   }, [activeUser, currentEcosystemId]);
+
+  useEffect(() => {
+    if (!activeUser) {
+      setCurrentActingOrgId('');
+      return;
+    }
+
+    if (activeOrganizationAffiliations.length === 0) {
+      setCurrentActingOrgId('');
+      return;
+    }
+
+    const validOrgIds = new Set(activeOrganizationAffiliations.map((affiliation) => affiliation.organization_id));
+    if (!currentActingOrgId || !validOrgIds.has(currentActingOrgId)) {
+      setCurrentActingOrgId(
+        currentMembership?.organization_id && validOrgIds.has(currentMembership.organization_id)
+          ? currentMembership.organization_id
+          : activeOrganizationAffiliations[0].organization_id
+      );
+    }
+  }, [activeOrganizationAffiliations, activeUser, currentActingOrgId, currentMembership]);
 
   useEffect(() => {
     if (CONFIG.IS_DEMO_MODE || !activeUser) {
@@ -264,6 +295,7 @@ const App = () => {
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
 
   useEffect(() => {
     if (viewerContext) {
@@ -298,6 +330,10 @@ const App = () => {
       repos.referrals.getAll(viewerContext).then(setReferrals);
     }
   }, [repos, viewerContext, dataVersion]);
+
+  useEffect(() => {
+    repos.services.getAll(currentEcosystemId).then(setServices);
+  }, [repos, currentEcosystemId, dataVersion]);
   
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(initialRoute.orgId || null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(initialRoute.personId || null);
@@ -306,6 +342,14 @@ const App = () => {
   const [isSwitchUserOpen, setIsSwitchUserOpen] = useState(false);
   const [showDemo, setShowDemo] = useState(CONFIG.IS_DEMO_MODE);
   const selectedOrganization = selectedOrgId ? organizations.find((organization) => organization.id === selectedOrgId) || null : null;
+  const myOrganization = currentOrgId ? organizations.find((organization) => organization.id === currentOrgId) || null : null;
+  const actingOrganizations = useMemo(
+    () => activeOrganizationAffiliations.map((affiliation) => ({
+      ...affiliation,
+      name: organizations.find((organization) => organization.id === affiliation.organization_id)?.name || affiliation.organization_id,
+    })),
+    [activeOrganizationAffiliations, organizations]
+  );
   const selectedPerson = selectedPersonId
     ? people.find((person) => person.id === selectedPersonId)
       || (activeUser?.id === selectedPersonId ? activeUser : null)
@@ -454,6 +498,9 @@ const App = () => {
     <AppDataProvider repos={repos} viewer={viewerContext}>
       <AppShell
         user={activeUser}
+        actingOrganizationName={myOrganization?.name || null}
+        actingOrganizationId={myOrganization?.id || null}
+        actingOrganizations={actingOrganizations}
         currentRole={currentRole}
         currentEcosystem={currentEcosystem}
         availableEcosystems={ALL_ECOSYSTEMS.filter(e => activeUser.memberships?.some(m => m.ecosystem_id === e.id))}
@@ -464,6 +511,8 @@ const App = () => {
           tab: selectedTab,
           ecosystemId,
         }, 'push')}
+        onSwitchActingOrganization={setCurrentActingOrgId}
+        onSelectOrganization={navigateToOrg}
         view={view}
         onNavigate={handleNavigate}
         onOpenProfile={() => applyRoute({ view: 'person_detail', personId: activeUser.id, ecosystemId: currentEcosystemId }, 'push')}
@@ -478,6 +527,7 @@ const App = () => {
            {view === 'directory' && (
               <DirectoryView 
                 organizations={organizations} 
+                interactions={interactions}
                 onSelect={navigateToOrg}
                 onAdd={() => setIsAddOrgOpen(true)}
               />
@@ -516,14 +566,15 @@ const App = () => {
                ) : null
            )}
            {view === 'referrals' && (
-                <ReferralsView 
-                  currentUser={activeUser} 
+                <ReferralsView
+                  currentUser={activeUser}
                   allReferrals={referrals}
                   organizations={organizations}
                   people={people}
-                  onSelectOrganization={navigateToOrg} 
+                  onSelectOrganization={navigateToOrg}
                   onSelectPerson={navigateToPerson}
-                  onRefresh={refreshData} 
+                  onEditMyTemplates={() => applyRoute({ view: 'person_detail', personId: activeUser.id, tab: 'settings', ecosystemId: currentEcosystemId }, 'push')}
+                  onRefresh={refreshData}
                 />
            )}
            {view === 'reports' && (
@@ -567,8 +618,12 @@ const App = () => {
                   people={people}
                   interactions={interactions}
                   referrals={referrals}
+                  services={services}
+                  actingOrgId={currentOrgId}
                   onAdvance={() => {}} 
                   onRefresh={refreshData}
+                  onSelectOrganization={navigateToOrg}
+                  onCreateOrganization={() => setIsAddOrgOpen(true)}
                 />
            )}
            {view === 'user_management' && (
@@ -590,6 +645,7 @@ const App = () => {
                 initiatives={initiatives}
                 interactions={interactions}
                 referrals={referrals}
+                services={services}
                 onBack={() => applyRoute({ view: 'directory', ecosystemId: currentEcosystemId }, 'push')}
                 onRefresh={refreshData}
                 initialTab={selectedTab}
@@ -604,8 +660,9 @@ const App = () => {
                  organizations={organizations}
                  interactions={interactions}
                  referrals={referrals}
+                 services={services}
                  onBack={() => applyRoute({ view: 'contacts', ecosystemId: currentEcosystemId }, 'push')}
-                 initialTab={(selectedTab as 'associations' | 'interactions' | 'referrals' | undefined) || 'associations'}
+                 initialTab={(selectedTab as 'associations' | 'interactions' | 'referrals' | 'participation' | undefined) || 'associations'}
                  onTabChange={(tab) => applyRoute({ view: 'person_detail', personId: selectedPersonId, tab, ecosystemId: currentEcosystemId }, 'push')}
                  onSelectOrganization={(orgId) => navigateToOrg(orgId)}
                  onRefresh={refreshData}
@@ -620,14 +677,15 @@ const App = () => {
            )}
 
            {/* Entrepreneur Specific Routes */}
-           {view === 'my_org' && (
+           {view === 'my_org' && myOrganization && (
               <OrganizationDetailView 
-                org={organizations.find(o => o.id === currentOrgId) || organizations[0]} 
+                org={myOrganization} 
                 organizations={organizations}
                 people={people}
                 initiatives={initiatives}
                 interactions={interactions}
                 referrals={referrals}
+                services={services}
                 onBack={() => applyRoute({ view: 'my_ventures', ecosystemId: currentEcosystemId }, 'push')}
                 onRefresh={refreshData}
                 initialTab={selectedTab}
@@ -635,6 +693,11 @@ const App = () => {
                 onSelectPerson={navigateToPerson}
                 onSelectOrganization={navigateToOrg}
               />
+           )}
+           {view === 'my_org' && !myOrganization && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-6 py-5 text-sm text-amber-900">
+                Your account does not currently have a primary organization linked in this ecosystem yet.
+              </div>
            )}
            {view === 'my_projects' && (
                <InitiativesView 
@@ -682,11 +745,37 @@ const App = () => {
       {/* Modals */}
       <Modal isOpen={isAddOrgOpen} onClose={() => setIsAddOrgOpen(false)} title="Add New Organization">
           <AddOrgForm 
-            onSave={(org) => { 
+            onSave={async (org) => { 
                 const newOrg = { ...org, ecosystem_ids: [currentEcosystemId] };
-                repos.organizations.add(newOrg);
+                await repos.organizations.add(newOrg);
+
+                if (activeUser && currentRole === 'entrepreneur') {
+                    const existingAffiliations = getActiveOrganizationAffiliations(activeUser, currentEcosystemId);
+                    const alreadyLinked = existingAffiliations.some((affiliation) => affiliation.organization_id === newOrg.id);
+                    if (!alreadyLinked) {
+                        await repos.people.update(activeUser.id, {
+                            organization_id: activeUser.organization_id || newOrg.id,
+                            organization_affiliations: [
+                                ...(activeUser.organization_affiliations || []),
+                                {
+                                    organization_id: newOrg.id,
+                                    role_title: 'Founder',
+                                    relationship_type: 'founder',
+                                    status: 'active',
+                                    can_self_manage: true,
+                                    ecosystem_ids: [currentEcosystemId],
+                                    joined_at: new Date().toISOString(),
+                                }
+                            ]
+                        });
+                    }
+                    setCurrentActingOrgId(newOrg.id);
+                    applyRoute({ view: 'my_ventures', ecosystemId: currentEcosystemId }, 'push');
+                } else {
+                    setView('directory');
+                }
+
                 refreshData();
-                setView('directory'); 
                 setIsAddOrgOpen(false); 
             }} 
             onCancel={() => setIsAddOrgOpen(false)} 

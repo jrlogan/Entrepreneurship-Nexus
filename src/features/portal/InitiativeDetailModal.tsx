@@ -32,62 +32,63 @@ export const InitiativeDetailModal = ({
     // Edit State
     const [isEditingNarrative, setIsEditingNarrative] = useState(false);
     const [narrative, setNarrative] = useState(initiative.description || '');
-    
+
     // Interaction State
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+
+    // Stage confirm state
+    const [confirmStageIdx, setConfirmStageIdx] = useState<number | null>(null);
 
     // Get ecosystem templates for checklist options
     const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
     const checklistTemplates = ecosystem?.checklist_templates || [];
 
     // Stage Update
+    const doStageMove = (index: number) => {
+        if (!pipeline) return;
+        const stageName = pipeline.stages[index].name;
+        const now = new Date().toISOString();
+        const currentHistory = [...initiative.stage_history];
+
+        const currentEntryIndex = currentHistory.findIndex(h => h.stage_index === initiative.current_stage_index && !h.exited_at);
+        if (currentEntryIndex >= 0) {
+            currentHistory[currentEntryIndex].exited_at = now;
+        }
+
+        currentHistory.push({
+            stage_index: index,
+            stage_id: pipeline.stages[index].id,
+            entered_at: now
+        });
+
+        repos.pipelines.addInitiative({
+            ...initiative,
+            current_stage_index: index,
+            stage_history: currentHistory
+        });
+
+        repos.interactions.add({
+            id: `int_auto_${Date.now()}`,
+            organization_id: organization.id,
+            initiative_id: initiative.id,
+            ecosystem_id: viewer.ecosystemId,
+            author_org_id: viewer.orgId,
+            date: now.split('T')[0],
+            type: 'note',
+            visibility: 'network_shared',
+            note_confidential: false,
+            notes: `Project "${initiative.name}" moved to stage: ${stageName}`,
+            recorded_by: 'System'
+        });
+
+        setConfirmStageIdx(null);
+        onRefresh();
+    };
+
     const handleStageClick = (index: number) => {
         if (!pipeline) return;
         if (index === initiative.current_stage_index) return;
-        
-        const stageName = pipeline.stages[index].name;
-        if (confirm(`Move project to stage "${stageName}"?`)) {
-            // 1. Log previous stage exit
-            const now = new Date().toISOString();
-            const currentHistory = [...initiative.stage_history];
-            
-            // Find current stage entry and mark exited
-            const currentEntryIndex = currentHistory.findIndex(h => h.stage_index === initiative.current_stage_index && !h.exited_at);
-            if (currentEntryIndex >= 0) {
-                currentHistory[currentEntryIndex].exited_at = now;
-            }
-
-            // Add new stage entry
-            currentHistory.push({
-                stage_index: index,
-                stage_id: pipeline.stages[index].id,
-                entered_at: now
-            });
-
-            // 2. Update Initiative
-            repos.pipelines.addInitiative({ // This repo mock method pushes/updates ref
-                ...initiative,
-                current_stage_index: index,
-                stage_history: currentHistory
-            });
-
-            // 3. Log an automatic interaction for the record
-            repos.interactions.add({
-                id: `int_auto_${Date.now()}`,
-                organization_id: organization.id,
-                initiative_id: initiative.id,
-                ecosystem_id: viewer.ecosystemId,
-                author_org_id: viewer.orgId,
-                date: now.split('T')[0],
-                type: 'note',
-                visibility: 'network_shared',
-                note_confidential: false,
-                notes: `Project "${initiative.name}" moved to stage: ${stageName}`,
-                recorded_by: 'System'
-            });
-
-            onRefresh();
-        }
+        setConfirmStageIdx(index);
     };
 
     const handleSaveNarrative = () => {
@@ -163,21 +164,29 @@ export const InitiativeDetailModal = ({
                                     {pipeline.stages.map((stage, idx) => {
                                         const isCompleted = idx < initiative.current_stage_index;
                                         const isCurrent = idx === initiative.current_stage_index;
-                                        
+
                                         return (
-                                            <div 
-                                                key={stage.id} 
-                                                onClick={() => handleStageClick(idx)}
-                                                className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors ${isCurrent ? 'bg-indigo-50 border border-indigo-200 shadow-sm' : 'hover:bg-gray-50 border border-transparent'}`}
-                                            >
-                                                <div className={`w-6 h-6 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${isCompleted ? 'bg-green-500 text-white' : isCurrent ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                                                    {isCompleted ? '✓' : idx + 1}
+                                            <div key={stage.id}>
+                                                <div
+                                                    onClick={() => handleStageClick(idx)}
+                                                    className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors ${isCurrent ? 'bg-indigo-50 border border-indigo-200 shadow-sm' : 'hover:bg-gray-50 border border-transparent'}`}
+                                                >
+                                                    <div className={`w-6 h-6 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${isCompleted ? 'bg-green-500 text-white' : isCurrent ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                                                        {isCompleted ? '✓' : idx + 1}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className={`text-sm font-medium ${isCurrent ? 'text-indigo-900' : 'text-gray-900'}`}>{stage.name}</div>
+                                                        <div className="text-xs text-gray-500">{stage.description}</div>
+                                                    </div>
+                                                    {isCurrent && <Badge color="blue">Current</Badge>}
                                                 </div>
-                                                <div className="flex-1">
-                                                    <div className={`text-sm font-medium ${isCurrent ? 'text-indigo-900' : 'text-gray-900'}`}>{stage.name}</div>
-                                                    <div className="text-xs text-gray-500">{stage.description}</div>
-                                                </div>
-                                                {isCurrent && <Badge color="blue">Current</Badge>}
+                                                {confirmStageIdx === idx && (
+                                                    <div className="ml-9 mt-1 text-xs text-gray-700">
+                                                        {stage.name} — confirm move?{' '}
+                                                        <button onClick={() => doStageMove(idx)} className="font-bold underline text-indigo-700 mr-2">Yes</button>
+                                                        <button onClick={() => setConfirmStageIdx(null)} className="text-gray-500 underline">Cancel</button>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

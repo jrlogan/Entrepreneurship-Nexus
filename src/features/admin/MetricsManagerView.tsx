@@ -21,6 +21,7 @@ export const MetricsManagerView = () => {
     const [newSetName, setNewSetName] = useState('');
     const [newSetPeriod, setNewSetPeriod] = useState<string>('quarterly');
     const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
+    const [createSetError, setCreateSetError] = useState('');
 
     // --- Create Assignment Modal State ---
     const [isAssignOpen, setIsAssignOpen] = useState(false);
@@ -28,11 +29,13 @@ export const MetricsManagerView = () => {
     const [assignScopeType, setAssignScopeType] = useState<MetricScope>('organization');
     const [assignScopeId, setAssignScopeId] = useState('');
     const [assignDue, setAssignDue] = useState('');
+    const [assignError, setAssignError] = useState('');
     
     // Handlers
     const handleCreateSet = () => {
+        setCreateSetError('');
         if (!newSetName || selectedMetrics.length === 0) {
-            alert("Name and at least one metric required.");
+            setCreateSetError("Name and at least one metric required.");
             return;
         }
         
@@ -53,8 +56,9 @@ export const MetricsManagerView = () => {
     };
 
     const handleCreateAssignment = () => {
+        setAssignError('');
         if (!assignSetId || !assignScopeId || !assignDue) {
-            alert("Please fill all required fields.");
+            setAssignError("Please fill all required fields.");
             return;
         }
 
@@ -227,6 +231,7 @@ export const MetricsManagerView = () => {
                             ))}
                         </div>
                     </div>
+                    {createSetError && <p className="text-sm text-red-600 mt-2">{createSetError}</p>}
                     <div className="flex justify-end pt-2">
                         <button onClick={handleCreateSet} className="px-4 py-2 bg-indigo-600 text-white rounded font-bold text-sm hover:bg-indigo-700">Save Set</button>
                     </div>
@@ -263,6 +268,7 @@ export const MetricsManagerView = () => {
                         <label className={FORM_LABEL_CLASS}>Due Date</label>
                         <input type="date" className={FORM_INPUT_CLASS} value={assignDue} onChange={e => setAssignDue(e.target.value)} />
                     </div>
+                    {assignError && <p className="text-sm text-red-600 mt-2">{assignError}</p>}
                     <div className="flex justify-end pt-2">
                         <button onClick={handleCreateAssignment} className="px-4 py-2 bg-indigo-600 text-white rounded font-bold text-sm hover:bg-indigo-700">Assign Task</button>
                     </div>

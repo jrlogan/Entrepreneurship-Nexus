@@ -1,5 +1,6 @@
 
 export type ReferralStatus = 'pending' | 'accepted' | 'rejected' | 'completed';
+export type ReferralIntakeType = 'referral' | 'self_introduction' | 'access_request';
 
 export interface Referral {
   id: string;
@@ -11,12 +12,14 @@ export interface Referral {
   date: string;
   status: ReferralStatus;
   notes: string; // The "Intro" note
+  intake_type?: ReferralIntakeType;
   response_notes?: string; // Notes from the receiver
   intro_email_sent?: boolean; // New: Automatic email
   source?: 'manual_ui' | 'bcc_intake' | 'api' | null; // Added: Origin tracking
   
   // Lifecycle & Tracking
   accepted_at?: string;
+  invite_sent_at?: string;   // ← add this line
   declined_at?: string;
   delivered_at?: string;
   closed_at?: string;

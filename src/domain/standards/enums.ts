@@ -45,15 +45,11 @@ export const ENUMS = {
     { "id": "completed", "label": "Completed" }
   ],
   "ReferralOutcome": [
-    { "id": "funding_secured", "label": "Funding / Capital Secured" },
-    { "id": "service_delivered", "label": "Service / Support Delivered" },
-    { "id": "mentorship_provided", "label": "Mentorship Provided" },
-    { "id": "partnership_formed", "label": "Partnership / Deal Formed" },
-    { "id": "new_client_signed", "label": "New Client / Contract" },
-    { "id": "resource_accessed", "label": "Resource Accessed (Space/Equipment)" },
-    { "id": "information_shared", "label": "Information Shared Only" },
-    { "id": "no_outcome", "label": "No Tangible Outcome" },
-    { "id": "other", "label": "Other" }
+    { "id": "enrolled", "label": "Enrolled / Became a Client" },
+    { "id": "services_provided", "label": "Services Delivered" },
+    { "id": "connected_to_resource", "label": "Connected to Another Resource" },
+    { "id": "advice_only", "label": "Advice / Information Only" },
+    { "id": "not_a_fit", "label": "Not a Fit / Declined" }
   ],
   "InitiativeStatus": [
     { "id": "active", "label": "Active" },

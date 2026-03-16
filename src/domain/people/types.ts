@@ -29,6 +29,16 @@ export interface EcosystemMembership {
   joined_at: string;
 }
 
+export interface PersonOrganizationAffiliation {
+  organization_id: string;
+  role_title?: string;
+  relationship_type?: 'founder' | 'owner' | 'employee' | 'advisor' | 'board' | 'other';
+  status?: 'active' | 'pending' | 'revoked';
+  can_self_manage?: boolean;
+  ecosystem_ids?: string[];
+  joined_at?: string;
+}
+
 // New: People / Contacts
 export interface Person {
   id: string;
@@ -45,6 +55,9 @@ export interface Person {
   // Multi-tenancy
   ecosystem_id: string; // Primary ecosystem
   memberships: EcosystemMembership[]; // Explicit memberships
+
+  // Multi-organization context
+  organization_affiliations?: PersonOrganizationAffiliation[];
   
   // Dual-Role Support (Context Switching)
   secondary_profile?: UserProfile;
@@ -57,4 +70,7 @@ export interface Person {
   
   // Enhanced Profile
   links?: SocialLink[];
+
+  // Personal email templates (stored as named list so user can reuse across referrals)
+  referral_templates?: Array<{ id: string; name: string; subject?: string; body: string }>;
 }

@@ -72,4 +72,8 @@ export class FirebaseReferralsRepo {
   async assignOwner(id: string, ownerId?: string): Promise<void> {
     await updateDocument('referrals', id, { owner_id: ownerId || undefined });
   }
+
+  async update(id: string, updates: Partial<Referral>): Promise<void> {
+    await updateDocument('referrals', id, updates);
+  }
 }

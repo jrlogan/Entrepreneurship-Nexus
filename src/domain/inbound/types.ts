@@ -32,6 +32,18 @@ export interface InboundRoute {
   is_active: boolean;
 }
 
+export interface AuthorizedSenderDomain {
+  id: string;
+  ecosystem_id: string;
+  organization_id: string;
+  domain: string;
+  is_active: boolean;
+  access_policy?: 'approved' | 'invite_only' | 'request_access' | 'blocked';
+  allow_sender_affiliation?: boolean;
+  allow_auto_acknowledgement?: boolean;
+  allow_invite_prompt?: boolean;
+}
+
 export interface InboundMessage {
   id: string;
   provider: 'postmark' | 'imap' | 'manual' | 'unknown';

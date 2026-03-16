@@ -1,4 +1,6 @@
 
+import type { SupportNeed } from '../inbound/types';
+
 export type OrganizationRole =
   | 'startup'
   | 'small_business'
@@ -103,4 +105,20 @@ export interface Organization {
 
   // Flexible Tagging
   tags?: string[];
+
+  // ESO Service Catalog
+  support_offerings?: SupportNeed[];
+
+  // Referral intake settings (for receiving organizations)
+  referral_intake_prefs?: {
+    // Set to true if this org manages its own communications with entrepreneurs
+    // and does not want Nexus to send the referral_follow_up intro to the referred person.
+    suppress_entrepreneur_intro?: boolean;
+    // Override the email address used for inbound referral notifications.
+    // Falls back to the organization's primary email field.
+    intake_contact_email?: string;
+  };
+
+  // Email templates editable by ESO staff (named list so staff can pick per-situation)
+  referral_templates?: Array<{ id: string; name: string; subject?: string; body: string }>;
 }

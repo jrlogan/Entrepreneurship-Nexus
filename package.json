@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "local:start": "bash scripts/start-local-dev.sh",
     "build:functions": "npm --prefix functions run build",
@@ -15,21 +17,30 @@
     "simulate:create-auth-user": "node scripts/create-emulator-user.mjs",
     "simulate:seed-test-accounts": "node scripts/seed-test-accounts.mjs",
     "simulate:postmark-inbound": "node scripts/simulate-postmark-inbound.mjs",
+    "simulate:local-email-tests": "node scripts/run-local-email-tests.mjs",
+    "simulate:preview-local-notices": "node scripts/preview-local-notices.mjs",
+    "simulate:export-email-previews": "node scripts/export-email-previews.mjs",
     "simulate:full-invite-flow": "node scripts/simulate-full-invite-flow.mjs",
     "staging:seed-mail-test": "node scripts/seed-staging-mail-test.mjs",
     "staging:cleanup-mail-test": "node scripts/cleanup-staging-mail-test.mjs"
   },
   "dependencies": {
+    "@google/genai": "latest",
     "firebase": "^12.7.0",
-    "react-dom": "^19.2.4",
     "react": "^19.2.4",
-    "@google/genai": "latest"
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase-tools": "^13.35.1",
+    "jsdom": "^26.1.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^2.1.8"
   }
 }

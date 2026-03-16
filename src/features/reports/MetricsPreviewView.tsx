@@ -27,6 +27,7 @@ export const MetricsPreviewView = () => {
 
     // Result State
     const [report, setReport] = useState<ReportResult | null>(null);
+    const [reportError, setReportError] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -55,6 +56,7 @@ export const MetricsPreviewView = () => {
 
     const handleRunReport = () => {
         if (!selectedSetId) return;
+        setReportError('');
 
         try {
             const result = repos.flexibleMetrics.getReport(selectedSetId, {
@@ -68,7 +70,7 @@ export const MetricsPreviewView = () => {
             setReport(result);
         } catch (e) {
             console.error(e);
-            alert("Failed to run report. Check console.");
+            setReportError("Failed to run report. Check console.");
         }
     };
 
@@ -172,13 +174,14 @@ export const MetricsPreviewView = () => {
                             <input type="date" className={FORM_INPUT_CLASS} value={dates.asOf} onChange={e => setDates({...dates, asOf: e.target.value})} />
                             <span className="text-[10px] text-gray-400">For Snapshot Metrics</span>
                         </div>
-                        <div className="flex items-end">
-                            <button 
+                        <div className="flex items-end flex-col gap-1">
+                            <button
                                 onClick={handleRunReport}
                                 className="w-full px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow-md font-bold"
                             >
                                 Run Report
                             </button>
+                            {reportError && <p className="text-sm text-red-600">{reportError}</p>}
                         </div>
                     </div>
                 </div>

@@ -1,12 +1,14 @@
 
-import React, { useState } from 'react';
-import { Organization, Person, Initiative, Interaction, Referral } from '../../domain/types';
+import React, { useState, useEffect } from 'react';
+import { Organization, Person, Initiative, Interaction, Referral, Service } from '../../domain/types';
+import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { Card, Badge, CompanyLogo, InfoBanner } from '../../shared/ui/Components';
+import { Card, Badge, CompanyLogo, InfoBanner, Modal, FORM_TEXTAREA_CLASS } from '../../shared/ui/Components';
 import { METRIC_SETS } from '../../domain/metrics/reporting_config';
 import { MetricAssignment } from '../../domain/metrics/reporting_types';
 import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
 import { RESTRICTED_INITIATIVE_NAME, REDACTED_TEXT } from '../../domain/access/redaction';
+import { EditOrgModal, ManagePersonModal } from './OrgModals';
 
 interface OrganizationDetailViewProps {
     org: Organization;
@@ -15,6 +17,7 @@ interface OrganizationDetailViewProps {
     initiatives: Initiative[];
     interactions: Interaction[];
     referrals: Referral[];
+    services: Service[];
     onBack: () => void;
     onRefresh?: () => void;
     initialTab?: string;
@@ -30,6 +33,7 @@ export const OrganizationDetailView = ({
     initiatives, 
     interactions, 
     referrals, 
+    services,
     onBack,
     onRefresh,
     initialTab,
@@ -42,6 +46,22 @@ export const OrganizationDetailView = ({
     const [activeTab, setActiveTab] = useState(initialTab || 'overview');
     const [showAllEvents, setShowAllEvents] = useState(false);
     const [showPrivacyHelp, setShowPrivacyHelp] = useState(false);
+    const [isUpdatingReferral, setIsUpdatingReferral] = useState<string | null>(null);
+    const [partnerSearch, setPartnerSearch] = useState('');
+    const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
+    const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
+    const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+    const [isEditOrgOpen, setIsEditOrgOpen] = useState(false);
+    const [isSupportRequestOpen, setIsSupportRequestOpen] = useState(false);
+    const [supportRequestNotes, setSupportRequestNotes] = useState('');
+    const [isSubmittingSupportRequest, setIsSubmittingSupportRequest] = useState(false);
+    const [dataRequestMsg, setDataRequestMsg] = useState('');
+    const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
+    const [accessRequestSent, setAccessRequestSent] = useState(false);
+    const [orgTemplateDrafts, setOrgTemplateDrafts] = useState<Array<{id: string; name: string; subject?: string; body: string}>>(org.referral_templates || []);
+    const [isSavingOrgTemplates, setIsSavingOrgTemplates] = useState(false);
+    const [orgTemplatesSavedAt, setOrgTemplatesSavedAt] = useState<number | null>(null);
+    useEffect(() => { setOrgTemplateDrafts(org.referral_templates || []); }, [org.referral_templates]);
 
     React.useEffect(() => {
         if (initialTab && initialTab !== activeTab) {
@@ -49,10 +69,44 @@ export const OrganizationDetailView = ({
         }
     }, [initialTab]);
 
+    const isFounderLikeRole = (role?: string) => {
+        const normalized = (role || '').toLowerCase();
+        return normalized.includes('founder')
+            || normalized.includes('owner')
+            || normalized.includes('ceo')
+            || normalized.includes('president')
+            || normalized.includes('executive director');
+    };
+
     const orgPeople = people.filter(p => p.organization_id === org.id);
     const orgInitiatives = initiatives.filter(i => i.organization_id === org.id);
     const orgInteractions = interactions.filter(i => i.organization_id === org.id);
     const orgReferrals = referrals.filter(r => r.referring_org_id === org.id || r.receiving_org_id === org.id || r.subject_org_id === org.id);
+    const orgParticipations = services
+        .filter((service) => service.recipient_org_id === org.id)
+        .sort((left, right) => new Date(right.start_date).getTime() - new Date(left.start_date).getTime());
+    const viewerOrgMembership = orgPeople.find((person) => person.id === viewer.personId);
+    const isOrgOwner = !!viewerOrgMembership && (viewer.role === 'entrepreneur' || isFounderLikeRole(viewerOrgMembership.role));
+    const isOwnOrganization = viewer.orgId === org.id || isOrgOwner;
+    const isEntrepreneurViewer = viewer.role === 'entrepreneur';
+    const ecosystem = ALL_ECOSYSTEMS.find((candidate) => candidate.id === viewer.ecosystemId);
+    const featureFlags = ecosystem?.settings?.feature_flags || {};
+    const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
+    const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
+    const canAccessMetrics = canAccessAdvancedWorkflows || featureFlags.dashboard === true || featureFlags.metrics_manager === true;
+    const canRequestSupport = isEntrepreneurViewer && org.roles.includes('eso') && !isOwnOrganization;
+    const actingOrganization = organizations.find((candidate) => candidate.id === viewer.orgId) || null;
+
+    React.useEffect(() => {
+        if (activeTab === 'metrics' && !canAccessMetrics) {
+            setActiveTab('overview');
+            onTabChange?.('overview');
+        }
+        if (activeTab === 'initiatives' && !canAccessInitiatives) {
+            setActiveTab('overview');
+            onTabChange?.('overview');
+        }
+    }, [activeTab, canAccessInitiatives, canAccessMetrics, onTabChange]);
 
     // Metrics Data
     const canRequestUpdate = viewerHasCapability(viewer, 'metrics.assign_request');
@@ -67,18 +121,31 @@ export const OrganizationDetailView = ({
     const activePolicies = repos.consent.getPoliciesForEntity(org.id);
     const consentEvents = repos.consent.getEventsForEntity(org.id);
     const visibleEvents = showAllEvents ? consentEvents : consentEvents.slice(0, 10);
-    const isManageable = viewer.orgId === org.id || viewer.role === 'platform_admin';
+    const isManageable = isOwnOrganization || viewer.role === 'platform_admin';
+    const partnerSearchTerm = partnerSearch.trim().toLowerCase();
+    const availablePartnerOrgs = organizations
+        .filter((candidate) =>
+            candidate.id !== org.id &&
+            candidate.ecosystem_ids.includes(viewer.ecosystemId) &&
+            candidate.roles.includes('eso') &&
+            !activePolicies.some((policy) => policy.viewerId === candidate.id)
+        )
+        .filter((candidate) => {
+            if (!partnerSearchTerm) return true;
+            return candidate.name.toLowerCase().includes(partnerSearchTerm)
+                || (candidate.url || '').toLowerCase().includes(partnerSearchTerm)
+                || candidate.roles.some((role) => role.toLowerCase().includes(partnerSearchTerm));
+        });
 
     // Access Control Check
     const hasConsent = repos.consent.hasOperationalAccess(viewer.orgId, org.id);
-    const canViewDetails = canViewOperationalDetails(viewer, org, hasConsent);
+    const canViewDetails = isOwnOrganization || canViewOperationalDetails(viewer, org, hasConsent);
 
     // Restricted View Logic for People
     const isRestricted = !canViewDetails;
     const visiblePeople = isRestricted 
         ? orgPeople.filter(p => {
-            const r = p.role.toLowerCase();
-            return r.includes('founder') || r.includes('ceo') || r.includes('president') || r.includes('executive director') || r.includes('owner');
+            return isFounderLikeRole(p.role);
         })
         : orgPeople;
     const hiddenPeopleCount = orgPeople.length - visiblePeople.length;
@@ -90,6 +157,40 @@ export const OrganizationDetailView = ({
         r.status === 'pending' &&
         r.outcome_tags?.includes('Access Request')
     );
+    const canManageIncomingReferral = (ref: Referral) => canViewDetails && ref.receiving_org_id === viewer.orgId;
+    const formatParticipationWindow = (service: Service) => {
+        const start = new Date(service.start_date).toLocaleDateString();
+        if (!service.end_date) {
+            return `${start} - ongoing`;
+        }
+        return `${start} - ${new Date(service.end_date).toLocaleDateString()}`;
+    };
+    const getParticipationStatusLabel = (service: Service) => {
+        if (service.status === 'applied') return 'Application submitted';
+        if (service.status === 'waitlisted') return 'Waitlisted';
+        if (service.status === 'past') return 'Completed / past';
+        return 'Active';
+    };
+    const getParticipationStatusColor = (service: Service) => {
+        if (service.status === 'applied') return 'blue' as const;
+        if (service.status === 'waitlisted') return 'yellow' as const;
+        if (service.status === 'past') return 'gray' as const;
+        return 'green' as const;
+    };
+
+    const updateReferralStatus = async (ref: Referral, action: 'accept' | 'complete') => {
+        setIsUpdatingReferral(ref.id);
+        try {
+            if (action === 'accept') {
+                await repos.referrals.accept(ref.id, 'Accepted from organization detail view');
+            } else {
+                await repos.referrals.close(ref.id, 'service_delivered', [], 'Completed from organization detail view');
+            }
+            onRefresh?.();
+        } finally {
+            setIsUpdatingReferral(null);
+        }
+    };
 
     const handleAssignUpdate = () => {
         const assignment: MetricAssignment = {
@@ -104,7 +205,8 @@ export const OrganizationDetailView = ({
             due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
         };
         repos.flexibleMetrics.createAssignment(assignment);
-        alert('Data update request sent to organization admins.');
+        setDataRequestMsg('Data update request sent to organization admins.');
+        setTimeout(() => setDataRequestMsg(''), 3000);
     };
 
     const handleToggleVisibility = () => {
@@ -116,25 +218,66 @@ export const OrganizationDetailView = ({
 
     const handleRevokeConsent = (policyId: string) => {
         if (!isManageable) return;
-        if (confirm("Are you sure you want to revoke access for this partner?")) {
-            const policy = activePolicies.find(p => p.id === policyId);
-            if (policy) {
-                policy.isActive = false;
-                repos.consent.logEvent({
-                    id: `evt_revoke_${Date.now()}`,
-                    timestamp: new Date().toISOString(),
-                    actorId: viewer.personId,
-                    action: 'revoked',
-                    resourceId: org.id,
-                    viewerId: policy.viewerId,
-                    reason: 'User revoked via Privacy Dashboard'
-                });
-                if (onRefresh) onRefresh();
-            }
+        setConfirmRevokeId(policyId);
+    };
+
+    const doRevokeConsent = (policyId: string) => {
+        const policy = activePolicies.find(p => p.id === policyId);
+        if (policy) {
+            policy.isActive = false;
+            repos.consent.logEvent({
+                id: `evt_revoke_${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                actorId: viewer.personId,
+                action: 'revoked',
+                resourceId: org.id,
+                viewerId: policy.viewerId,
+                reason: 'User revoked via Privacy Dashboard'
+            });
+            if (onRefresh) onRefresh();
         }
+        setConfirmRevokeId(null);
+    };
+
+    const handleGrantConsent = () => {
+        if (!isManageable || !selectedPartnerOrgId) return;
+        repos.consent.grantAccess(org.id, selectedPartnerOrgId, selectedAccessLevel);
+        setSelectedPartnerOrgId('');
+        setSelectedAccessLevel('read');
+        setPartnerSearch('');
+        onRefresh?.();
+    };
+
+    const handleSaveOrgProfile = async (updates: Partial<Organization>) => {
+        await repos.organizations.update(org.id, updates);
+        onRefresh?.();
+    };
+
+    const handleAddPerson = async (personUpdates: Partial<Person>) => {
+        const id = personUpdates.id || `person_${Date.now()}`;
+        await repos.people.add({
+            id,
+            first_name: personUpdates.first_name || '',
+            last_name: personUpdates.last_name || '',
+            email: personUpdates.email || '',
+            avatar_url: personUpdates.avatar_url,
+            role: personUpdates.role || '',
+            system_role: personUpdates.system_role || 'entrepreneur',
+            organization_id: org.id,
+            ecosystem_id: viewer.ecosystemId,
+            tags: personUpdates.tags || [],
+            external_refs: personUpdates.external_refs || [],
+            links: personUpdates.links || [],
+            memberships: personUpdates.memberships || [],
+            secondary_profile: personUpdates.secondary_profile,
+        } as Person);
+        onRefresh?.();
     };
 
     const handleRequestAccess = () => {
+        if (isOwnOrganization) {
+            return;
+        }
         const viewerOrgName = organizations.find(o => o.id === viewer.orgId)?.name || 'Partner Org';
         repos.referrals.add({
             id: `ref_access_${Date.now()}`,
@@ -144,11 +287,41 @@ export const OrganizationDetailView = ({
             subject_org_id: viewer.orgId,
             date: new Date().toISOString().split('T')[0],
             status: 'pending',
+            intake_type: 'access_request',
             notes: `Access Request from ${viewerOrgName}`,
             outcome_tags: ['Access Request']
         });
-        alert("Access request sent.");
+        setAccessRequestSent(true);
+        setTimeout(() => setAccessRequestSent(false), 3000);
         if (onRefresh) onRefresh();
+    };
+
+    const handleRequestSupport = async () => {
+        if (!actingOrganization || !supportRequestNotes.trim()) {
+            return;
+        }
+
+        setIsSubmittingSupportRequest(true);
+        try {
+            await repos.referrals.add({
+                id: `ref_support_${Date.now()}`,
+                ecosystem_id: viewer.ecosystemId,
+                referring_org_id: actingOrganization.id,
+                receiving_org_id: org.id,
+                subject_person_id: viewer.personId,
+                subject_org_id: actingOrganization.id,
+                date: new Date().toISOString(),
+                status: 'pending',
+                intake_type: 'self_introduction',
+                notes: supportRequestNotes.trim(),
+                source: 'manual_ui',
+            } as Referral);
+            setSupportRequestNotes('');
+            setIsSupportRequestOpen(false);
+            onRefresh?.();
+        } finally {
+            setIsSubmittingSupportRequest(false);
+        }
     };
 
     return (
@@ -171,28 +344,91 @@ export const OrganizationDetailView = ({
                 </div>
               </div>
               <div className="flex gap-2">
-                 {!canViewDetails && (
-                     <button 
-                        onClick={handleRequestAccess}
-                        disabled={!!pendingRequest}
-                        className={`px-4 py-2 border text-sm font-medium rounded transition-colors ${pendingRequest ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white border-indigo-300 text-indigo-700 hover:bg-indigo-50 shadow-sm'}`}
+                 {canRequestSupport && (
+                     <button
+                        onClick={() => setIsSupportRequestOpen(true)}
+                        className="px-4 py-2 border border-indigo-300 bg-white text-indigo-700 text-sm font-medium rounded hover:bg-indigo-50 shadow-sm"
                      >
-                        {pendingRequest ? 'Request Pending' : 'Request Access'}
+                        Request Support
                      </button>
                  )}
-                 {canViewDetails && (
+                 {isManageable && (
+                     <button
+                        onClick={() => {
+                            setActiveTab('privacy');
+                            onTabChange?.('privacy');
+                        }}
+                        className="px-4 py-2 border border-gray-300 bg-white text-gray-700 text-sm font-medium rounded hover:bg-gray-50"
+                     >
+                        Privacy Settings
+                     </button>
+                 )}
+                 {!canViewDetails && !isOwnOrganization && (
+                     <>
+                         <button
+                            onClick={handleRequestAccess}
+                            disabled={!!pendingRequest}
+                            className={`px-4 py-2 border text-sm font-medium rounded transition-colors ${pendingRequest ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white border-indigo-300 text-indigo-700 hover:bg-indigo-50 shadow-sm'}`}
+                         >
+                            {pendingRequest ? 'Request Pending' : 'Request Access'}
+                         </button>
+                         {accessRequestSent && <p className="text-sm text-green-600">Access request sent.</p>}
+                     </>
+                 )}
+                 {canViewDetails && !isEntrepreneurViewer && (
                      <button
                         onClick={() => setActiveTab('interactions')}
                         className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
                      >
-                        Log Interaction
+                        View Interactions
                      </button>
                  )}
               </div>
            </div>
 
+           <Modal isOpen={isSupportRequestOpen} onClose={() => setIsSupportRequestOpen(false)} title={`Request Support from ${org.name}`}>
+               <div className="space-y-4">
+                   {actingOrganization ? (
+                       <>
+                           <div className="text-sm text-gray-600">
+                               This sends a self-introduction from <strong>{actingOrganization.name}</strong> to <strong>{org.name}</strong>.
+                           </div>
+                           <div>
+                               <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">
+                                   Self-introduction
+                               </label>
+                               <textarea
+                                   value={supportRequestNotes}
+                                   onChange={(event) => setSupportRequestNotes(event.target.value)}
+                                   rows={5}
+                                   placeholder="Explain what your business does, what support you need, and any urgency or context."
+                                   className={FORM_TEXTAREA_CLASS}
+                               />
+                           </div>
+                           <div className="flex justify-end gap-2">
+                               <button onClick={() => setIsSupportRequestOpen(false)} className="rounded border px-4 py-2 text-sm hover:bg-gray-50">
+                                   Cancel
+                               </button>
+                               <button
+                                   onClick={() => void handleRequestSupport()}
+                                   disabled={!supportRequestNotes.trim() || isSubmittingSupportRequest}
+                                   className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+                               >
+                                   {isSubmittingSupportRequest ? 'Sending...' : 'Send self-introduction'}
+                               </button>
+                           </div>
+                       </>
+                   ) : (
+                       <div className="space-y-3 text-sm text-gray-600">
+                           <p>You need an active business context before you can request support from an ESO.</p>
+                           <p>Create or link your business profile first, then come back here to send a self-introduction.</p>
+                       </div>
+                   )}
+               </div>
+           </Modal>
+
            {/* Restricted Access Banner */}
-           {!canViewDetails && (
+           {!canViewDetails && !isOwnOrganization && (
                <div className="bg-slate-50 border border-slate-200 rounded-lg p-5">
                    <div className="flex items-start gap-4">
                        <div className="flex-shrink-0 mt-1">
@@ -244,12 +480,14 @@ export const OrganizationDetailView = ({
              <nav className="-mb-px flex space-x-6 overflow-x-auto">
                {[
                  { id: 'overview', label: 'Overview' },
-                 { id: 'metrics', label: 'Data & Metrics' },
+                 ...(canAccessMetrics ? [{ id: 'metrics', label: 'Data & Metrics' }] : []),
                  { id: 'people', label: `People (${isRestricted ? visiblePeople.length : orgPeople.length})` },
-                 { id: 'initiatives', label: `Initiatives (${orgInitiatives.length})` },
+                 { id: 'participation', label: `Participation (${orgParticipations.length})` },
+                 ...(canAccessInitiatives ? [{ id: 'initiatives', label: `Initiatives (${orgInitiatives.length})` }] : []),
                  { id: 'interactions', label: `Interactions (${orgInteractions.length})` },
                  { id: 'referrals', label: `Referrals (${orgReferrals.length})` },
-                 { id: 'privacy', label: 'Privacy' }
+                 { id: 'privacy', label: 'Privacy' },
+                 ...(isManageable && org.roles.includes('eso') ? [{ id: 'settings', label: 'Settings' }] : []),
                ].map(tab => {
                  const isLocked = !canViewDetails && ['metrics', 'initiatives', 'interactions', 'referrals'].includes(tab.id);
                  return (
@@ -279,7 +517,32 @@ export const OrganizationDetailView = ({
               {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                    <div className="lg:col-span-2 space-y-6">
+                     {isManageable && (
+                        <InfoBanner title="Privacy and Sharing">
+                            <div className="space-y-2 text-sm text-gray-700">
+                                <p>
+                                    Your current visibility is <strong>{org.operational_visibility === 'open' ? 'Open' : 'Restricted'}</strong>.
+                                    Use <strong>Privacy Settings</strong> to control whether ecosystem partners can see operational details like initiatives,
+                                    metrics, interactions, and the broader team directory.
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                    Directory basics such as your name, website, and core profile remain discoverable even when operational data is restricted.
+                                </p>
+                            </div>
+                        </InfoBanner>
+                     )}
                      <Card title="About">
+                        {isManageable && (
+                            <div className="mb-4 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEditOrgOpen(true)}
+                                    className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                >
+                                    Edit overview details
+                                </button>
+                            </div>
+                        )}
                         <div className="prose prose-sm text-gray-600 max-w-none">
                           <p>{org.description}</p>
                         </div>
@@ -306,6 +569,22 @@ export const OrganizationDetailView = ({
                    <div className="space-y-6">
                       <Card title="Classification">
                          <div className="space-y-4">
+                            {org.roles.includes('eso') && (
+                               <div>
+                                  <span className="block text-xs font-bold text-gray-500 uppercase mb-1">Support Offerings</span>
+                                  <div className="flex flex-wrap gap-2">
+                                     {(org.support_offerings || []).length > 0 ? (
+                                        (org.support_offerings || []).map((offering) => (
+                                            <span key={offering} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-100">
+                                                {offering.replace(/_/g, ' ')}
+                                            </span>
+                                        ))
+                                     ) : (
+                                        <span className="text-sm text-gray-500">No support offerings listed yet.</span>
+                                     )}
+                                  </div>
+                               </div>
+                            )}
                             <div>
                                <span className="block text-xs font-bold text-gray-500 uppercase mb-1">NAICS Code</span>
                                <span className="text-gray-900 font-mono bg-gray-50 px-2 py-1 rounded border">{org.classification.naics_code || 'N/A'}</span>
@@ -352,13 +631,16 @@ export const OrganizationDetailView = ({
                             ))}
                             
                             {canRequestUpdate && (
-                                <button 
-                                    onClick={handleAssignUpdate}
-                                    className="bg-gray-50 p-4 rounded border border-dashed border-gray-300 flex flex-col items-center justify-center text-indigo-600 hover:bg-gray-100 transition-colors"
-                                >
-                                    <span className="text-lg font-bold">Request Update</span>
-                                    <span className="text-[10px]">Send Task to Client</span>
-                                </button>
+                                <>
+                                    <button
+                                        onClick={handleAssignUpdate}
+                                        className="bg-gray-50 p-4 rounded border border-dashed border-gray-300 flex flex-col items-center justify-center text-indigo-600 hover:bg-gray-100 transition-colors"
+                                    >
+                                        <span className="text-lg font-bold">Request Update</span>
+                                        <span className="text-[10px]">Send Task to Client</span>
+                                    </button>
+                                    {dataRequestMsg && <p className="text-sm text-green-600 mt-2">{dataRequestMsg}</p>}
+                                </>
                             )}
                         </div>
 
@@ -374,6 +656,17 @@ export const OrganizationDetailView = ({
 
               {activeTab === 'people' && (
                   <div className="space-y-4">
+                      {isManageable && !isRestricted && (
+                          <div className="flex justify-end">
+                              <button
+                                  type="button"
+                                  onClick={() => setIsAddPersonOpen(true)}
+                                  className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                              >
+                                  Add Person
+                              </button>
+                          </div>
+                      )}
                       {isRestricted && (
                           <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-md">
                               <div className="flex">
@@ -435,6 +728,43 @@ export const OrganizationDetailView = ({
                                </tbody>
                            </table>
                       </div>
+                  </div>
+              )}
+
+              {activeTab === 'participation' && (
+                  <div className="space-y-4">
+                      <InfoBanner title="Structured Participation">
+                          <div className="text-sm text-gray-700">
+                              Participation tracks structured, date-ranged involvement like memberships, program applications, rentals, incubator residency, and event series.
+                          </div>
+                      </InfoBanner>
+                      {orgParticipations.length === 0 ? (
+                          <Card title="Participation">
+                              <p className="text-sm text-gray-500">No participation records are linked to this business yet.</p>
+                          </Card>
+                      ) : (
+                          orgParticipations.map((service) => {
+                              const provider = organizations.find((candidate) => candidate.id === service.provider_org_id);
+                              return (
+                                  <Card key={service.id} title={service.name}>
+                                      <div className="flex items-start justify-between gap-3">
+                                          <div>
+                                              <div className="text-sm text-gray-600">
+                                                  {service.participation_type?.replace(/_/g, ' ') || 'program'} with {provider?.name || 'Partner organization'}
+                                              </div>
+                                              <div className="mt-1 text-xs text-gray-500">{formatParticipationWindow(service)}</div>
+                                          </div>
+                                          <Badge color={getParticipationStatusColor(service)}>
+                                              {getParticipationStatusLabel(service)}
+                                          </Badge>
+                                      </div>
+                                      {service.description && (
+                                          <div className="mt-3 text-sm text-gray-700">{service.description}</div>
+                                      )}
+                                  </Card>
+                              );
+                          })
+                      )}
                   </div>
               )}
               {activeTab === 'initiatives' && (
@@ -544,6 +874,29 @@ export const OrganizationDetailView = ({
                                   ) : (
                                       <p className="text-sm text-gray-600 mb-2">{ref.notes}</p>
                                   )}
+
+                                  {canManageIncomingReferral(ref) && !isRedacted && (
+                                      <div className="mb-3 flex flex-wrap gap-2">
+                                          {ref.status === 'pending' && (
+                                              <button
+                                                  onClick={() => void updateReferralStatus(ref, 'accept')}
+                                                  disabled={isUpdatingReferral === ref.id}
+                                                  className="rounded bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                                              >
+                                                  {isUpdatingReferral === ref.id ? 'Saving...' : 'Confirm intake'}
+                                              </button>
+                                          )}
+                                          {ref.status === 'accepted' && (
+                                              <button
+                                                  onClick={() => void updateReferralStatus(ref, 'complete')}
+                                                  disabled={isUpdatingReferral === ref.id}
+                                                  className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                                              >
+                                                  {isUpdatingReferral === ref.id ? 'Saving...' : 'Mark completed'}
+                                              </button>
+                                          )}
+                                      </div>
+                                  )}
                                   
                                   {ref.status === 'completed' && ref.outcome && !isRedacted && (
                                       <div className="mt-3 pt-2 border-t border-gray-100 flex items-center gap-2">
@@ -625,27 +978,44 @@ export const OrganizationDetailView = ({
                           )}
                       </div>
 
-                      <Card title="Data Visibility Settings">
-                          <div className="flex items-center justify-between">
-                              <div>
-                                  <h4 className="text-sm font-bold text-gray-900">Global Visibility</h4>
-                                  <p className="text-sm text-gray-500 mt-1">
-                                      When set to <strong>Open</strong>, trusted ecosystem partners can view your initiatives, metrics, and team structure.<br/>
-                                      When set to <strong>Restricted</strong>, they only see your directory listing (Name, Website, Tags).
-                                  </p>
+                      <Card title="Global Company Profile Visibility in Directory">
+                          <div className="space-y-4">
+                              <div className="flex items-start justify-between gap-4">
+                                  <div>
+                                      <h4 className="text-sm font-bold text-gray-900">Directory visibility</h4>
+                                      <p className="text-sm text-gray-500 mt-1">
+                                          This controls how much of your company profile and operating detail is visible to ecosystem partners by default.<br/>
+                                          <strong>Open</strong> shares your detailed operating profile with trusted partners. <strong>Restricted</strong> keeps the directory listing visible, but requires explicit trusted-partner grants for deeper access.
+                                      </p>
+                                  </div>
+                                  {isManageable ? (
+                                      <button 
+                                          onClick={handleToggleVisibility}
+                                          aria-label={`Toggle organization visibility. Current setting: ${org.operational_visibility === 'open' ? 'Open' : 'Restricted'}`}
+                                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${org.operational_visibility === 'open' ? 'bg-green-600' : 'bg-gray-200'}`}
+                                      >
+                                          <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${org.operational_visibility === 'open' ? 'translate-x-5' : 'translate-x-0'}`} />
+                                      </button>
+                                  ) : (
+                                      <Badge color={org.operational_visibility === 'open' ? 'green' : 'gray'}>
+                                          {org.operational_visibility === 'open' ? 'Open' : 'Restricted'}
+                                      </Badge>
+                                  )}
                               </div>
-                              {isManageable ? (
-                                  <button 
-                                      onClick={handleToggleVisibility}
-                                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${org.operational_visibility === 'open' ? 'bg-green-600' : 'bg-gray-200'}`}
-                                  >
-                                      <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${org.operational_visibility === 'open' ? 'translate-x-5' : 'translate-x-0'}`} />
-                                  </button>
-                              ) : (
-                                  <Badge color={org.operational_visibility === 'open' ? 'green' : 'gray'}>
-                                      {org.operational_visibility === 'open' ? 'Open' : 'Restricted'}
-                                  </Badge>
-                              )}
+                              <div className="grid gap-3 md:grid-cols-2">
+                                  <div className={`rounded-lg border px-4 py-3 ${org.operational_visibility === 'restricted' ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+                                      <div className="text-sm font-semibold text-gray-900">Restricted</div>
+                                      <div className="mt-1 text-sm text-gray-600">
+                                          Your company still appears in the directory, but only the basic public profile is visible by default. Detailed access must be granted partner by partner below.
+                                      </div>
+                                  </div>
+                                  <div className={`rounded-lg border px-4 py-3 ${org.operational_visibility === 'open' ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
+                                      <div className="text-sm font-semibold text-gray-900">Open</div>
+                                      <div className="mt-1 text-sm text-gray-600">
+                                          Your company remains discoverable in the directory, and trusted partners can also see operational details like initiatives, metrics, interactions, and the broader team directory.
+                                      </div>
+                                  </div>
+                              </div>
                           </div>
                       </Card>
 
@@ -654,6 +1024,75 @@ export const OrganizationDetailView = ({
                               <p className="text-sm text-gray-500">
                                   These organizations have been granted specific permission to view your data, regardless of your global visibility setting.
                               </p>
+                              {isManageable && (
+                                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+                                      <div>
+                                          <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">
+                                              Find trusted ESO partner
+                                          </label>
+                                          <input
+                                              type="text"
+                                              value={partnerSearch}
+                                              onChange={(event) => setPartnerSearch(event.target.value)}
+                                              placeholder="Search organizations in this ecosystem"
+                                              className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                                          />
+                                      </div>
+                                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_auto]">
+                                          <select
+                                              value={selectedPartnerOrgId}
+                                              onChange={(event) => setSelectedPartnerOrgId(event.target.value)}
+                                              className="rounded border border-gray-300 px-3 py-2 text-sm bg-white"
+                                          >
+                                              <option value="">Select an ESO organization</option>
+                                              {availablePartnerOrgs.map((candidate) => (
+                                                  <option key={candidate.id} value={candidate.id}>
+                                                      {candidate.name}
+                                                  </option>
+                                              ))}
+                                          </select>
+                                          <select
+                                              value={selectedAccessLevel}
+                                              onChange={(event) => setSelectedAccessLevel(event.target.value as 'read' | 'write' | 'admin')}
+                                              className="rounded border border-gray-300 px-3 py-2 text-sm bg-white"
+                                          >
+                                              <option value="read">Read: can view detailed operating data</option>
+                                              <option value="write">Write: can add updates and interactions</option>
+                                              <option value="admin">Admin: can manage data and sharing</option>
+                                          </select>
+                                          <button
+                                              type="button"
+                                              onClick={handleGrantConsent}
+                                              disabled={!selectedPartnerOrgId}
+                                              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                          >
+                                              Add partner
+                                          </button>
+                                      </div>
+                                      <p className="text-xs text-gray-500">
+                                          Grant trusted ESO partners access to your operational details without making your organization broadly open to the full network.
+                                      </p>
+                                      <div className="grid gap-2 md:grid-cols-3">
+                                          <div className="rounded border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                                              <strong className="block text-gray-900">Read</strong>
+                                              Can view detailed organizational information.
+                                          </div>
+                                          <div className="rounded border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                                              <strong className="block text-gray-900">Write</strong>
+                                              Can log interactions and update shared records.
+                                          </div>
+                                          <div className="rounded border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                                              <strong className="block text-gray-900">Admin</strong>
+                                              Can manage the relationship and consent settings.
+                                          </div>
+                                      </div>
+                                      {partnerSearchTerm && availablePartnerOrgs.length === 0 && (
+                                          <div className="text-xs text-amber-700">
+                                              No matching ESO organizations found in this ecosystem.
+                                          </div>
+                                      )}
+                                  </div>
+                              )}
                               {activePolicies.length === 0 ? (
                                   <div className="bg-gray-50 p-4 rounded border border-gray-200 text-center text-sm text-gray-500 italic">
                                       No specific consents granted.
@@ -674,12 +1113,20 @@ export const OrganizationDetailView = ({
                                                       </div>
                                                   </div>
                                                   {isManageable && (
-                                                      <button 
-                                                          onClick={() => handleRevokeConsent(policy.id)}
-                                                          className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 hover:bg-red-50 px-3 py-1 rounded"
-                                                      >
-                                                          Revoke Access
-                                                      </button>
+                                                      confirmRevokeId === policy.id ? (
+                                                          <span className="text-xs text-red-700">
+                                                              Revoke access?{' '}
+                                                              <button onClick={() => doRevokeConsent(policy.id)} className="font-bold underline mr-2">Yes, revoke</button>
+                                                              <button onClick={() => setConfirmRevokeId(null)} className="text-gray-500 underline">Cancel</button>
+                                                          </span>
+                                                      ) : (
+                                                          <button
+                                                              onClick={() => handleRevokeConsent(policy.id)}
+                                                              className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 hover:bg-red-50 px-3 py-1 rounded"
+                                                          >
+                                                              Revoke Access
+                                                          </button>
+                                                      )
                                                   )}
                                               </div>
                                           );
@@ -752,7 +1199,117 @@ export const OrganizationDetailView = ({
                     </Card>
                   </div>
               )}
+
+              {activeTab === 'settings' && isManageable && org.roles.includes('eso') && (
+                  <div className="grid gap-6">
+                      <Card title="Email Templates">
+                          <div className="space-y-4">
+                              <p className="text-sm text-gray-600 mb-2">
+                                  Org-level templates are available to all staff when sending invite emails. Staff can also set personal templates in their own profile.
+                              </p>
+                              <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2.5 text-xs text-blue-800 space-y-1">
+                                  <p className="font-semibold">Tokens replaced when the email is sent:</p>
+                                  <p><code className="bg-white/70 rounded px-1">{'{{first_name}}'}</code> — entrepreneur's first name</p>
+                                  <p><code className="bg-white/70 rounded px-1">{'{{subject_name}}'}</code> — entrepreneur's full name</p>
+                                  <p><code className="bg-white/70 rounded px-1">{'{{receiving_org}}'}</code> — your organization</p>
+                                  <p><code className="bg-white/70 rounded px-1">{'{{referring_org}}'}</code> — the organization that sent the referral</p>
+                              </div>
+                              {orgTemplateDrafts.map((tpl, idx) => (
+                                  <div key={tpl.id} className="rounded border border-gray-200 bg-gray-50 p-3 space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                          <input
+                                              className="flex-1 rounded border-gray-300 text-sm font-medium focus:border-indigo-500 focus:ring-indigo-500 p-1.5 border bg-white"
+                                              value={tpl.name}
+                                              placeholder={`Template name (e.g. "Come visit our space")`}
+                                              onChange={(e) => {
+                                                  setOrgTemplateDrafts(orgTemplateDrafts.map((t, i) => i === idx ? { ...t, name: e.target.value } : t));
+                                              }}
+                                          />
+                                          <button
+                                              type="button"
+                                              onClick={() => {
+                                                  const next = orgTemplateDrafts.filter((_, i) => i !== idx);
+                                                  setOrgTemplateDrafts(next);
+                                                  void repos.organizations.update(org.id, { referral_templates: next });
+                                                  setOrgTemplatesSavedAt(Date.now());
+                                              }}
+                                              className="text-xs text-red-400 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50"
+                                          >
+                                              Remove
+                                          </button>
+                                      </div>
+                                      <div>
+                                          <label className="block text-xs text-gray-500 mb-1">Subject line <span className="font-normal text-gray-400">(optional — leave blank for default)</span></label>
+                                          <input
+                                              className="block w-full rounded border-gray-300 text-xs focus:border-indigo-500 focus:ring-indigo-500 p-1.5 border bg-white"
+                                              value={tpl.subject || ''}
+                                              placeholder={`e.g. "Let's connect — {{receiving_org}}"`}
+                                              onChange={(e) => {
+                                                  setOrgTemplateDrafts(orgTemplateDrafts.map((t, i) => i === idx ? { ...t, subject: e.target.value } : t));
+                                              }}
+                                          />
+                                      </div>
+                                      <textarea
+                                          className="block w-full rounded border-gray-300 text-xs font-mono focus:border-indigo-500 focus:ring-indigo-500 p-2 border bg-white"
+                                          rows={6}
+                                          value={tpl.body}
+                                          placeholder={`Hi {{first_name}},\n\nThanks for the intro!\n\n[message body]\n\n[Staff name]\n[Org name]`}
+                                          onChange={(e) => {
+                                              setOrgTemplateDrafts(orgTemplateDrafts.map((t, i) => i === idx ? { ...t, body: e.target.value } : t));
+                                          }}
+                                      />
+                                  </div>
+                              ))}
+                              <div className="flex items-center gap-3 flex-wrap">
+                                  <button
+                                      type="button"
+                                      onClick={() => {
+                                          setOrgTemplateDrafts([...orgTemplateDrafts, { id: `tpl_${Date.now()}`, name: '', body: '' }]);
+                                      }}
+                                      className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                                  >
+                                      + Add Template
+                                  </button>
+                                  {orgTemplateDrafts.length > 0 && (
+                                      <button
+                                          type="button"
+                                          disabled={isSavingOrgTemplates}
+                                          onClick={async () => {
+                                              setIsSavingOrgTemplates(true);
+                                              await repos.organizations.update(org.id, { referral_templates: orgTemplateDrafts });
+                                              setIsSavingOrgTemplates(false);
+                                              setOrgTemplatesSavedAt(Date.now());
+                                          }}
+                                          className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+                                      >
+                                          {isSavingOrgTemplates ? 'Saving…' : 'Save templates'}
+                                      </button>
+                                  )}
+                                  {orgTemplatesSavedAt && (
+                                      <span className="text-xs text-green-600 font-medium">Saved</span>
+                                  )}
+                              </div>
+                              <div className="text-xs text-gray-400">Subject note: if left blank, the email subject defaults to <em>"[Org] accepted your referral"</em>. The template body is inserted as a paragraph inside the system email wrapper.</div>
+                          </div>
+                      </Card>
+                  </div>
+              )}
            </div>
+
+           <ManagePersonModal
+               isOpen={isAddPersonOpen}
+               onClose={() => setIsAddPersonOpen(false)}
+               onSave={(personUpdates) => { void handleAddPerson(personUpdates); }}
+               orgId={org.id}
+           />
+           {isManageable && (
+               <EditOrgModal
+                   org={org}
+                   isOpen={isEditOrgOpen}
+                   onClose={() => setIsEditOrgOpen(false)}
+                   onSave={handleSaveOrgProfile}
+               />
+           )}
         </div>
     );
 };
