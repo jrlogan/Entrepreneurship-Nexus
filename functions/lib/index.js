@@ -620,8 +620,15 @@ const isExpired = (isoDate) => {
     return new Date(isoDate).getTime() <= Date.now();
 };
 const findExistingPersonByEmail = async (email) => {
-    const snapshot = await db.collection('people').where('email', '==', email).limit(1).get();
-    return snapshot.empty ? null : snapshot.docs[0];
+    const [primarySnap, secondarySnap] = await Promise.all([
+        db.collection('people').where('email', '==', email).limit(1).get(),
+        db.collection('people').where('secondary_emails', 'array-contains', email).limit(1).get(),
+    ]);
+    if (!primarySnap.empty)
+        return primarySnap.docs[0];
+    if (!secondarySnap.empty)
+        return secondarySnap.docs[0];
+    return null;
 };
 const resolveInviteScope = async (organizationId, requestedEcosystemId) => {
     const organizationDoc = await db.collection('organizations').doc(organizationId).get();

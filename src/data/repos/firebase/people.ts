@@ -1,6 +1,6 @@
 import type { Person, SystemRole } from '../../../domain/people/types';
 import type { EcosystemMembership } from '../../../domain/people/types';
-import { getDocument, queryCollection, updateDocument, whereEquals, whereIn } from '../../../services/firestoreClient';
+import { getDocument, queryCollection, updateDocument, deleteDocument, whereEquals, whereIn } from '../../../services/firestoreClient';
 
 interface FirestorePersonRecord {
   id: string;
@@ -19,6 +19,7 @@ interface FirestorePersonRecord {
   organization_affiliations?: Person['organization_affiliations'];
   secondary_profile?: Person['secondary_profile'];
   secondary_emails?: string[];
+  status?: 'active' | 'revoked';
 }
 
 interface FirestorePersonMembershipRecord {
@@ -60,6 +61,7 @@ const toPerson = (
     external_refs: record.external_refs,
     links: record.links,
     secondary_emails: record.secondary_emails,
+    status: record.status,
   };
 };
 
@@ -131,6 +133,14 @@ export class FirebasePeopleRepo {
         secondary_profile: person.secondary_profile,
     };
     await setDocument('people', person.id, record);
+  }
+
+  async archive(id: string): Promise<void> {
+    await updateDocument('people', id, { status: 'revoked' });
+  }
+
+  async delete(id: string): Promise<void> {
+    await deleteDocument('people', id);
   }
 
   async update(id: string, updates: Partial<Person>): Promise<void> {

@@ -86,6 +86,24 @@
       - Archive loser record (`status: 'archived'`)
       - See org merge in `DataQualityView.tsx:handleMergeConfirm` as reference pattern                                                                                                                                                      
                                                                                                                                                                                          
+  ### Phase 5: Technical Audit & Security (Post-Demo Refinement)
+  **Goal:** Harden the platform for production-scale traffic and security.
+
+  - [ ] **Security & Performance Optimization**
+    - [ ] **Firebase Custom Claims:** Migrate `system_role` checks in `firestore.rules` from `get()` calls to Custom Claims to reduce latency and costs.
+    - [ ] **O(1) API Key Lookup:** Replace O(n) organization scanning in Cloud Functions with a dedicated `api_keys` collection keyed by hash.
+    - [ ] **App Check & Rate Limiting:** Implement Firebase App Check and rate limiting on public endpoints like `resolvePerson` and `resolveOrganization`.
+
+  - [ ] **Architecture & Technical Debt**
+    - [ ] **Type Safety Sweep:** Replace `any` types in Cloud Functions with strict `Request`/`Response` types from `firebase-functions/v2`.
+    - [ ] **Legacy Field Cleanup:** Standardize on `organization_id` and remove legacy `primary_organization_id` aliases across the codebase.
+    - [ ] **Scalable Deduplication:** Implement "blocking" (e.g., zip-code or name-prefix filtering) in `detectDuplicates` to avoid O(n²) performance issues.
+
+  - [ ] **UX & Robustness**
+    - [ ] **Founder-First Experience:** Develop a dedicated dashboard for Entrepreneurs focused on their longitudinal journey and pipeline progress.
+    - [ ] **Global Error Boundary:** Implement a centralized notification system to handle and display Firebase permission errors to users.
+    - [ ] **Comprehensive Audit Logging:** Ensure sensitive actions (UI-driven views, data exports) trigger entries in the `audit_logs` collection.
+
   ---                                                                                                                                                                                    
                                                                                                                                                                                          
   ## 🤖 Master Prompts                                                                                                                                                                   

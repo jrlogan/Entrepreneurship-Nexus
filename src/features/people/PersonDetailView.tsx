@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactCrop, { centerCrop, makeAspectCrop, type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Person, Organization, Interaction, Referral, Service } from '../../domain/types';
-import { Card, Badge, Avatar, Modal, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
+import { Card, Badge, Avatar, Modal, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS } from '../../shared/ui/Components';
+import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 import { LogInteractionModal } from '../interactions/LogInteractionModal';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { useRepos, useViewer } from '../../data/AppDataContext';
@@ -70,6 +71,13 @@ export const PersonDetailView = ({
   const [showLogInteraction, setShowLogInteraction] = useState(false);
   const [showCreateReferral, setShowCreateReferral] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showAddAssociation, setShowAddAssociation] = useState(false);
+  const [addAssocForm, setAddAssocForm] = useState({ organization_id: '', role_title: '', relationship_type: 'employee', status: 'active' });
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
   const [profilePhotoPreviewUrl, setProfilePhotoPreviewUrl] = useState<string | null>(null);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
@@ -108,6 +116,7 @@ export const PersonDetailView = ({
     || viewer.role === 'eso_admin'
     || viewer.role === 'eso_staff';
   const showStaffActions = viewer.role !== 'entrepreneur';
+  const isAdminViewer = viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -273,6 +282,32 @@ export const PersonDetailView = ({
     }
   };
 
+  const handleAddAssociation = async () => {
+    if (!addAssocForm.organization_id) return;
+    type RelType = 'founder' | 'owner' | 'employee' | 'advisor' | 'board' | 'other';
+    type StatusType = 'active' | 'pending' | 'revoked';
+    const existing = getAllOrganizationAffiliations(person);
+    const alreadyLinked = existing.some(a => a.organization_id === addAssocForm.organization_id);
+    if (alreadyLinked) return;
+    const isFirst = existing.length === 0 && !person.organization_id;
+    await repos.people.update(person.id, {
+      organization_affiliations: [
+        ...existing,
+        {
+          organization_id: addAssocForm.organization_id,
+          role_title: addAssocForm.role_title || null,
+          relationship_type: addAssocForm.relationship_type as RelType,
+          status: addAssocForm.status as StatusType,
+          can_self_manage: false,
+        },
+      ],
+      ...(isFirst ? { organization_id: addAssocForm.organization_id } : {}),
+    });
+    setShowAddAssociation(false);
+    setAddAssocForm({ organization_id: '', role_title: '', relationship_type: 'employee', status: 'active' });
+    onRefresh?.();
+  };
+
   const handleAffiliationChange = (index: number, field: 'organization_id' | 'role_title' | 'relationship_type' | 'status' | 'can_self_manage' | 'is_primary', value: string | boolean) => {
     setProfileForm((current) => ({
       ...current,
@@ -320,6 +355,23 @@ export const PersonDetailView = ({
     if (status === 'revoked') return 'No longer active';
     if (status === 'pending') return 'Pending approval';
     return 'Active';
+  };
+
+  const handleArchivePerson = async () => {
+    setIsArchiving(true);
+    await repos.people.archive(person.id);
+    setIsArchiving(false);
+    setShowArchiveConfirm(false);
+    onRefresh?.();
+    onBack();
+  };
+
+  const handleDeletePerson = async () => {
+    setIsDeleting(true);
+    await repos.people.delete(person.id);
+    setIsDeleting(false);
+    setShowDeleteConfirm(false);
+    onBack();
   };
 
   const handleCopyEmail = async () => {
@@ -390,6 +442,17 @@ export const PersonDetailView = ({
 
       <div className="space-y-6">
         {activeTab === 'associations' && (
+          <div className="space-y-4">
+          {canEditProfile && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowAddAssociation(true)}
+                className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              >
+                + Add Association
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[...visibleAffiliations].sort((a, b) => {
               const aIsPrimary = a.organization_id === person.organization_id ? 0 : 1;
@@ -445,6 +508,7 @@ export const PersonDetailView = ({
               </Card>
             )}
           </div>
+          </div>
         )}
         {activeTab === 'interactions' && (
           <div className="space-y-4">
@@ -473,6 +537,32 @@ export const PersonDetailView = ({
         )}
         {activeTab === 'settings' && canEditProfile && (
           <div className="grid gap-6">
+            {isAdminViewer && !isOwnProfile && (
+              <Card title="Admin Actions">
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600">These actions are only visible to admins and cannot be undone easily.</p>
+                  <div className="flex gap-3 flex-wrap">
+                    <button
+                      onClick={() => setShowArchiveConfirm(true)}
+                      className="px-4 py-2 text-sm font-medium border border-yellow-400 text-yellow-700 rounded hover:bg-yellow-50"
+                    >
+                      Archive Account
+                    </button>
+                    <button
+                      onClick={() => { setDeleteConfirmText(''); setShowDeleteConfirm(true); }}
+                      className="px-4 py-2 text-sm font-medium border border-red-400 text-red-700 rounded hover:bg-red-50"
+                    >
+                      Delete Account
+                    </button>
+                  </div>
+                  {person.status === 'revoked' && (
+                    <p className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                      This account is currently archived.
+                    </p>
+                  )}
+                </div>
+              </Card>
+            )}
             {isOwnProfile && <Card title="My Email Templates">
               <div className="space-y-4">
                 <p className="text-sm text-gray-600">
@@ -799,6 +889,109 @@ export const PersonDetailView = ({
             <button onClick={() => setShowEditProfile(false)} className="rounded border px-4 py-2 text-sm hover:bg-gray-50">Cancel</button>
             <button onClick={() => void handleSaveProfile()} disabled={isSavingProfile} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50">
               {isSavingProfile ? 'Saving...' : 'Save Profile'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Association modal */}
+      <Modal isOpen={showAddAssociation} onClose={() => setShowAddAssociation(false)} title="Add Association">
+        <div className="space-y-4">
+          <SearchableSelect
+            label="Organization"
+            options={organizations
+              .filter(o => !getAllOrganizationAffiliations(person).some(a => a.organization_id === o.id) && o.id !== person.organization_id)
+              .map(o => ({ id: o.id, label: o.name }))}
+            value={addAssocForm.organization_id}
+            onChange={v => setAddAssocForm(f => ({ ...f, organization_id: v }))}
+            placeholder="Search organizations..."
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={FORM_LABEL_CLASS}>Role Title <span className="font-normal text-gray-400">(optional)</span></label>
+              <input
+                className={FORM_INPUT_CLASS}
+                value={addAssocForm.role_title}
+                onChange={e => setAddAssocForm(f => ({ ...f, role_title: e.target.value }))}
+                placeholder="Founder, Advisor..."
+              />
+            </div>
+            <div>
+              <label className={FORM_LABEL_CLASS}>Relationship</label>
+              <select className={FORM_SELECT_CLASS} value={addAssocForm.relationship_type} onChange={e => setAddAssocForm(f => ({ ...f, relationship_type: e.target.value }))}>
+                <option value="founder">Founder</option>
+                <option value="owner">Owner</option>
+                <option value="employee">Employee</option>
+                <option value="advisor">Advisor</option>
+                <option value="board">Board</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={FORM_LABEL_CLASS}>Status</label>
+            <select className={FORM_SELECT_CLASS} value={addAssocForm.status} onChange={e => setAddAssocForm(f => ({ ...f, status: e.target.value }))}>
+              <option value="active">Active</option>
+              <option value="pending">Pending</option>
+              <option value="revoked">No longer active</option>
+            </select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setShowAddAssociation(false)} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
+            <button
+              onClick={() => void handleAddAssociation()}
+              disabled={!addAssocForm.organization_id}
+              className="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+            >
+              Add Association
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Archive confirmation modal */}
+      <Modal isOpen={showArchiveConfirm} onClose={() => setShowArchiveConfirm(false)} title="Archive Account">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            Archiving <strong>{personName}</strong> will mark their account as inactive. They will no longer appear in active lists, but their data will be preserved.
+          </p>
+          <p className="text-sm text-gray-500">You can restore them by editing their profile and changing the status back to active.</p>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setShowArchiveConfirm(false)} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
+            <button
+              onClick={() => void handleArchivePerson()}
+              disabled={isArchiving}
+              className="px-4 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700 disabled:opacity-50"
+            >
+              {isArchiving ? 'Archiving...' : 'Archive Account'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Delete Account">
+        <div className="space-y-4">
+          <div className="rounded border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
+            <strong>This is permanent.</strong> Deleting this account will remove all of {personName}'s data from the system. This cannot be undone.
+          </div>
+          <p className="text-sm text-gray-700">
+            To confirm, type <strong>{personName}</strong> below:
+          </p>
+          <input
+            className={FORM_INPUT_CLASS}
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value)}
+            placeholder={personName}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
+            <button
+              onClick={() => void handleDeletePerson()}
+              disabled={isDeleting || deleteConfirmText !== personName}
+              className="px-4 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 disabled:opacity-50"
+            >
+              {isDeleting ? 'Deleting...' : 'Permanently Delete'}
             </button>
           </div>
         </div>

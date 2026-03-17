@@ -26,4 +26,14 @@ export class PeopleRepo {
     }
     return Promise.resolve();
   }
+
+  async archive(id: string): Promise<void> {
+    return this.update(id, { status: 'revoked' });
+  }
+
+  async delete(id: string): Promise<void> {
+    const index = MOCK_PEOPLE.findIndex(p => p.id === id);
+    if (index >= 0) MOCK_PEOPLE.splice(index, 1);
+    return Promise.resolve();
+  }
 }

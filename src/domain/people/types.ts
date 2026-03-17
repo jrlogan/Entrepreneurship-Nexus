@@ -63,6 +63,8 @@ export interface Person {
   // Dual-Role Support (Context Switching)
   secondary_profile?: UserProfile;
 
+  status?: 'active' | 'revoked'; // Account status — revoked = archived
+
   tags?: string[];
   
   // Integration
