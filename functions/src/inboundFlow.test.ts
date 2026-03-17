@@ -14,6 +14,8 @@
  *  4. Trusted sender but missing client email → stored as needs_review
  *  5. Duplicate email (same provider_message_id) → deduplicated
  *  6. Manual approval of a needs_review message
+ *  7. Client matched via secondary email
+ *  8. Sender (referring person) matched via secondary email
  */
 
 import { describe, it, before } from 'node:test';
@@ -320,5 +322,121 @@ describe('manual approval flow', () => {
     const referral = await getDoc('referrals', referralRef.id);
     assert.equal(referral!.ecosystem_id, ECO_ID);
     assert.equal(referral!.status, 'pending');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Client matched via secondary email
+// ---------------------------------------------------------------------------
+describe('secondary email matching — client', () => {
+  const PRIMARY_EMAIL = 'client.primary@gmail.com';
+  const SECONDARY_EMAIL = 'client.secondary@gmail.com';
+  let existingPersonId: string;
+
+  before(async () => {
+    // Create a person with a secondary email
+    const ref = db.collection('people').doc();
+    existingPersonId = ref.id;
+    await ref.set({
+      id: existingPersonId,
+      first_name: 'Alex',
+      last_name: 'Secondary',
+      email: PRIMARY_EMAIL,
+      secondary_emails: [SECONDARY_EMAIL],
+      system_role: 'entrepreneur',
+      primary_organization_id: '',
+      ecosystem_id: ECO_ID,
+      status: 'active',
+      created_at: new Date().toISOString(),
+    });
+  });
+
+  it('resolves the existing person when CC is their secondary email', async () => {
+    const { status, body } = await post('processInboundEmail', {
+      provider: 'manual',
+      provider_message_id: 'test-msg-007-secondary-client',
+      from_email: 'staff@makehaven.org',
+      to_emails: [ROUTE_ADDRESS],
+      cc_emails: [SECONDARY_EMAIL],
+      subject: 'Introduction: Alex Secondary',
+      text_body: 'Introducing Alex via their secondary email.',
+    });
+
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.auto_approved, true);
+
+    const referral = await queryFirst('referrals', 'source', 'bcc_intake');
+    assert.ok(referral, 'Referral should exist');
+
+    // subject_person_id should point to the EXISTING person, not a new one
+    assert.equal(referral!.subject_person_id, existingPersonId,
+      'Should have matched existing person via secondary email, not created a new one');
+  });
+
+  it('does not create a duplicate person record', async () => {
+    const snap = await db.collection('people').where('email', '==', SECONDARY_EMAIL).get();
+    assert.equal(snap.size, 0, 'No person should have secondary email as their primary');
+
+    const snap2 = await db.collection('people')
+      .where('secondary_emails', 'array-contains', SECONDARY_EMAIL)
+      .get();
+    assert.equal(snap2.size, 1, 'Exactly one person should have this secondary email');
+    assert.equal(snap2.docs[0].id, existingPersonId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Sender matched via secondary email → referring_person_id resolved
+// ---------------------------------------------------------------------------
+describe('secondary email matching — sender (referring person)', () => {
+  const SENDER_PRIMARY = 'jordan.primary@makehaven.org';
+  const SENDER_SECONDARY = 'jordan.personal@gmail.com';
+  let senderPersonId: string;
+
+  before(async () => {
+    // Create a staff person whose personal gmail is a secondary email
+    const ref = db.collection('people').doc();
+    senderPersonId = ref.id;
+    await ref.set({
+      id: senderPersonId,
+      first_name: 'Jordan',
+      last_name: 'Staff',
+      email: SENDER_PRIMARY,
+      secondary_emails: [SENDER_SECONDARY],
+      system_role: 'eso_staff',
+      primary_organization_id: MAKEHAVEN_ORG_ID,
+      ecosystem_id: ECO_ID,
+      status: 'active',
+      created_at: new Date().toISOString(),
+    });
+
+    // Add their personal domain as an authorized sender so the email auto-approves
+    await db.collection('authorized_sender_domains').doc('alias_jordan_personal').set({
+      id: 'alias_jordan_personal',
+      domain: 'gmail.com',  // already trusted from seed — reuses existing trust
+      organization_id: MAKEHAVEN_ORG_ID,
+      ecosystem_id: ECO_ID,
+      is_active: true,
+      access_policy: 'approved',
+    });
+  });
+
+  it('sets referring_person_id when sender matches via secondary email', async () => {
+    const { status, body } = await post('processInboundEmail', {
+      provider: 'manual',
+      provider_message_id: 'test-msg-008-secondary-sender',
+      from_email: SENDER_SECONDARY,        // sending from personal gmail
+      to_emails: [ROUTE_ADDRESS],
+      cc_emails: ['new.client.008@example.com'],
+      subject: 'Introduction: New Client from Jordan personal',
+      text_body: 'Introducing a new client from my personal email.',
+    });
+
+    assert.equal(status, 200, JSON.stringify(body));
+
+    const referral = await queryFirst('referrals', 'source', 'bcc_intake');
+    assert.ok(referral, 'Referral should exist');
+    assert.equal(referral!.referring_person_id, senderPersonId,
+      'Should resolve referring_person_id from secondary email match');
   });
 });

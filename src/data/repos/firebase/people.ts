@@ -1,6 +1,6 @@
 import type { Person, SystemRole } from '../../../domain/people/types';
 import type { EcosystemMembership } from '../../../domain/people/types';
-import { getDocument, queryCollection, updateDocument, whereEquals } from '../../../services/firestoreClient';
+import { getDocument, queryCollection, updateDocument, whereEquals, whereIn } from '../../../services/firestoreClient';
 
 interface FirestorePersonRecord {
   id: string;
@@ -132,6 +132,24 @@ export class FirebasePeopleRepo {
   }
 
   async update(id: string, updates: Partial<Person>): Promise<void> {
+    // Validate secondary email exclusivity before writing
+    if (updates.secondary_emails && updates.secondary_emails.length > 0) {
+      const emails = updates.secondary_emails.map(e => e.toLowerCase().trim()).filter(Boolean);
+
+      // Each secondary email must not be used as primary or secondary by anyone else
+      const [primaryConflicts, secondaryConflicts] = await Promise.all([
+        Promise.all(emails.map(e => queryCollection<FirestorePersonRecord>('people', [whereEquals('email', e)]))),
+        queryCollection<FirestorePersonRecord>('people', [whereIn('secondary_emails', emails)]),
+      ]);
+
+      for (let i = 0; i < emails.length; i++) {
+        const conflict = primaryConflicts[i].find(p => p.id !== id);
+        if (conflict) throw new Error(`${emails[i]} is already the primary email of another person.`);
+      }
+      const secondaryConflict = secondaryConflicts.find(p => p.id !== id);
+      if (secondaryConflict) throw new Error(`One of these emails is already a secondary email on another account.`);
+    }
+
     // Strip undefined values — Firestore rejects them
     const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
     await updateDocument('people', id, clean as any);
