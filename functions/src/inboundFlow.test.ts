@@ -365,11 +365,8 @@ describe('secondary email matching — client', () => {
     assert.equal(status, 200, JSON.stringify(body));
     assert.equal(body.auto_approved, true);
 
-    const referral = await queryFirst('referrals', 'source', 'bcc_intake');
-    assert.ok(referral, 'Referral should exist');
-
-    // subject_person_id should point to the EXISTING person, not a new one
-    assert.equal(referral!.subject_person_id, existingPersonId,
+    // Use person_id from response directly — avoids stale queryFirst results
+    assert.equal(body.person_id, existingPersonId,
       'Should have matched existing person via secondary email, not created a new one');
   });
 

@@ -1589,7 +1589,7 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     senderDomainInfo.match?.access_policy !== 'request_access';
 
   if (canAutoApprove && clientEmail && receivingOrganization) {
-    await createReferralFromInboundMessage({
+    const autoApproveResult = await createReferralFromInboundMessage({
       message: { ...inboundMessageRef, id: inboundMessageRef.id, ...payload, ecosystem_id: resolvedEcosystemId, received_at: now },
       messageRef: inboundMessageRef,
       parseResult: parseResultData,
@@ -1607,6 +1607,8 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
       parse_result_id: parseResultRef.id,
       review_required: false,
       auto_approved: true,
+      referral_id: autoApproveResult.referralId,
+      person_id: autoApproveResult.personId,
     };
   }
 
