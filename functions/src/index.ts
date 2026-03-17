@@ -1358,12 +1358,21 @@ const createReferralFromInboundMessage = async (args: {
     autoLinkOrganization,
   });
 
+  // Resolve referring person from sender email if they're already in the system
+  const senderEmail = normalize(message.from_email);
+  let referringPersonId: string | null = null;
+  if (senderEmail) {
+    const senderSnap = await db.collection('people').where('email', '==', senderEmail).limit(1).get();
+    if (!senderSnap.empty) referringPersonId = senderSnap.docs[0].id;
+  }
+
   const referralNote = extractReferralNote(message.text_body);
   const referralRef = db.collection('referrals').doc();
   await referralRef.set({
     id: referralRef.id,
     ecosystem_id: ecosystemId || null,
     referring_org_id: referringOrgId || null,
+    referring_person_id: referringPersonId,
     receiving_org_id: receivingOrgId,
     subject_person_id: person.id || null,
     subject_org_id: organization?.id || null,

@@ -6,6 +6,7 @@ export interface Referral {
   id: string;
   ecosystem_id: string | null; // Added: Ecosystem scoping
   referring_org_id: string | null; // Who sent it (nullable for BCC)
+  referring_person_id?: string | null; // Staff member who made the referral (if known)
   receiving_org_id: string | null; // Who received it (nullable for BCC)
   subject_person_id: string | null; // Who is being introduced
   subject_org_id?: string | null; // What company are they with
