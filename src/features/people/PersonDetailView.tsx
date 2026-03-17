@@ -549,7 +549,7 @@ export const PersonDetailView = ({
             <label className={FORM_LABEL_CLASS}>Additional Emails <span className="font-normal text-gray-400">(used for matching inbound referrals)</span></label>
             <div className="space-y-2">
               {profileForm.secondary_emails.map((email, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="flex gap-2 items-center">
                   <input
                     className={FORM_INPUT_CLASS}
                     value={email}
@@ -562,8 +562,23 @@ export const PersonDetailView = ({
                   />
                   <button
                     type="button"
+                    title="Make this the primary email"
+                    onClick={() => setProfileForm({
+                      ...profileForm,
+                      email: email,
+                      secondary_emails: [
+                        profileForm.email,
+                        ...profileForm.secondary_emails.filter((_, j) => j !== i),
+                      ],
+                    })}
+                    className="rounded border border-indigo-200 px-3 py-2 text-xs text-indigo-600 hover:bg-indigo-50 whitespace-nowrap"
+                  >
+                    Make primary
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setProfileForm({ ...profileForm, secondary_emails: profileForm.secondary_emails.filter((_, j) => j !== i) })}
-                    className="rounded border border-red-200 px-3 text-sm text-red-500 hover:bg-red-50"
+                    className="rounded border border-red-200 px-3 py-2 text-sm text-red-500 hover:bg-red-50"
                   >
                     ×
                   </button>
