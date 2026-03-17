@@ -26,6 +26,7 @@ interface OrganizationDetailViewProps {
     onTabChange?: (tab: string) => void;
     onSelectPerson?: (id: string) => void;
     onSelectOrganization?: (id: string, tab?: string) => void;
+    onNavigateToReferrals?: () => void;
 }
 
 export const OrganizationDetailView = ({ 
@@ -41,7 +42,8 @@ export const OrganizationDetailView = ({
     initialTab,
     onTabChange,
     onSelectPerson,
-    onSelectOrganization
+    onSelectOrganization,
+    onNavigateToReferrals,
 }: OrganizationDetailViewProps) => {
     const repos = useRepos();
     const viewer = useViewer();
@@ -50,6 +52,7 @@ export const OrganizationDetailView = ({
     const [showPrivacyHelp, setShowPrivacyHelp] = useState(false);
     const [isUpdatingReferral, setIsUpdatingReferral] = useState<string | null>(null);
     const [showCreateReferral, setShowCreateReferral] = useState(false);
+    const [referralJustCreated, setReferralJustCreated] = useState(false);
     const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
     const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
     const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
@@ -996,11 +999,27 @@ export const OrganizationDetailView = ({
                       {!isEntrepreneurViewer && (
                           <div className="flex justify-end">
                               <button
-                                  onClick={() => setShowCreateReferral(true)}
+                                  onClick={() => { setShowCreateReferral(true); setReferralJustCreated(false); }}
                                   className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
                               >
                                   + Make Referral
                               </button>
+                          </div>
+                      )}
+                      {referralJustCreated && (
+                          <div className="flex items-center justify-between gap-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
+                              <span>Referral created. To assign an owner, send an intro email, add notes, or set a follow-up date, open it in the Referrals section.</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                  {onNavigateToReferrals && (
+                                      <button
+                                          onClick={onNavigateToReferrals}
+                                          className="rounded bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-800"
+                                      >
+                                          Go to Referrals →
+                                      </button>
+                                  )}
+                                  <button onClick={() => setReferralJustCreated(false)} className="text-green-600 hover:text-green-800 text-xs">Dismiss</button>
+                              </div>
                           </div>
                       )}
                       {orgReferrals.map(ref => {
@@ -1510,6 +1529,7 @@ export const OrganizationDetailView = ({
                        ...referral,
                    } as Referral);
                    setShowCreateReferral(false);
+                   setReferralJustCreated(true);
                    onRefresh?.();
                }}
                subjectOrg={org}

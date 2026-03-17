@@ -720,8 +720,8 @@ const App = () => {
            
            {/* Detailed Views */}
            {view === 'detail' && selectedOrganization && (
-              <OrganizationDetailView 
-                org={selectedOrganization} 
+              <OrganizationDetailView
+                org={selectedOrganization}
                 organizations={organizations}
                 people={people}
                 initiatives={initiatives}
@@ -734,6 +734,7 @@ const App = () => {
                 onTabChange={(tab) => applyRoute({ view: 'detail', orgId: selectedOrgId, tab, ecosystemId: currentEcosystemId }, 'push')}
                 onSelectPerson={navigateToPerson}
                 onSelectOrganization={navigateToOrg}
+                onNavigateToReferrals={() => applyRoute({ view: 'referrals', ecosystemId: currentEcosystemId }, 'push')}
               />
            )}
            {view === 'person_detail' && selectedPerson && (
