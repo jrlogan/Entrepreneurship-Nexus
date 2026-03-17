@@ -121,6 +121,7 @@ export const UserManagementView = ({
   const [invites, setInvites] = useState<Invite[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false);
   const [requestActionError, setRequestActionError] = useState<string | null>(null);
   const [inviteActionError, setInviteActionError] = useState<string | null>(null);
   const [inviteResult, setInviteResult] = useState<{ invite_url: string } | null>(null);
@@ -290,6 +291,8 @@ export const UserManagementView = ({
   };
 
   const handleCreateInvite = async () => {
+    if (isCreatingInvite) return;
+    setIsCreatingInvite(true);
     setInviteActionError(null);
     setInviteResult(null);
     try {
@@ -303,6 +306,8 @@ export const UserManagementView = ({
       await loadInvites();
     } catch (error: any) {
       setInviteActionError(error?.message || 'Unable to create invite.');
+    } finally {
+      setIsCreatingInvite(false);
     }
   };
 
@@ -409,8 +414,8 @@ export const UserManagementView = ({
               </div>
             )}
             <div className="flex items-center gap-3">
-              <button onClick={() => void handleCreateInvite()} disabled={!canCreateInvite} className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                Create invite
+              <button onClick={() => void handleCreateInvite()} disabled={!canCreateInvite || isCreatingInvite} className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                {isCreatingInvite ? 'Creating…' : 'Create invite'}
               </button>
               <button onClick={() => void loadInvites()} className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 Refresh invites

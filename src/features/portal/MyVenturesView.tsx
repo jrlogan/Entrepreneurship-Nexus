@@ -784,41 +784,34 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                          )}
                     </Card>
 
+                    {myParticipations.length > 0 && (
                     <Card title="Participation">
-                        {myParticipations.length === 0 ? (
-                            <div className="space-y-2 text-sm text-gray-500">
-                                <p>No active or past participation records have been linked yet.</p>
-                                <p>
-                                    Use this section for structured, date-ranged involvement like memberships, incubator residency, program applications, rentals, or event participation.
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {myParticipations.map((service) => {
-                                    const provider = organizations.find((org) => org.id === service.provider_org_id);
-                                    return (
-                                        <div key={service.id} className="rounded-lg border border-gray-200 bg-white p-3">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <div className="text-sm font-medium text-gray-900">{service.name}</div>
-                                                    <div className="mt-1 text-xs text-gray-500">
-                                                        {service.participation_type?.replace(/_/g, ' ') || 'program'} with {provider?.name || 'Partner organization'}
-                                                    </div>
+                        <div className="space-y-3">
+                            {myParticipations.map((service) => {
+                                const provider = organizations.find((org) => org.id === service.provider_org_id);
+                                return (
+                                    <div key={service.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div className="text-sm font-medium text-gray-900">{service.name}</div>
+                                                <div className="mt-1 text-xs text-gray-500">
+                                                    {service.participation_type?.replace(/_/g, ' ') || 'program'} with {provider?.name || 'Partner organization'}
                                                 </div>
-                                                <Badge color={getParticipationStatusColor(service)}>
-                                                    {getParticipationStatusLabel(service)}
-                                                </Badge>
                                             </div>
-                                            <div className="mt-2 text-xs text-gray-500">{formatParticipationWindow(service)}</div>
-                                            {service.description && (
-                                                <div className="mt-2 text-sm text-gray-600">{service.description}</div>
-                                            )}
+                                            <Badge color={getParticipationStatusColor(service)}>
+                                                {getParticipationStatusLabel(service)}
+                                            </Badge>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                                        <div className="mt-2 text-xs text-gray-500">{formatParticipationWindow(service)}</div>
+                                        {service.description && (
+                                            <div className="mt-2 text-sm text-gray-600">{service.description}</div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </Card>
+                    )}
 
                     {canAccessTasksAdvice && (ecosystem?.portal_links?.length || 0) > 0 && (
                     <Card title="Resources">
