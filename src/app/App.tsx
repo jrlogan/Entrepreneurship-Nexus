@@ -579,6 +579,15 @@ const App = () => {
         onOpenProfile={() => applyRoute({ view: 'person_detail', personId: activeUser.id, ecosystemId: currentEcosystemId }, 'push')}
         onSwitchUser={() => setIsSwitchUserOpen(true)}
         onStartDemo={() => setShowDemo(true)}
+        feedbackContext={{
+          personId: activeUser.id,
+          personName: `${activeUser.first_name} ${activeUser.last_name}`,
+          role: currentRole,
+          orgId: currentOrgId,
+          orgName: myOrganization?.name,
+          ecosystemId: currentEcosystemId,
+          currentView: view,
+        }}
       >
            {view === 'dashboard' && (
                canAccessDashboard ? (

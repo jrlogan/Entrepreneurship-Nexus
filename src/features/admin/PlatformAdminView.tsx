@@ -1,6 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ViewMode } from '../../app/types';
+import { getDocs, collection, orderBy, query } from 'firebase/firestore';
+import { getFirestoreDb } from '../../services/firebaseApp';
 
 interface Tool {
   view: ViewMode;
@@ -66,9 +68,38 @@ interface Props {
   onNavigate: (view: ViewMode) => void;
 }
 
+const downloadFeedback = async (setStatus: (s: string) => void) => {
+  const db = getFirestoreDb();
+  if (!db) { setStatus('Not available in demo mode.'); return; }
+  setStatus('Fetching…');
+  try {
+    const snap = await getDocs(query(collection(db, 'feedback'), orderBy('created_at', 'desc')));
+    const rows = snap.docs.map(d => d.data());
+    if (rows.length === 0) { setStatus('No feedback yet.'); return; }
+
+    // Build CSV
+    const cols = ['created_at', 'person_name', 'role', 'org_name', 'current_view', 'text', 'url', 'screen_width', 'screen_height', 'person_id', 'org_id', 'ecosystem_id', 'user_agent'];
+    const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [cols.join(','), ...rows.map(r => cols.map(c => escape((r as Record<string, unknown>)[c])).join(','))].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `feedback-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Downloaded ${rows.length} entries.`);
+    setTimeout(() => setStatus(''), 3000);
+  } catch (e) {
+    setStatus('Error fetching feedback.');
+  }
+};
+
 export const PlatformAdminView = ({ onNavigate }: Props) => {
   const platformTools = PLATFORM_TOOLS.filter(t => t.scope === 'platform');
   const ecosystemTools = PLATFORM_TOOLS.filter(t => t.scope === 'ecosystem');
+  const [feedbackStatus, setFeedbackStatus] = useState('');
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -121,6 +152,23 @@ export const PlatformAdminView = ({ onNavigate }: Props) => {
               </div>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">User Feedback</h2>
+        <div className="p-4 bg-white rounded-lg border border-gray-200 flex items-center justify-between gap-4">
+          <div>
+            <div className="font-semibold text-gray-900">Download Feedback Log</div>
+            <div className="text-sm text-gray-500 mt-0.5">Export all submitted feedback as a CSV for review.</div>
+            {feedbackStatus && <div className="text-xs text-indigo-600 mt-1">{feedbackStatus}</div>}
+          </div>
+          <button
+            onClick={() => void downloadFeedback(setFeedbackStatus)}
+            className="shrink-0 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700 transition"
+          >
+            Download CSV
+          </button>
         </div>
       </section>
     </div>

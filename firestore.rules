@@ -187,6 +187,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /feedback/{feedbackId} {
+      allow create: if isAuthenticated();
+      allow read: if isPlatformAdmin();
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

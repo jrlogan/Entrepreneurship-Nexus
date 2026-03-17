@@ -7,6 +7,7 @@ import { CONFIG } from './config';
 import { getTheme } from './theme';
 import { SidebarItem, DemoWarningBanner, Avatar, CompanyLogo, DemoLink } from '../shared/ui/Components';
 import { PrivacyLegend } from '../shared/ui/PrivacyLegend';
+import { FeedbackWidget } from '../features/feedback/FeedbackWidget';
 import { sendPasswordReset, signOutUser } from '../services/authService';
 import { 
     IconDashboard, 
@@ -42,6 +43,7 @@ interface AppShellProps {
   onSelectOrganization?: (id: string) => void;
   view: ViewMode;
   onNavigate: (view: ViewMode) => void;
+  feedbackContext?: import('../features/feedback/FeedbackWidget').FeedbackContext;
   onOpenProfile: () => void;
   onSwitchUser: () => void;
   onStartDemo: () => void;
@@ -68,9 +70,10 @@ export const AppShell: React.FC<AppShellProps> = ({
     view,
     onNavigate,
     onOpenProfile,
-    onSwitchUser, 
-    onStartDemo, 
-    children 
+    onSwitchUser,
+    onStartDemo,
+    feedbackContext,
+    children
 }) => {
   const [isEcoDropdownOpen, setIsEcoDropdownOpen] = useState(false);
   const [isActingOrgDropdownOpen, setIsActingOrgDropdownOpen] = useState(false);
@@ -629,6 +632,9 @@ export const AppShell: React.FC<AppShellProps> = ({
         
         {/* Global Privacy Legend (Fixed Position) */}
         <PrivacyLegend />
+
+        {/* Feedback Widget */}
+        {feedbackContext && <FeedbackWidget context={feedbackContext} />}
       </div>
     </div>
   );
