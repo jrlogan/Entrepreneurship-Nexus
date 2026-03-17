@@ -63,7 +63,13 @@
                                                                                                                                                                                          
   - [ ] Capability system migration sweep (replace role checks)                                                                                                                          
   - [ ] Dynamic role builder UI                                                                                                                                                          
-  - [ ] Data quality merge workflow                                                                                                                                                      
+  - [ ] Data quality merge workflow
+    - [ ] **Person merge** in DataQualityView (parallel to existing org merge)
+      - Detect duplicate people by name similarity / email overlap
+      - Winner keeps their primary email; loser's primary moves to winner's `secondary_emails` (deduplicated)
+      - Reassign referrals (`subject_person_id`, `referring_person_id`), interactions, and affiliations to winner
+      - Archive loser record (`status: 'archived'`)
+      - See org merge in `DataQualityView.tsx:handleMergeConfirm` as reference pattern                                                                                                                                                      
                                                                                                                                                                                          
   ---                                                                                                                                                                                    
                                                                                                                                                                                          
