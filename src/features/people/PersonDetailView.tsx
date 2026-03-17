@@ -93,7 +93,12 @@ export const PersonDetailView = ({
     .sort((left, right) => new Date(right.start_date).getTime() - new Date(left.start_date).getTime());
   const allAffiliations = getAllOrganizationAffiliations(person);
   const visibleAffiliations = allAffiliations.filter((affiliation) => affiliation.organization_id);
-  const canEditProfile = viewer.personId === person.id;
+  const isOwnProfile = viewer.personId === person.id;
+  const canEditProfile = isOwnProfile
+    || viewer.role === 'platform_admin'
+    || viewer.role === 'ecosystem_manager'
+    || viewer.role === 'eso_admin'
+    || viewer.role === 'eso_staff';
   const showStaffActions = viewer.role !== 'entrepreneur';
 
   useEffect(() => {
@@ -300,7 +305,7 @@ export const PersonDetailView = ({
             { id: 'interactions', label: `Interactions (${personInteractions.length})` },
             { id: 'referrals', label: `Referrals (${personReferrals.length})` },
             { id: 'participation', label: `Participation (${personParticipations.length})` },
-            ...(canEditProfile ? [{ id: 'settings', label: 'My Settings' }] : []),
+            ...(canEditProfile ? [{ id: 'settings', label: isOwnProfile ? 'My Settings' : 'Settings' }] : []),
           ].map((tab) => (
             <button key={tab.id} onClick={() => selectTab(tab.id as 'associations' | 'interactions' | 'referrals' | 'participation' | 'settings')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{tab.label}</button>
           ))}
@@ -383,7 +388,7 @@ export const PersonDetailView = ({
         )}
         {activeTab === 'settings' && canEditProfile && (
           <div className="grid gap-6">
-            <Card title="My Email Templates">
+            {isOwnProfile && <Card title="My Email Templates">
               <div className="space-y-4">
                 <p className="text-sm text-gray-600">
                   Save personal invite templates to reuse when accepting referrals. Great for scheduling a call, visiting your space, or a Calendly link.
@@ -472,7 +477,7 @@ export const PersonDetailView = ({
                 </div>
                 <div className="text-xs text-gray-400">Subject line note: if you leave the subject blank, the email subject will default to <em>"[Org] accepted your referral"</em>. The body of your template is inserted as a paragraph inside the system email wrapper.</div>
               </div>
-            </Card>
+            </Card>}
           </div>
         )}
 
@@ -594,14 +599,7 @@ export const PersonDetailView = ({
             </div>
           </div>
           <div>
-            <label className={FORM_LABEL_CLASS}>Profile Photo URL</label>
-            <input className={FORM_INPUT_CLASS} value={profileForm.avatar_url} onChange={(event) => setProfileForm({ ...profileForm, avatar_url: event.target.value })} placeholder="https://..." />
-            <div className="mt-1 text-xs text-gray-500">
-              Use a hosted image URL for now. Login-provider photos and uploads can be added later.
-            </div>
-          </div>
-          <div>
-            <label className={FORM_LABEL_CLASS}>Upload Profile Photo</label>
+            <label className={FORM_LABEL_CLASS}>Profile Photo</label>
             <input
               type="file"
               accept="image/*"
