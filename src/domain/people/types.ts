@@ -44,7 +44,8 @@ export interface Person {
   id: string;
   first_name: string;
   last_name: string;
-  email: string;
+  email: string; // Primary email
+  secondary_emails?: string[]; // Additional emails for matching (e.g. work + personal)
   avatar_url?: string; // New: Profile photo
   
   // Primary Context (Default)

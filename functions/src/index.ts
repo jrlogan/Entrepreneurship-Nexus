@@ -564,8 +564,13 @@ const upsertDraftPerson = async (
   options?: { autoLinkOrganization?: boolean }
 ) => {
   const normalizedEmail = candidateEmail.toLowerCase();
-  const existing = await db.collection('people').where('email', '==', normalizedEmail).limit(1).get();
-  if (!existing.empty) {
+  // Check primary email first, then secondary_emails array
+  const [primaryMatch, secondaryMatch] = await Promise.all([
+    db.collection('people').where('email', '==', normalizedEmail).limit(1).get(),
+    db.collection('people').where('secondary_emails', 'array-contains', normalizedEmail).limit(1).get(),
+  ]);
+  const existing = !primaryMatch.empty ? primaryMatch : (!secondaryMatch.empty ? secondaryMatch : null);
+  if (existing && !existing.empty) {
     return existing.docs[0];
   }
 
@@ -1358,11 +1363,15 @@ const createReferralFromInboundMessage = async (args: {
     autoLinkOrganization,
   });
 
-  // Resolve referring person from sender email if they're already in the system
+  // Resolve referring person from sender email (primary or secondary) if they're already in the system
   const senderEmail = normalize(message.from_email);
   let referringPersonId: string | null = null;
   if (senderEmail) {
-    const senderSnap = await db.collection('people').where('email', '==', senderEmail).limit(1).get();
+    const [senderPrimary, senderSecondary] = await Promise.all([
+      db.collection('people').where('email', '==', senderEmail).limit(1).get(),
+      db.collection('people').where('secondary_emails', 'array-contains', senderEmail).limit(1).get(),
+    ]);
+    const senderSnap = !senderPrimary.empty ? senderPrimary : senderSecondary;
     if (!senderSnap.empty) referringPersonId = senderSnap.docs[0].id;
   }
 

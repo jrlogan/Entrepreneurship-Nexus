@@ -132,7 +132,8 @@ export class FirebasePeopleRepo {
   }
 
   async update(id: string, updates: Partial<Person>): Promise<void> {
-    // This is a simplified update that doesn't handle membership syncing
-    await updateDocument('people', id, updates as any);
+    // Strip undefined values — Firestore rejects them
+    const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+    await updateDocument('people', id, clean as any);
   }
 }

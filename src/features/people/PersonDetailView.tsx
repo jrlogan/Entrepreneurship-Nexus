@@ -78,6 +78,7 @@ export const PersonDetailView = ({
     first_name: person.first_name,
     last_name: person.last_name,
     email: person.email,
+    secondary_emails: person.secondary_emails || [] as string[],
     avatar_url: person.avatar_url || '',
     role: person.role,
     organization_id: person.organization_id,
@@ -104,6 +105,7 @@ export const PersonDetailView = ({
       first_name: person.first_name,
       last_name: person.last_name,
       email: person.email,
+      secondary_emails: person.secondary_emails || [],
       avatar_url: person.avatar_url || '',
       role: person.role,
       organization_id: person.organization_id,
@@ -177,6 +179,7 @@ export const PersonDetailView = ({
         first_name: profileForm.first_name,
         last_name: profileForm.last_name,
         email: profileForm.email,
+        secondary_emails: profileForm.secondary_emails.map(e => e.toLowerCase().trim()).filter(Boolean),
         avatar_url: resolvedAvatarUrl,
         role: profileForm.role,
         organization_id: primaryOrganizationId,
@@ -539,8 +542,41 @@ export const PersonDetailView = ({
             </div>
           </div>
           <div>
-            <label className={FORM_LABEL_CLASS}>Email</label>
+            <label className={FORM_LABEL_CLASS}>Primary Email</label>
             <input className={FORM_INPUT_CLASS} value={profileForm.email} onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })} />
+          </div>
+          <div>
+            <label className={FORM_LABEL_CLASS}>Additional Emails <span className="font-normal text-gray-400">(used for matching inbound referrals)</span></label>
+            <div className="space-y-2">
+              {profileForm.secondary_emails.map((email, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={email}
+                    placeholder="other@example.com"
+                    onChange={(e) => {
+                      const next = [...profileForm.secondary_emails];
+                      next[i] = e.target.value;
+                      setProfileForm({ ...profileForm, secondary_emails: next });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setProfileForm({ ...profileForm, secondary_emails: profileForm.secondary_emails.filter((_, j) => j !== i) })}
+                    className="rounded border border-red-200 px-3 text-sm text-red-500 hover:bg-red-50"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setProfileForm({ ...profileForm, secondary_emails: [...profileForm.secondary_emails, ''] })}
+                className="text-sm text-indigo-600 hover:underline"
+              >
+                + Add email
+              </button>
+            </div>
           </div>
           <div>
             <label className={FORM_LABEL_CLASS}>Profile Photo URL</label>
