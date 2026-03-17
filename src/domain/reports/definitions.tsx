@@ -51,7 +51,7 @@ export const FUNDER_SNAPSHOT_REPORT: ReportDefinition<any> = {
   title: 'Funder Engagement Snapshot',
   description: 'Overview of startups engaging with capital sources.',
   getData: (repos: AppRepos, viewer: ViewerContext) => {
-    const startups = repos.organizations.getAll(viewer).filter(o => o.roles.includes('startup'));
+    const startups = repos.organizations.getAll(viewer).filter(o => o.org_type === 'startup');
     const referrals = repos.referrals.getAll(viewer);
     // Identify Funder orgs
     const funderIds = repos.organizations.getAll(viewer).filter(o => o.roles.includes('funder')).map(o => o.id);

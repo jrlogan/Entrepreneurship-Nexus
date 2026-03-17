@@ -39,7 +39,7 @@ const SCHEMAS = {
   "external_refs": [
     { "source": "salesforce", "id": "001..." }
   ],
-  "roles": ["startup", "service_provider"],
+  "roles": ["eso", "workspace"],
   "classification": {
     "naics_code": "541511",
     "industry_tags": ["Tech", "SaaS"]

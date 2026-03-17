@@ -1,18 +1,35 @@
 
 import type { SupportNeed } from '../inbound/types';
 
-export type OrganizationRole =
+export type OrganizationRole = 'eso' | 'funder' | 'resource';
+export type OrganizationType =
   | 'startup'
   | 'small_business'
+  | 'business'
   | 'nonprofit'
-  | 'government'
-  | 'education'
-  | 'funder'
-  | 'service_provider'
-  | 'workspace'
-  | 'community_org'
-  | 'anchor_institution'
-  | 'eso'; // ESO = Entrepreneur Support Organization
+  | 'government_agency'
+  | 'other';
+
+export type OwnerCharacteristic =
+  | 'woman_owned'
+  | 'minority_owned'
+  | 'veteran_owned'
+  | 'lgbtq_owned'
+  | 'youth_owned'
+  | 'refugee_owned'
+  | 'justice_involved'
+  | 'disabled_owned'
+  | 'low_income';
+
+export type OrgCertification =
+  | 'sba_8a'
+  | 'wosb'
+  | 'hubzone'
+  | 'mbe'
+  | 'wbe'
+  | 'sdvosb'
+  | 'vosb'
+  | 'dbe';
 export type TaxStatus = 'non_profit' | 'for_profit' | 'government' | 'other';
 
 export interface ExternalRef {
@@ -70,11 +87,9 @@ export interface Organization {
 
   // Extensions
   roles: OrganizationRole[];
-  demographics: {
-    minority_owned: boolean;
-    woman_owned: boolean;
-    veteran_owned: boolean;
-  };
+  org_type?: OrganizationType;
+  owner_characteristics?: OwnerCharacteristic[];
+  certifications?: OrgCertification[];
   classification: {
     naics_code?: string;
     industry_tags: string[];

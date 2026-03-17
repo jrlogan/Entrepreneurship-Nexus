@@ -18,7 +18,7 @@ const SUPPORT_NEED_OPTIONS = [
     'marketing',
     'sales',
     'hiring',
-    'workspace',
+    'resource',
     'networking',
     'other',
 ] as const;
@@ -879,8 +879,9 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                                 </div>
                             </div>
                             <div className="mt-3 flex flex-wrap gap-2">
+                                {selectedNetworkOrg.org_type && <Badge key="type" color="blue">{selectedNetworkOrg.org_type.replace(/_/g, ' ')}</Badge>}
                                 {selectedNetworkOrg.roles.map((role) => (
-                                    <Badge key={role} color="gray">{role}</Badge>
+                                    <Badge key={role} color="indigo">{role}</Badge>
                                 ))}
                                 {myOrg?.managed_by_ids?.includes(selectedNetworkOrg.id) && <Badge color="green">Manager</Badge>}
                             </div>

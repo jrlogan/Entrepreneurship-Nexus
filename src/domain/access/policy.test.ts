@@ -21,7 +21,7 @@ const restrictedOrg: Organization = {
   description: '',
   tax_status: 'for_profit',
   roles: ['startup'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+  owner_characteristics: [],
   classification: { industry_tags: [] },
   external_refs: [],
   managed_by_ids: [],

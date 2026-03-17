@@ -260,7 +260,8 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
                                 <p className="text-sm text-gray-500 mb-3">{myRelationships.myOrg.description}</p>
                                 <div className="flex flex-wrap gap-2">
                                      <Badge color="purple">My Workplace</Badge>
-                                     {myRelationships.myOrg.roles.map(r => <Badge key={r} color="gray">{r}</Badge>)}
+                                     {myRelationships.myOrg.org_type && <Badge key="type" color="blue">{myRelationships.myOrg.org_type.replace(/_/g, ' ')}</Badge>}
+                                     {myRelationships.myOrg.roles.map(r => <Badge key={r} color="indigo">{r}</Badge>)}
                                 </div>
                              </div>
                         ) : <p className="text-gray-500 text-sm">No primary organization found.</p>}

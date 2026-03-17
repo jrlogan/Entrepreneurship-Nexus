@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Organization, OrganizationRole } from '../../domain/types';
+import { Organization, OrganizationType } from '../../domain/types';
 import { SotsService, SotsBusiness, SotsPrincipal } from '../../services/sotsService';
 import { FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS } from '../../shared/ui/Components';
 
@@ -64,7 +64,8 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
     const [isSaving, setIsSaving] = useState(false);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
-    const [role, setRole] = useState<OrganizationRole>('startup');
+    const [orgType, setOrgType] = useState<OrganizationType>('startup');
+    const [roles, setRoles] = useState<string[]>([]);
     const [naics, setNaics] = useState('');
     const [industryTags, setIndustryTags] = useState('');
     const [website, setWebsite] = useState('');
@@ -183,8 +184,9 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
             url: website,
             tax_status: 'for_profit',
             ...(yearFormed ? { year_incorporated: yearFormed } : {}),
-            roles: [role],
-            demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+            org_type: orgType,
+        roles: roles as Organization['roles'],
+            owner_characteristics: [],
             classification: {
                 naics_code: naics,
                 industry_tags: industryTags.split(',').map(s => s.trim()).filter(Boolean),
@@ -315,23 +317,18 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
 
                 <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <label className={FORM_LABEL_CLASS}>Primary Role</label>
+                        <label className={FORM_LABEL_CLASS}>Organization Type</label>
                         <select
                             className={FORM_SELECT_CLASS}
-                            value={role}
-                            onChange={e => setRole(e.target.value as OrganizationRole)}
+                            value={orgType}
+                            onChange={e => setOrgType(e.target.value as OrganizationType)}
                         >
-                            <option value="startup">Startup / Client</option>
+                            <option value="startup">Startup / Venture</option>
                             <option value="small_business">Small Business</option>
+                            <option value="business">Business / Company</option>
                             <option value="nonprofit">Nonprofit Organization</option>
-                            <option value="government">Government / Public Agency</option>
-                            <option value="education">College / University / School</option>
-                            <option value="service_provider">Professional Service Provider</option>
-                            <option value="workspace">Lab / Workspace / Makerspace</option>
-                            <option value="community_org">Community Organization</option>
-                            <option value="anchor_institution">Anchor Institution / Major Employer</option>
-                            <option value="eso">Support Organization (ESO)</option>
-                            <option value="funder">Funder / Investor</option>
+                            <option value="government_agency">Government / Public Agency</option>
+                            <option value="other">Other</option>
                         </select>
                     </div>
                     <div>
@@ -342,6 +339,28 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
                             onChange={e => setWebsite(e.target.value)}
                             placeholder="https://..."
                         />
+                    </div>
+                </div>
+
+                <div>
+                    <label className={FORM_LABEL_CLASS}>Functional Roles <span className="font-normal text-gray-400">(select all that apply)</span></label>
+                    <div className="flex flex-wrap gap-4 mt-1">
+                        {([
+                            ['eso', 'Support Org (ESO)'],
+                            ['funder', 'Funder / Investor'],
+                            ['resource', 'Lab / Workspace'],
+                        ] as [string, string][]).map(([value, label]) => (
+                            <label key={value} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={roles.includes(value)}
+                                    onChange={e => setRoles(prev =>
+                                        e.target.checked ? [...prev, value] : prev.filter(r => r !== value)
+                                    )}
+                                />
+                                {label}
+                            </label>
+                        ))}
                     </div>
                 </div>
 
@@ -386,7 +405,7 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
                     />
                 </div>
 
-                {role === 'eso' && (
+                {roles.includes('eso') && (
                     <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
                         <div>
                             <label className="block text-xs font-bold text-indigo-800 uppercase tracking-wide mb-1">Email Domains</label>

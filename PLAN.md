@@ -49,7 +49,23 @@
   **Goal:** Complete the handoff story.                                                                                                                                                  
                                                                                                                                                                                          
   - [ ] **2A:** Subject person selection in `CreateReferralModal.tsx`                                                                                                                    
-  - [ ] **2B:** Email preview for intro_email_sent referrals                                                                                                                             
+  - [ ] **2B:** Email preview for intro_email_sent referrals
+  - [ ] **2C: Referral to resource orgs** — Allow ESOs to refer clients to any org (including for-profit
+    resource providers, banks, law firms, etc.), not just other ESOs. The receiving org may not be
+    a platform user — referral would go out as an email notification only.
+
+  - [ ] **2D: Entrepreneur referral confirmation** — If a referral's receiving org never updates status
+    after a reasonable period, send the entrepreneur a prompt: "Did this connection happen?"
+    Simple yes/no that updates referral status from the client side.
+
+  - [ ] **2E: Referral close review** — When a referral is marked complete/closed, ask the entrepreneur
+    for feedback on the receiving org:
+    - 5-star rating or NPS score (1–10) with optional free-text comment
+    - Reviews stored per referral, linked to receiving org
+    - **Privacy rules:** Individual reviews NOT visible to the reviewed org (prevents gaming/pressure)
+    - Ecosystem manager CAN see individual reviews for oversight
+    - Aggregate rating (avg score, count) visible publicly on org profile
+    - Enables ecosystem health tracking: are connections actually happening and are they useful?                                                                                                                             
                                                                                                                                                                                          
   ### Phase 3: Demo Impact Features                                                                                                                                                      
   **Goal:** Impress funders with outcomes.                                                                                                                                               
@@ -57,6 +73,34 @@
   - [ ] **3A:** Ecosystem Impact dashboard card (aggregate metrics)                                                                                                                      
   - [ ] **3B:** Referral outcomes report (completion rates, outcomes breakdown)                                                                                                          
   - [ ] **3C:** Committee-focused walkthrough tour                                                                                                                                       
+
+
+  ### Phase 3+: Metric Collections — SourceLink-Informed Enhancements
+  **Reference:** Reviewed SourceLink's "Client Snapshot" modal (2026-03-17). Key takeaways for future metric collection work:
+
+  - [ ] **Snapshot type** — add `snapshot_type: 'baseline' | 'follow_up' | 'exit'` to metric collections.
+    Enables longitudinal tracking: measure *change* over time, not just point-in-time values.
+    Baseline on first engagement, follow-up periodically, exit at end of relationship.
+
+  - [ ] **Obstacles field** — standardized checkbox list per client snapshot:
+    `commercial_insurance, credit, experience, family, financing, government_regulation,
+    health_insurance, language, legal, location, market, natural_disaster, operations, staffing, time`
+    Consistent across portfolio → enables "financing was #1 obstacle" reporting.
+
+  - [ ] **Outcomes field** — impact tracking checkboxes per snapshot:
+    `started_business, decided_to_start, decided_not_to_start, expanded_operations,
+    expanded_products, decided_not_to_expand, increased_sales, decreased_sales,
+    raised_equity, secured_loan, secured_grant, closed_business, improved_operations,
+    increased_employees, decreased_employees, changed_business_model, changed_target_market,
+    solved_operational_problem, strategic_alliance_formed`
+    Critical for ESO funder impact reporting — currently no equivalent in Nexus.
+
+  - [ ] **Jobs created/saved** — split by `full_time` and `part_time`.
+    Standard federal reporting metric required by SBDCs, MEPs, and most federally-funded ESOs.
+
+  - [ ] **Business stage** — a field on the snapshot itself (not just org_type), tracks progression over time.
+
+  - [ ] **Overall satisfaction** — client satisfaction rating per snapshot period.
                                                                                                                                                                                          
   ### Phase 4: Internal Improvements (Post-Demo)                                                                                                                                         
   **Goal:** Clean architecture for production.                                                                                                                                           
@@ -78,7 +122,11 @@
     - **Current behavior (interim):** new users are auto-enrolled in the first/default ecosystem so
       the app is immediately usable. Ecosystem selection replaces this once built.
 
-  - [ ] Data quality merge workflow
+  - [ ] **Auto-populate email domain from org URL** — When an org has a `url` set, automatically
+    add the domain (e.g. `makehaven.org` from `https://makehaven.org`) to the org's allowed email
+    domains list used for invite routing. Can be manually removed. Prevents needing to enter it twice.
+
+    - [ ] Data quality merge workflow
     - [ ] **Person merge** in DataQualityView (parallel to existing org merge)
       - Detect duplicate people by name similarity / email overlap
       - Winner keeps their primary email; loser's primary moves to winner's `secondary_emails` (deduplicated)

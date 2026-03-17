@@ -25,7 +25,11 @@ export function buildAdvisorContext(
         lines.push(`Organization: ${personOrg.name}`);
         lines.push(`Description: ${personOrg.description}`);
         lines.push(`Industry: ${personOrg.classification.industry_tags.join(', ')}`);
-        lines.push(`Stage: ${personOrg.roles.join(', ')}`);
+        const orgContext = [
+            personOrg.org_type,
+            ...personOrg.roles
+        ].filter(Boolean).join(', ');
+        lines.push(`Stage: ${orgContext}`);
     }
 
     // 3. Available Support (ESOs)

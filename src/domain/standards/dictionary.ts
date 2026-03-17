@@ -25,7 +25,8 @@ export const DATA_DICTIONARY: EntityDefinition[] = [
         fields: [
             { name: 'id', type: 'string (uuid)', required: true, description: 'Unique system identifier.' },
             { name: 'name', type: 'string', required: true, description: 'Legal or common name of the entity.' },
-            { name: 'roles', type: 'array', required: true, description: 'Functions the org performs (e.g. startup, nonprofit, government, service provider, funder, ESO).', enumRef: 'OrganizationRole' },
+            { name: 'roles', type: 'array', required: true, description: 'Functional roles in the ecosystem: eso (support org), funder (provides capital), workspace (physical space).', enumRef: 'OrganizationRole' },
+            { name: 'org_type', type: 'string', required: false, description: 'Entity classification — startup, small_business, business, nonprofit, government_agency, or other.', enumRef: 'OrganizationType' },
             { name: 'tax_status', type: 'enum', required: true, description: 'IRS tax designation.', enumRef: 'TaxStatus' },
             { name: 'industry_tags', type: 'array<string>', required: false, description: 'Flexible tagging for sector (e.g. BioTech, SaaS).' },
             { name: 'naics_code', type: 'string', required: false, description: 'North American Industry Classification System code.' },
@@ -33,6 +34,8 @@ export const DATA_DICTIONARY: EntityDefinition[] = [
             { name: 'operational_visibility', type: 'enum', required: true, description: 'Controls whether operational data (metrics, initiatives) is shared.', enumRef: 'OperationalVisibility' },
             { name: 'managed_by_ids', type: 'array<string>', required: false, description: 'List of ESOs that claim this org as a client.' },
             { name: 'ecosystem_ids', type: 'array<string>', required: true, description: 'Ecosystems this organization participates in (Multi-tenancy).' },
+            { name: 'owner_characteristics', type: 'array', required: false, description: 'Demographic characteristics of the owner(s).', enumRef: 'OwnerCharacteristic' },
+            { name: 'certifications', type: 'array', required: false, description: 'Formal government or third-party certifications held.', enumRef: 'OrgCertification' },
             { name: 'tags', type: 'array<string>', required: false, description: 'Ad-hoc system tags.' },
             { name: 'external_refs', type: 'array', required: false, description: 'IDs from external systems (Salesforce, HubSpot, State Registry).' }
         ]

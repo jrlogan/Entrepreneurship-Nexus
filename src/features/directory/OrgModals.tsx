@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Organization, Person, Initiative, PipelineDefinition } from '../../domain/types';
+import { Organization, OrganizationType, Person, Initiative, PipelineDefinition } from '../../domain/types';
+import type { OwnerCharacteristic, OrgCertification } from '../../domain/organizations/types';
+import { ENUMS } from '../../domain/standards/enums';
 import { ChecklistTemplate } from '../../domain/ecosystems/types';
 import { Modal, FORM_LABEL_CLASS, FORM_INPUT_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS, Badge } from '../../shared/ui/Components';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
@@ -28,17 +30,17 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
     const [taxStatus, setTaxStatus] = useState(org.tax_status);
     const [industryTags, setIndustryTags] = useState<string[]>(org.classification.industry_tags || []);
     const [supportOfferings, setSupportOfferings] = useState((org.support_offerings || []).join(', '));
-    const [minorityOwned, setMinorityOwned] = useState(org.demographics.minority_owned);
-    const [womanOwned, setWomanOwned] = useState(org.demographics.woman_owned);
-    const [veteranOwned, setVeteranOwned] = useState(org.demographics.veteran_owned);
+    const [ownerCharacteristics, setOwnerCharacteristics] = useState<OwnerCharacteristic[]>(org.owner_characteristics || []);
+    const [certifications, setCertifications] = useState<OrgCertification[]>(org.certifications || []);
     const [logoFile, setLogoFile] = useState<File | null>(null);
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [generateError, setGenerateError] = useState('');
 
-    // Roles State
-    const [roles, setRoles] = useState<string[]>(org.roles || []);
+    // Roles State (functional roles: eso, funder, workspace)
+    const [roles, setRoles] = useState<string[]>((org.roles || []).filter(r => ['eso', 'funder', 'resource'].includes(r)));
+    const [orgType, setOrgType] = useState<OrganizationType>(org.org_type || 'other');
     const isEso = roles.includes('eso');
 
     // ESO Domain State
@@ -56,12 +58,12 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
             setDescription(org.description);
             setUrl(org.url || '');
             setTaxStatus(org.tax_status);
-            setRoles(org.roles || []);
+            setRoles((org.roles || []).filter(r => ['eso', 'funder', 'resource'].includes(r)));
+            setOrgType(org.org_type || 'other');
             setIndustryTags(org.classification.industry_tags || []);
             setSupportOfferings((org.support_offerings || []).join(', '));
-            setMinorityOwned(org.demographics.minority_owned);
-            setWomanOwned(org.demographics.woman_owned);
-            setVeteranOwned(org.demographics.veteran_owned);
+            setOwnerCharacteristics(org.owner_characteristics || []);
+            setCertifications(org.certifications || []);
             setLogoFile(null);
             setSaveError('');
             setIsSaving(false);
@@ -101,11 +103,9 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                 logo_url: resolvedLogoUrl,
                 tax_status: taxStatus,
                 roles: roles as Organization['roles'],
-                demographics: {
-                    minority_owned: minorityOwned,
-                    woman_owned: womanOwned,
-                    veteran_owned: veteranOwned,
-                },
+                org_type: orgType as Organization['org_type'],
+                owner_characteristics: ownerCharacteristics,
+                certifications: certifications,
                 classification: {
                     ...org.classification,
                     industry_tags: industryTags
@@ -214,33 +214,42 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                     </select>
                 </div>
                 {(viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager') && (
-                    <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-                        <div className="mb-2 font-medium text-gray-900 text-sm">Organization Type</div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-700">
-                            {([
-                                ['eso', 'ESO (Support Org)'],
-                                ['startup', 'Startup / Venture'],
-                                ['small_business', 'Small Business'],
-                                ['nonprofit', 'Nonprofit'],
-                                ['government', 'Government'],
-                                ['education', 'Education'],
-                                ['funder', 'Funder'],
-                                ['service_provider', 'Service Provider'],
-                                ['workspace', 'Workspace'],
-                                ['community_org', 'Community Org'],
-                                ['anchor_institution', 'Anchor Institution'],
-                            ] as [string, string][]).map(([value, label]) => (
-                                <label key={value} className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={roles.includes(value)}
-                                        onChange={e => setRoles(prev =>
-                                            e.target.checked ? [...prev, value] : prev.filter(r => r !== value)
-                                        )}
-                                    />
-                                    {label}
-                                </label>
-                            ))}
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-4 space-y-4">
+                        <div>
+                            <div className="mb-2 font-medium text-gray-900 text-sm">Entity Classification</div>
+                            <select
+                                className={FORM_SELECT_CLASS}
+                                value={orgType}
+                                onChange={e => setOrgType(e.target.value as OrganizationType)}
+                            >
+                                <option value="startup">Startup / Venture</option>
+                                <option value="small_business">Small Business</option>
+                                <option value="business">Business / Company</option>
+                                <option value="nonprofit">Nonprofit Organization</option>
+                                <option value="government_agency">Government / Public Agency</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div className="mb-2 font-medium text-gray-900 text-sm">Functional Roles</div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-700">
+                                {([
+                                    ['eso', 'ESO (Support Org)'],
+                                    ['funder', 'Funder / Investor'],
+                                    ['resource', 'Lab / Workspace / Makerspace'],
+                                ] as [string, string][]).map(([value, label]) => (
+                                    <label key={value} className="flex items-center gap-2 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={roles.includes(value)}
+                                            onChange={e => setRoles(prev =>
+                                                e.target.checked ? [...prev, value] : prev.filter(r => r !== value)
+                                            )}
+                                        />
+                                        {label}
+                                    </label>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -271,20 +280,40 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                     </div>
                 </div>
                 <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-                    <div className="mb-3 font-medium text-gray-900">Characteristics</div>
-                    <div className="space-y-2 text-sm text-gray-700">
-                        <label className="flex items-center gap-2">
-                            <input type="checkbox" checked={minorityOwned} onChange={e => setMinorityOwned(e.target.checked)} />
-                            Minority owned
-                        </label>
-                        <label className="flex items-center gap-2">
-                            <input type="checkbox" checked={womanOwned} onChange={e => setWomanOwned(e.target.checked)} />
-                            Woman owned
-                        </label>
-                        <label className="flex items-center gap-2">
-                            <input type="checkbox" checked={veteranOwned} onChange={e => setVeteranOwned(e.target.checked)} />
-                            Veteran owned
-                        </label>
+                    <div className="mb-3 font-medium text-gray-900">Owner Background</div>
+                    <div className="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner Characteristics</div>
+                    <div className="grid grid-cols-2 gap-1 text-sm text-gray-700 mb-4">
+                        {ENUMS.OwnerCharacteristic.map(opt => (
+                            <label key={opt.id} className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={ownerCharacteristics.includes(opt.id as OwnerCharacteristic)}
+                                    onChange={e => setOwnerCharacteristics(prev =>
+                                        e.target.checked
+                                            ? [...prev, opt.id as OwnerCharacteristic]
+                                            : prev.filter(v => v !== opt.id)
+                                    )}
+                                />
+                                {opt.label}
+                            </label>
+                        ))}
+                    </div>
+                    <div className="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Certifications</div>
+                    <div className="grid grid-cols-2 gap-1 text-sm text-gray-700">
+                        {ENUMS.OrgCertification.map(opt => (
+                            <label key={opt.id} className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={certifications.includes(opt.id as OrgCertification)}
+                                    onChange={e => setCertifications(prev =>
+                                        e.target.checked
+                                            ? [...prev, opt.id as OrgCertification]
+                                            : prev.filter(v => v !== opt.id)
+                                    )}
+                                />
+                                {opt.label}
+                            </label>
+                        ))}
                     </div>
                 </div>
                 {isEso && (

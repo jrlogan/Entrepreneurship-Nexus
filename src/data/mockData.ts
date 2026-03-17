@@ -234,8 +234,9 @@ export const MAKEHAVEN: Organization = {
   year_incorporated: 2012,
   region: 'New Haven, CT',
   version: 5,
-  roles: ['eso', 'funder'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+  roles: ['eso', 'resource'],
+  org_type: 'nonprofit',
+  owner_characteristics: [],
   classification: { industry_tags: ['Makerspace', 'Education'], naics_code: '611000' },
   external_refs: [
     { source: 'Quickbooks', id: 'QB_MH_99', owner_org_id: 'org_makehaven' } // Internal ref
@@ -243,7 +244,7 @@ export const MAKEHAVEN: Organization = {
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
-  support_offerings: ['workspace', 'product_development', 'business_coaching', 'networking'],
+  support_offerings: ['resource', 'product_development', 'business_coaching', 'networking'],
   ecosystem_ids: ['eco_new_haven', 'eco_ct_makers'],
   // New: Example Webhooks for API Demo
   webhooks: [
@@ -283,7 +284,8 @@ export const CT_INNOVATIONS: Organization = {
   year_incorporated: 1995,
   version: 1,
   roles: ['funder', 'eso'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+  org_type: 'government_agency',
+  owner_characteristics: [],
   classification: { industry_tags: ['Venture Capital', 'Government'], naics_code: '523999' },
   external_refs: [],
   managed_by_ids: [],
@@ -305,12 +307,9 @@ export const DARKSTAR_MARINE: Organization = {
   ein: '45-9876543',
   year_incorporated: 2022,
   version: 3,
-  roles: ['startup'],
-  demographics: {
-    minority_owned: false,
-    woman_owned: true,
-    veteran_owned: true,
-  },
+  roles: [],
+  org_type: 'startup',
+  owner_characteristics: ['woman_owned', 'veteran_owned'],
   classification: {
     naics_code: '333923', // Overhead Traveling Crane, Hoist, and Monorail System Manufacturing
     industry_tags: ['Maritime', 'Robotics', 'Defense'],
@@ -338,17 +337,18 @@ export const DARK_STAR_LLC: Organization = {
   url: 'https://darkstarmarine.com', // Exact URL match triggers high confidence dedupe
   tax_status: 'for_profit',
   version: 1,
-  roles: ['startup'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
-  classification: { 
-      industry_tags: ['Manufacturing'], 
-      naics_code: '333900' 
+  roles: [],
+  org_type: 'startup',
+  owner_characteristics: [],
+  classification: {
+      industry_tags: ['Manufacturing'],
+      naics_code: '333900'
   },
   external_refs: [],
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
-  support_offerings: ['workspace', 'networking', 'marketing'],
+  support_offerings: ['resource', 'networking', 'marketing'],
   ecosystem_ids: ['eco_new_haven']
 };
 
@@ -364,12 +364,9 @@ export const GREENTECH_SOLUTIONS: Organization = {
   ein: '22-3334445',
   year_incorporated: 2021,
   version: 1,
-  roles: ['startup'],
-  demographics: {
-    minority_owned: true,
-    woman_owned: false,
-    veteran_owned: false,
-  },
+  roles: [],
+  org_type: 'startup',
+  owner_characteristics: ['minority_owned'],
   classification: {
     naics_code: '322220',
     industry_tags: ['CleanTech', 'Manufacturing', 'Sustainability'],
@@ -392,12 +389,9 @@ export const GREENTECH_INC: Organization = {
   url: 'https://greentech.io', // Match
   tax_status: 'for_profit',
   version: 1,
-  roles: ['startup'],
-  demographics: {
-    minority_owned: true,
-    woman_owned: false,
-    veteran_owned: false,
-  },
+  roles: [],
+  org_type: 'startup',
+  owner_characteristics: ['minority_owned'],
   classification: {
     naics_code: '322220',
     industry_tags: ['Manufacturing'],
@@ -421,11 +415,8 @@ export const HAVEN_COFFEE: Organization = {
   year_incorporated: 2019,
   version: 1,
   roles: ['eso'],
-  demographics: {
-    minority_owned: true,
-    woman_owned: true,
-    veteran_owned: false,
-  },
+  org_type: 'small_business',
+  owner_characteristics: ['minority_owned', 'woman_owned'],
   classification: {
     naics_code: '722515',
     industry_tags: ['Food & Bev', 'Retail'],
@@ -444,8 +435,9 @@ export const STEALTH_STARTUP: Organization = {
   description: 'Top secret.',
   tax_status: 'for_profit',
   version: 1,
-  roles: ['startup'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+  roles: [],
+  org_type: 'startup',
+  owner_characteristics: [],
   classification: { industry_tags: ['Tech'], naics_code: '' },
   external_refs: [],
   managed_by_ids: [],
@@ -463,7 +455,8 @@ export const NEXUS_ADMIN_ORG: Organization = {
   tax_status: 'other',
   version: 1,
   roles: ['eso'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+  org_type: 'other',
+  owner_characteristics: [],
   classification: { industry_tags: ['Government', 'Platform'], naics_code: '' },
   external_refs: [],
   managed_by_ids: [],
@@ -480,7 +473,8 @@ export const BIOGEN: Organization = {
     tax_status: 'for_profit',
     version: 1,
     roles: ['funder'],
-    demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+    org_type: 'nonprofit',
+    owner_characteristics: [],
     classification: { industry_tags: ['Venture Capital', 'BioTech'], naics_code: '523999' },
     external_refs: [],
     managed_by_ids: [],
@@ -496,7 +490,8 @@ export const ELM_CAPITAL: Organization = {
     tax_status: 'for_profit',
     version: 1,
     roles: ['funder'],
-    demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+    org_type: 'nonprofit',
+    owner_characteristics: [],
     classification: { industry_tags: ['Angel Investment'], naics_code: '523999' },
     external_refs: [],
     managed_by_ids: [],

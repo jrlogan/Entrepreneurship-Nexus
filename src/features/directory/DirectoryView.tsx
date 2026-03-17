@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Interaction, Organization, OrganizationRole } from '../../domain/types';
+import { Interaction, Organization } from '../../domain/types';
 import { Card, Badge, CompanyLogo } from '../../shared/ui/Components';
 import { IconEye, IconLock } from '../../shared/ui/Icons';
 import { useViewer, useRepos } from '../../data/AppDataContext';
@@ -103,7 +103,12 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
         const visibleOrganizations = organizations.filter(org => {
             // 1. Type Filter
             if (typeFilter !== 'all') {
-                if (!org.roles.includes(typeFilter as OrganizationRole)) return false;
+                const functionalRoles = ['eso', 'funder', 'resource'];
+                if (functionalRoles.includes(typeFilter)) {
+                    if (!org.roles.includes(typeFilter as Organization['roles'][number])) return false;
+                } else {
+                    if (org.org_type !== typeFilter) return false;
+                }
             }
 
             // 2. Scope/Relationship Filter
@@ -189,17 +194,19 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
                             className="text-sm bg-transparent border-none focus:ring-0 text-gray-700 cursor-pointer outline-none">
                             <option value="all">All</option>
-                            <option value="startup">Startups</option>
-                            <option value="small_business">Small Businesses</option>
-                            <option value="nonprofit">Nonprofits</option>
-                            <option value="government">Government</option>
-                            <option value="education">Education</option>
-                            <option value="service_provider">Service Providers</option>
-                            <option value="workspace">Workspaces / Labs</option>
-                            <option value="community_org">Community Orgs</option>
-                            <option value="anchor_institution">Anchor Institutions</option>
-                            <option value="eso">Support Orgs (ESOs)</option>
-                            <option value="funder">Funders</option>
+                            <optgroup label="Entity Type">
+                                <option value="startup">Startups</option>
+                                <option value="small_business">Small Businesses</option>
+                                <option value="business">Businesses / Companies</option>
+                                <option value="nonprofit">Nonprofits</option>
+                                <option value="government_agency">Government</option>
+                                <option value="other">Other</option>
+                            </optgroup>
+                            <optgroup label="Functional Role">
+                                <option value="eso">Support Orgs (ESOs)</option>
+                                <option value="funder">Funders</option>
+                                <option value="workspace">Workspaces / Labs</option>
+                            </optgroup>
                         </select>
                     </div>
 
@@ -254,7 +261,8 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                                         <div className="flex flex-col flex-1 min-w-0">
                                             <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-indigo-600 transition-colors truncate pr-16">{org.name}</h3>
                                             <div className="flex gap-1 flex-wrap mt-2">
-                                                {org.roles.map(r => <Badge key={r} color="gray">{r}</Badge>)}
+                                                {org.org_type && <Badge key="type" color="blue">{org.org_type.replace(/_/g, ' ')}</Badge>}
+                                                {org.roles.map(r => <Badge key={r} color="indigo">{r}</Badge>)}
                                                 {org.verified && <Badge color="blue">Verified</Badge>}
                                             </div>
                                         </div>

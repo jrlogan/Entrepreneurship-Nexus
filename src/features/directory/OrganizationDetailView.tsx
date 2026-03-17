@@ -401,7 +401,8 @@ export const OrganizationDetailView = ({
                    <div className="flex items-center gap-2 mt-2 flex-wrap">
                      {org.alternate_name && <span className="text-sm text-gray-500 mr-2">aka {org.alternate_name}</span>}
                      <Badge color={org.operational_visibility === 'open' ? 'green' : 'red'}>{org.operational_visibility === 'open' ? 'Network Visible' : 'Restricted'}</Badge>
-                     {org.roles.map(r => <Badge key={r} color="gray">{r}</Badge>)}
+                     {org.org_type && <Badge key="type" color="blue">{org.org_type.replace(/_/g, ' ')}</Badge>}
+                     {org.roles.map(r => <Badge key={r} color="indigo">{r}</Badge>)}
                      {org.verified && <Badge color="blue">Verified</Badge>}
                    </div>
                 </div>
@@ -752,13 +753,28 @@ export const OrganizationDetailView = ({
                             </div>
                          </div>
                       </Card>
-                      {(org.demographics.minority_owned || org.demographics.woman_owned || org.demographics.veteran_owned) && (
-                        <Card title="Characteristics">
-                          <div className="flex flex-wrap gap-2">
-                            {org.demographics.minority_owned && <Badge color="purple">Minority Owned</Badge>}
-                            {org.demographics.woman_owned && <Badge color="indigo">Woman Owned</Badge>}
-                            {org.demographics.veteran_owned && <Badge color="green">Veteran Owned</Badge>}
-                          </div>
+                      {((org.owner_characteristics && org.owner_characteristics.length > 0) || (org.certifications && org.certifications.length > 0)) && (
+                        <Card title="Owner Background">
+                          {org.owner_characteristics && org.owner_characteristics.length > 0 && (
+                            <div className="mb-3">
+                              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Characteristics</div>
+                              <div className="flex flex-wrap gap-2">
+                                {org.owner_characteristics.map(c => (
+                                  <Badge key={c} color="purple">{c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {org.certifications && org.certifications.length > 0 && (
+                            <div>
+                              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Certifications</div>
+                              <div className="flex flex-wrap gap-2">
+                                {org.certifications.map(c => (
+                                  <Badge key={c} color="green">{c.toUpperCase()}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </Card>
                       )}
                    </div>

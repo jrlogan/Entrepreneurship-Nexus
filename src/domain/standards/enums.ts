@@ -7,17 +7,38 @@ export const ENUMS = {
     { "id": "other", "label": "Other / Unspecified" }
   ],
   "OrganizationRole": [
-    { "id": "startup", "label": "Startup / Entrepreneur" },
-    { "id": "small_business", "label": "Small Business" },
-    { "id": "nonprofit", "label": "Nonprofit Organization" },
-    { "id": "government", "label": "Government / Public Agency" },
-    { "id": "education", "label": "College / University / School" },
+    { "id": "eso", "label": "Entrepreneur Support Org (ESO)" },
     { "id": "funder", "label": "Funder / Investor" },
-    { "id": "service_provider", "label": "Professional Service Provider" },
-    { "id": "workspace", "label": "Lab / Workspace / Makerspace" },
-    { "id": "community_org", "label": "Community Organization" },
-    { "id": "anchor_institution", "label": "Anchor Institution / Major Employer" },
-    { "id": "eso", "label": "Entrepreneur Support Org (ESO)" }
+    { "id": "resource", "label": "Resource / Service Provider" }
+  ],
+  "OrganizationType": [
+    { "id": "startup", "label": "Startup / Venture" },
+    { "id": "small_business", "label": "Small Business" },
+    { "id": "business", "label": "Business / Company" },
+    { "id": "nonprofit", "label": "Nonprofit Organization" },
+    { "id": "government_agency", "label": "Government / Public Agency" },
+    { "id": "other", "label": "Other" }
+  ],
+  "OwnerCharacteristic": [
+    { "id": "woman_owned", "label": "Woman-Owned" },
+    { "id": "minority_owned", "label": "Minority-Owned" },
+    { "id": "veteran_owned", "label": "Veteran-Owned" },
+    { "id": "lgbtq_owned", "label": "LGBTQ+-Owned" },
+    { "id": "youth_owned", "label": "Youth-Owned (Under 35)" },
+    { "id": "refugee_owned", "label": "Refugee/Immigrant-Owned" },
+    { "id": "justice_involved", "label": "Justice-Involved" },
+    { "id": "disabled_owned", "label": "Disability-Owned" },
+    { "id": "low_income", "label": "Low-to-Moderate Income" }
+  ],
+  "OrgCertification": [
+    { "id": "sba_8a", "label": "SBA 8(a) Certified" },
+    { "id": "wosb", "label": "WOSB (Women-Owned Small Business)" },
+    { "id": "hubzone", "label": "HUBZone Certified" },
+    { "id": "mbe", "label": "MBE (Minority Business Enterprise)" },
+    { "id": "wbe", "label": "WBE (Women Business Enterprise)" },
+    { "id": "sdvosb", "label": "SDVOSB (Service-Disabled Veteran)" },
+    { "id": "vosb", "label": "VOSB (Veteran-Owned)" },
+    { "id": "dbe", "label": "DBE (Disadvantaged Business Enterprise)" }
   ],
   "OperationalVisibility": [
     { "id": "open", "label": "Open (Partners see details)" },

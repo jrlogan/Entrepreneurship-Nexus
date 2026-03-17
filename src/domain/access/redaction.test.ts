@@ -22,7 +22,7 @@ const baseOrg: Organization = {
   description: 'A stealth company',
   tax_status: 'for_profit',
   roles: ['startup'],
-  demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
+  owner_characteristics: [],
   classification: { industry_tags: ['fintech'] },
   external_refs: [{ source: 'Salesforce', id: '123' }],
   managed_by_ids: [],

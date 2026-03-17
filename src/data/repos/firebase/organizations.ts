@@ -1,20 +1,29 @@
 import { queryCollection, whereEquals, whereNotEquals, getDocument, setDocument, updateDocument, deleteDocument, whereIn } from '../../../services/firestoreClient';
-import type { Organization, ApiKey, Webhook } from '../../../domain/organizations/types';
+import type { Organization, ApiKey, Webhook, OwnerCharacteristic } from '../../../domain/organizations/types';
 import type { ViewerContext } from '../../../domain/access/policy';
 import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/access/policy';
 import { redactOrganization } from '../../../domain/access/redaction';
 import { ConsentRepo } from '../consent';
 
-const normalizeOrganization = (org: Organization): Organization => ({
+const normalizeOrganization = (org: Organization & { demographics?: { minority_owned?: boolean; woman_owned?: boolean; veteran_owned?: boolean } }): Organization => {
+  // Backwards compat: convert old boolean demographics object to owner_characteristics array
+  const legacyDemographics = (org as any).demographics as { minority_owned?: boolean; woman_owned?: boolean; veteran_owned?: boolean } | undefined;
+  const derivedCharacteristics: OwnerCharacteristic[] = Array.isArray(org.owner_characteristics)
+    ? org.owner_characteristics
+    : [];
+  if (legacyDemographics && derivedCharacteristics.length === 0) {
+    if (legacyDemographics.minority_owned) derivedCharacteristics.push('minority_owned');
+    if (legacyDemographics.woman_owned) derivedCharacteristics.push('woman_owned');
+    if (legacyDemographics.veteran_owned) derivedCharacteristics.push('veteran_owned');
+  }
+  return {
   ...org,
   description: org.description || '',
   tax_status: org.tax_status || 'for_profit',
   roles: Array.isArray(org.roles) ? org.roles : [],
-  demographics: {
-    minority_owned: org.demographics?.minority_owned ?? false,
-    woman_owned: org.demographics?.woman_owned ?? false,
-    veteran_owned: org.demographics?.veteran_owned ?? false,
-  },
+  org_type: org.org_type || undefined,
+  owner_characteristics: derivedCharacteristics,
+  certifications: Array.isArray(org.certifications) ? org.certifications : [],
   classification: {
     naics_code: org.classification?.naics_code || '',
     industry_tags: Array.isArray(org.classification?.industry_tags) ? org.classification.industry_tags : [],
@@ -30,7 +39,8 @@ const normalizeOrganization = (org: Organization): Organization => ({
   webhooks: Array.isArray(org.webhooks) ? org.webhooks : [],
   tags: Array.isArray(org.tags) ? org.tags : [],
   external_ids: org.external_ids || {},
-});
+  };
+};
 
 export class FirebaseOrganizationsRepo {
   constructor(private consentRepo: ConsentRepo) {}
