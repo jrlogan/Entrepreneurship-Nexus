@@ -63,6 +63,21 @@
                                                                                                                                                                                          
   - [ ] Capability system migration sweep (replace role checks)                                                                                                                          
   - [ ] Dynamic role builder UI                                                                                                                                                          
+  - [ ] **Ecosystem selection & approval onboarding flow**
+    - After a new user creates their personal account (Google or email/password), present an
+      ecosystem selection screen before they enter the app
+    - List available ecosystems with checkboxes or cards; each may show a short description
+    - Each ecosystem can be in one of three join modes:
+      - `open` — user is auto-approved on selection
+      - `requires_agreement` — user must accept terms/data-sharing agreement before joining
+      - `requires_approval` — ecosystem manager reviews the user's profile before granting access
+    - Membership request stored in `ecosystem_join_requests` collection (person_id, ecosystem_id,
+      status: pending|approved|rejected, submitted_at, reviewed_by, note)
+    - Ecosystem manager sees pending join requests in Ecosystem Config view
+    - User can join multiple ecosystems; their sidebar switcher shows only joined ecosystems
+    - **Current behavior (interim):** new users are auto-enrolled in the first/default ecosystem so
+      the app is immediately usable. Ecosystem selection replaces this once built.
+
   - [ ] Data quality merge workflow
     - [ ] **Person merge** in DataQualityView (parallel to existing org merge)
       - Detect duplicate people by name similarity / email overlap

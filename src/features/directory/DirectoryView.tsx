@@ -255,6 +255,7 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                                             <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-indigo-600 transition-colors truncate pr-16">{org.name}</h3>
                                             <div className="flex gap-1 flex-wrap mt-2">
                                                 {org.roles.map(r => <Badge key={r} color="gray">{r}</Badge>)}
+                                                {org.verified && <Badge color="blue">Verified</Badge>}
                                             </div>
                                         </div>
                                     </div>

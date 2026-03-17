@@ -1,15 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { AccountRequest, Ecosystem, InviteSummary, Organization, SystemRole } from '../../domain/types';
+import type { Ecosystem, InviteSummary, Organization } from '../../domain/types';
 import { FirebaseAuthPanel } from '../../shared/ui/FirebaseAuthPanel';
-import { createUserWithEmail, sendPasswordReset, signInWithEmail, signInWithGoogle } from '../../services/authService';
-import { getDocument, setDocument } from '../../services/firestoreClient';
+import { createUserWithEmail, sendPasswordReset, signInWithEmail, signInWithGoogle, signOutUser } from '../../services/authService';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 import { CONFIG } from '../../app/config';
 
 interface AuthGateViewProps {
   status: 'loading' | 'unauthenticated' | 'needs_profile';
   authUserEmail?: string | null;
-  authUid?: string | null;
+  authUid?: string | null; // kept for future use (e.g. invite token binding)
   organizations: Organization[];
   ecosystems: Ecosystem[];
 }
@@ -23,13 +22,6 @@ type SignupFormState = {
   note: string;
 };
 
-type AccessRequestFormState = {
-  requested_role: SystemRole;
-  requested_organization_id: string;
-  requested_ecosystem_id: string;
-  note: string;
-};
-
 type SignInFormState = {
   email: string;
   password: string;
@@ -40,13 +32,10 @@ const defaultMessage = 'Sign in to access shared network data, inbound referral 
 export const AuthGateView: React.FC<AuthGateViewProps> = ({
   status,
   authUserEmail,
-  authUid,
   organizations,
   ecosystems,
 }) => {
-  const [request, setRequest] = useState<AccountRequest | null>(null);
   const [inviteSummary, setInviteSummary] = useState<InviteSummary | null>(null);
-  const [isLoadingRequest, setIsLoadingRequest] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -61,19 +50,12 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     return new URLSearchParams(window.location.search).get('invite') || '';
   }, []);
   const defaultEcosystemId = ecosystems[0]?.id || '';
-  const defaultOrganizationId = organizations[0]?.id || '';
   const [signupForm, setSignupForm] = useState<SignupFormState>({
     first_name: '',
     last_name: '',
     email: authUserEmail || '',
-    password: 'Password123!',
+    password: '',
     ecosystem_id: defaultEcosystemId,
-    note: '',
-  });
-  const [accessRequestForm, setAccessRequestForm] = useState<AccessRequestFormState>({
-    requested_role: 'eso_coach',
-    requested_organization_id: defaultOrganizationId,
-    requested_ecosystem_id: defaultEcosystemId,
     note: '',
   });
 
@@ -87,39 +69,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
       ...current,
       email: authUserEmail || current.email,
     }));
-    setAccessRequestForm((current) => ({
-      ...current,
-      requested_organization_id: current.requested_organization_id || defaultOrganizationId,
-      requested_ecosystem_id: current.requested_ecosystem_id || defaultEcosystemId,
-    }));
-  }, [authUserEmail, defaultEcosystemId, defaultOrganizationId]);
-
-  useEffect(() => {
-    if (!authUid) {
-      setRequest(null);
-      return;
-    }
-
-    let cancelled = false;
-    const loadRequest = async () => {
-      setIsLoadingRequest(true);
-      try {
-        const existing = await getDocument<AccountRequest>('account_requests', authUid);
-        if (!cancelled) {
-          setRequest(existing);
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingRequest(false);
-        }
-      }
-    };
-
-    void loadRequest();
-    return () => {
-      cancelled = true;
-    };
-  }, [authUid]);
+  }, [authUserEmail, defaultEcosystemId]);
 
   useEffect(() => {
     if (!inviteToken) {
@@ -147,30 +97,9 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     };
   }, [inviteToken]);
 
-  const organizationOptions = useMemo(() => organizations.map((organization) => (
-    <option key={organization.id} value={organization.id}>{organization.name}</option>
-  )), [organizations]);
-
   const ecosystemOptions = useMemo(() => ecosystems.map((ecosystem) => (
     <option key={ecosystem.id} value={ecosystem.id}>{ecosystem.name}</option>
   )), [ecosystems]);
-
-  const refreshRequest = async () => {
-    if (!authUid) {
-      return;
-    }
-
-    setIsLoadingRequest(true);
-    setError(null);
-    try {
-      const existing = await getDocument<AccountRequest>('account_requests', authUid);
-      setRequest(existing);
-    } catch (err: any) {
-      setError(err?.message || 'Unable to refresh request status.');
-    } finally {
-      setIsLoadingRequest(false);
-    }
-  };
 
   const handleCreateEntrepreneurAccount = async () => {
     setIsSubmitting(true);
@@ -231,7 +160,23 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     setSuccess(null);
     try {
       await signInWithGoogle();
+      // Auto-complete signup so Google users are never stuck at the profile screen.
+      // Uses merge:true on the backend, so existing profiles are not overwritten.
+      try {
+        await callHttpFunction('completeSelfSignup', {
+          ecosystem_id: signupForm.ecosystem_id || defaultEcosystemId,
+        });
+      } catch {
+        // If auto-signup fails (e.g. emulator not running) the needs_profile
+        // screen will show the manual form as a fallback — not a fatal error.
+      }
+      if (inviteToken) {
+        try {
+          await callHttpFunction('acceptInvite', { token: inviteToken });
+        } catch { /* non-fatal */ }
+      }
       setSuccess('Signed in. Loading your workspace.');
+      window.location.href = '/';
     } catch (err: any) {
       setError(err?.message || 'Unable to sign in with Google.');
     } finally {
@@ -281,40 +226,6 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     }
   };
 
-  const submitElevatedAccessRequest = async () => {
-    if (!authUid || !authUserEmail) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const now = new Date().toISOString();
-      const nextRequest: AccountRequest = {
-        id: authUid,
-        auth_uid: authUid,
-        email: authUserEmail.trim().toLowerCase(),
-        first_name: signupForm.first_name.trim() || authUserEmail.split('@')[0],
-        last_name: signupForm.last_name.trim() || 'User',
-        requested_role: accessRequestForm.requested_role,
-        requested_organization_id: accessRequestForm.requested_organization_id,
-        requested_ecosystem_id: accessRequestForm.requested_ecosystem_id,
-        status: 'pending',
-        note: accessRequestForm.note.trim(),
-        created_at: request?.created_at || now,
-        updated_at: now,
-      };
-      await setDocument<AccountRequest>('account_requests', authUid, nextRequest, true);
-      setRequest(nextRequest);
-      setSuccess('Access request submitted. An admin must approve your elevated role.');
-    } catch (err: any) {
-      setError(err?.message || 'Unable to submit access request.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleAcceptInvite = async () => {
     if (!inviteToken) {
       return;
@@ -332,6 +243,12 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOutUser();
+    } catch { /* ignore */ }
   };
 
   return (
@@ -450,59 +367,33 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
               {status === 'needs_profile' && (
                 <>
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
-                    Signed in as {authUserEmail}. Complete entrepreneur onboarding, or accept an invite for elevated access.
+                    <div className="font-medium">Almost there — just a couple more details.</div>
+                    <div className="mt-1 text-sm">Signed in as <strong>{authUserEmail}</strong>. Tell us your name to activate your account.</div>
                   </div>
                   <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="mb-3 text-base font-semibold text-slate-900">Complete Entrepreneur Signup</div>
+                    <div className="mb-3 text-base font-semibold text-slate-900">Complete Your Profile</div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <input className="rounded border border-slate-300 px-3 py-2" placeholder="First name" value={signupForm.first_name} onChange={(event) => setSignupForm({ ...signupForm, first_name: event.target.value })} />
                       <input className="rounded border border-slate-300 px-3 py-2" placeholder="Last name" value={signupForm.last_name} onChange={(event) => setSignupForm({ ...signupForm, last_name: event.target.value })} />
                       <select className="rounded border border-slate-300 px-3 py-2 sm:col-span-2" value={signupForm.ecosystem_id} onChange={(event) => setSignupForm({ ...signupForm, ecosystem_id: event.target.value })}>
                         {ecosystemOptions}
                       </select>
-                      <textarea className="rounded border border-slate-300 px-3 py-2 sm:col-span-2" rows={3} placeholder="Optional note about your company or goals" value={signupForm.note} onChange={(event) => setSignupForm({ ...signupForm, note: event.target.value })} />
+                      <textarea className="rounded border border-slate-300 px-3 py-2 sm:col-span-2" rows={2} placeholder="Optional: your business or goals" value={signupForm.note} onChange={(event) => setSignupForm({ ...signupForm, note: event.target.value })} />
                     </div>
-                    <div className="mt-4 flex gap-3">
+                    <div className="mt-4 flex flex-wrap gap-3">
                       <button className="rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleCompleteSelfSignup} disabled={isSubmitting}>
-                        {inviteToken ? 'Complete signup and accept invite' : 'Continue as entrepreneur'}
+                        {inviteToken ? 'Complete signup and accept invite' : 'Enter the Nexus'}
                       </button>
                       {inviteToken && (
                         <button className="rounded border border-slate-300 px-4 py-2 font-medium text-slate-700 disabled:opacity-50" onClick={handleAcceptInvite} disabled={isSubmitting}>
                           Accept invite only
                         </button>
                       )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 p-4">
-                    <div className="mb-3 text-base font-semibold text-slate-900">Request Elevated Access</div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <select className="rounded border border-slate-300 px-3 py-2" value={accessRequestForm.requested_role} onChange={(event) => setAccessRequestForm({ ...accessRequestForm, requested_role: event.target.value as SystemRole })}>
-                        <option value="eso_coach">ESO Coach</option>
-                        <option value="eso_staff">ESO Staff</option>
-                        <option value="eso_admin">ESO Admin</option>
-                      </select>
-                      <select className="rounded border border-slate-300 px-3 py-2" value={accessRequestForm.requested_ecosystem_id} onChange={(event) => setAccessRequestForm({ ...accessRequestForm, requested_ecosystem_id: event.target.value })}>
-                        {ecosystemOptions}
-                      </select>
-                      <select className="rounded border border-slate-300 px-3 py-2 sm:col-span-2" value={accessRequestForm.requested_organization_id} onChange={(event) => setAccessRequestForm({ ...accessRequestForm, requested_organization_id: event.target.value })}>
-                        {organizationOptions}
-                      </select>
-                      <textarea className="rounded border border-slate-300 px-3 py-2 sm:col-span-2" rows={3} placeholder="Why do you need elevated access?" value={accessRequestForm.note} onChange={(event) => setAccessRequestForm({ ...accessRequestForm, note: event.target.value })} />
-                    </div>
-                    <div className="mt-4 flex gap-3">
-                      <button className="rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={submitElevatedAccessRequest} disabled={isSubmitting}>
-                        Submit access request
-                      </button>
-                      <button className="rounded border border-slate-300 px-4 py-2 font-medium text-slate-700 disabled:opacity-50" onClick={refreshRequest} disabled={isLoadingRequest}>
-                        Refresh status
+                      <button className="rounded border border-slate-300 px-4 py-2 font-medium text-slate-500 text-sm disabled:opacity-50" onClick={() => void handleSignOut()} disabled={isSubmitting}>
+                        Sign out
                       </button>
                     </div>
-                    {request?.status === 'pending' && (
-                      <div className="mt-3 rounded border border-slate-200 bg-slate-50 px-4 py-3">
-                        Pending elevated access request for {request.requested_role}.
-                      </div>
-                    )}
+                    <p className="mt-3 text-xs text-slate-500">ESO staff access is granted by invite. Once you are inside, you can request elevated access from your profile settings.</p>
                   </div>
                 </>
               )}

@@ -107,6 +107,11 @@ export interface Organization {
   // Flexible Tagging
   tags?: string[];
 
+  // Verification (set by ESO staff to indicate a real, vetted organization)
+  verified?: boolean;
+  verified_at?: string;
+  verified_by?: string; // Person ID of the staff member who verified
+
   // ESO Service Catalog
   support_offerings?: SupportNeed[];
 

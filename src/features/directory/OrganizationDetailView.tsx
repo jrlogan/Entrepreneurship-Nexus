@@ -347,10 +347,11 @@ export const OrganizationDetailView = ({
                 <CompanyLogo src={org.logo_url} name={org.name} size="lg" />
                 <div>
                    <h1 className="text-2xl font-bold text-gray-900 leading-none">{org.name}</h1>
-                   <div className="flex items-center gap-2 mt-2">
+                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                      {org.alternate_name && <span className="text-sm text-gray-500 mr-2">aka {org.alternate_name}</span>}
                      <Badge color={org.operational_visibility === 'open' ? 'green' : 'red'}>{org.operational_visibility === 'open' ? 'Network Visible' : 'Restricted'}</Badge>
                      {org.roles.map(r => <Badge key={r} color="gray">{r}</Badge>)}
+                     {org.verified && <Badge color="blue">Verified</Badge>}
                    </div>
                 </div>
               </div>
@@ -641,6 +642,32 @@ export const OrganizationDetailView = ({
                              <span className="text-gray-900 font-mono">{org.ein || 'N/A'}</span>
                            </div>
                         </div>
+                        {isEcosystemAdmin && (
+                          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-3">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={!!org.verified}
+                                onChange={async (e) => {
+                                  const isVerified = e.target.checked;
+                                  await repos.organizations.update(org.id, {
+                                    verified: isVerified,
+                                    verified_at: isVerified ? new Date().toISOString() : undefined,
+                                    verified_by: isVerified ? viewer.personId : undefined,
+                                  });
+                                  onRefresh?.();
+                                }}
+                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span className="text-sm font-medium text-gray-700">Mark as Verified</span>
+                            </label>
+                            {org.verified && (
+                              <span className="text-xs text-gray-400">
+                                Verified {org.verified_at ? new Date(org.verified_at).toLocaleDateString() : ''}
+                              </span>
+                            )}
+                          </div>
+                        )}
                      </Card>
                    </div>
                    <div className="space-y-6">

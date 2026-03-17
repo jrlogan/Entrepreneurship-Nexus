@@ -397,8 +397,13 @@ const upsertDraftOrganization = async (ventureName, ecosystemId) => {
 };
 const upsertDraftPerson = async (candidateEmail, candidateName, organizationId, ecosystemId, options) => {
     const normalizedEmail = candidateEmail.toLowerCase();
-    const existing = await db.collection('people').where('email', '==', normalizedEmail).limit(1).get();
-    if (!existing.empty) {
+    // Check primary email first, then secondary_emails array
+    const [primaryMatch, secondaryMatch] = await Promise.all([
+        db.collection('people').where('email', '==', normalizedEmail).limit(1).get(),
+        db.collection('people').where('secondary_emails', 'array-contains', normalizedEmail).limit(1).get(),
+    ]);
+    const existing = !primaryMatch.empty ? primaryMatch : (!secondaryMatch.empty ? secondaryMatch : null);
+    if (existing && !existing.empty) {
         return existing.docs[0];
     }
     const docRef = db.collection('people').doc();
@@ -1083,18 +1088,41 @@ const sendPostmarkEmail = async (notice) => {
 // Called by both auto-approve (trusted sender, no review needed) and the manual approveInboundMessage endpoint.
 const createReferralFromInboundMessage = async (args) => {
     const now = new Date().toISOString();
-    const { message, messageRef, parseResult, personEmail, personName, ventureName, receivingOrgId, referringOrgId, ecosystemId, approvedBy } = args;
-    const organizationResult = await upsertDraftOrganization(ventureName ?? undefined, ecosystemId ?? undefined);
-    const organization = organizationResult?.doc || null;
+    const { message, messageRef, parseResult, personEmail, personName, ventureName, subjectOrgId, receivingOrgId, referringOrgId, ecosystemId, approvedBy } = args;
+    let organization = null;
+    let autoLinkOrganization = false;
+    if (subjectOrgId) {
+        const snap = await db.collection('organizations').doc(subjectOrgId).get();
+        if (snap.exists)
+            organization = snap;
+    }
+    else {
+        const organizationResult = await upsertDraftOrganization(ventureName ?? undefined, ecosystemId ?? undefined);
+        organization = organizationResult?.doc || null;
+        autoLinkOrganization = !!organizationResult?.created;
+    }
     const person = await upsertDraftPerson(personEmail, personName ?? undefined, organization?.id, ecosystemId ?? undefined, {
-        autoLinkOrganization: !!organizationResult?.created,
+        autoLinkOrganization,
     });
+    // Resolve referring person from sender email (primary or secondary) if they're already in the system
+    const senderEmail = normalize(message.from_email);
+    let referringPersonId = null;
+    if (senderEmail) {
+        const [senderPrimary, senderSecondary] = await Promise.all([
+            db.collection('people').where('email', '==', senderEmail).limit(1).get(),
+            db.collection('people').where('secondary_emails', 'array-contains', senderEmail).limit(1).get(),
+        ]);
+        const senderSnap = !senderPrimary.empty ? senderPrimary : senderSecondary;
+        if (!senderSnap.empty)
+            referringPersonId = senderSnap.docs[0].id;
+    }
     const referralNote = (0, emailParsing_1.extractReferralNote)(message.text_body);
     const referralRef = db.collection('referrals').doc();
     await referralRef.set({
         id: referralRef.id,
         ecosystem_id: ecosystemId || null,
         referring_org_id: referringOrgId || null,
+        referring_person_id: referringPersonId,
         receiving_org_id: receivingOrgId,
         subject_person_id: person.id || null,
         subject_org_id: organization?.id || null,
@@ -1279,7 +1307,7 @@ const processInboundEmailPayload = async (payload) => {
         senderDomainInfo.match?.access_policy !== 'invite_only' &&
         senderDomainInfo.match?.access_policy !== 'request_access';
     if (canAutoApprove && clientEmail && receivingOrganization) {
-        await createReferralFromInboundMessage({
+        const autoApproveResult = await createReferralFromInboundMessage({
             message: { ...inboundMessageRef, id: inboundMessageRef.id, ...payload, ecosystem_id: resolvedEcosystemId, received_at: now },
             messageRef: inboundMessageRef,
             parseResult: parseResultData,
@@ -1297,6 +1325,8 @@ const processInboundEmailPayload = async (payload) => {
             parse_result_id: parseResultRef.id,
             review_required: false,
             auto_approved: true,
+            referral_id: autoApproveResult.referralId,
+            person_id: autoApproveResult.personId,
         };
     }
     return {
@@ -1352,6 +1382,7 @@ exports.approveInboundMessage = (0, https_1.onRequest)({ invoker: 'public' }, as
     const finalPersonEmail = normalize(req.body?.person_email || parseResult.candidate_person_email);
     const finalPersonName = req.body?.person_name || parseResult.candidate_person_name;
     const finalVentureName = req.body?.venture_name || parseResult.candidate_venture_name;
+    const finalSubjectOrgId = req.body?.subject_org_id || null;
     const finalReceivingOrgId = req.body?.receiving_org_id || parseResult.candidate_receiving_org_id;
     const finalReferringOrgId = req.body?.referring_org_id || parseResult.candidate_referring_org_id;
     const ecosystemId = message.ecosystem_id;
@@ -1365,7 +1396,8 @@ exports.approveInboundMessage = (0, https_1.onRequest)({ invoker: 'public' }, as
         parseResult,
         personEmail: finalPersonEmail,
         personName: finalPersonName || null,
-        ventureName: finalVentureName || null,
+        ventureName: finalSubjectOrgId ? null : (finalVentureName || null),
+        subjectOrgId: finalSubjectOrgId,
         receivingOrgId: finalReceivingOrgId,
         referringOrgId: finalReferringOrgId || null,
         ecosystemId,
