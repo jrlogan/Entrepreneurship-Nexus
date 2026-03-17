@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import ReactCrop, { centerCrop, makeAspectCrop, type Crop, type PixelCrop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import { Person, Organization, Interaction, Referral, Service } from '../../domain/types';
 import { Card, Badge, Avatar, Modal, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
 import { LogInteractionModal } from '../interactions/LogInteractionModal';
@@ -67,6 +69,11 @@ export const PersonDetailView = ({
   const [showCreateReferral, setShowCreateReferral] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
+  const [profilePhotoPreviewUrl, setProfilePhotoPreviewUrl] = useState<string | null>(null);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState<Crop>();
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+  const cropImgRef = useRef<HTMLImageElement>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState('');
   const [emailCopied, setEmailCopied] = useState(false);
@@ -117,9 +124,21 @@ export const PersonDetailView = ({
       affiliations: buildAffiliationDrafts(),
     });
     setProfilePhotoFile(null);
+    setProfilePhotoPreviewUrl(null);
     setProfileSaveError('');
     setIsSavingProfile(false);
   }, [person, showEditProfile, buildAffiliationDrafts]);
+
+  // Keep a stable blob URL for the cropped preview; revoke when it changes or modal closes.
+  useEffect(() => {
+    if (!profilePhotoFile) {
+      setProfilePhotoPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(profilePhotoFile);
+    setProfilePhotoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [profilePhotoFile]);
 
   const selectTab = (tab: 'associations' | 'interactions' | 'referrals' | 'participation' | 'settings') => {
     setActiveTab(tab);
@@ -157,6 +176,52 @@ export const PersonDetailView = ({
     onRefresh?.();
   };
 
+  const handlePhotoSelected = (file: File | null) => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setCropSrc(url);
+    setCrop(undefined);
+    setCompletedCrop(undefined);
+  };
+
+  const onCropImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { width, height } = e.currentTarget;
+    setCrop(centerCrop(makeAspectCrop({ unit: '%', width: 90 }, 1, width, height), width, height));
+  }, []);
+
+  const handleCropConfirm = () => {
+    if (!completedCrop || !cropImgRef.current) return;
+    const img = cropImgRef.current;
+    const scaleX = img.naturalWidth / img.width;
+    const scaleY = img.naturalHeight / img.height;
+
+    // Source region in natural pixels
+    const srcW = completedCrop.width * scaleX;
+    const srcH = completedCrop.height * scaleY;
+
+    // Cap output at 400×400 — more than enough for an avatar
+    const MAX_PX = 400;
+    const outSize = Math.min(MAX_PX, srcW, srcH);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = outSize;
+    canvas.height = outSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(
+      img,
+      completedCrop.x * scaleX, completedCrop.y * scaleY,
+      srcW, srcH,
+      0, 0, outSize, outSize,
+    );
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      setProfilePhotoFile(new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));
+      URL.revokeObjectURL(cropSrc!);
+      setCropSrc(null);
+    }, 'image/jpeg', 0.85);
+  };
+
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
     setProfileSaveError('');
@@ -164,7 +229,7 @@ export const PersonDetailView = ({
       .filter((affiliation) => affiliation.organization_id)
       .map((affiliation) => ({
         organization_id: affiliation.organization_id,
-        role_title: affiliation.role_title || undefined,
+        role_title: affiliation.role_title || null,
         relationship_type: affiliation.relationship_type || 'other',
         status: affiliation.status || 'active',
         can_self_manage: affiliation.can_self_manage ?? false,
@@ -262,7 +327,7 @@ export const PersonDetailView = ({
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-4">
             <button onClick={onBack} className="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-full transition">←</button>
-            <Avatar src={person.avatar_url} name={personName} size="xl" />
+            <Avatar src={person.avatar_url} name={personName} size="xl" enlargeable />
             <div>
               <h1 className="text-2xl font-bold text-gray-900 leading-none">{personName}</h1>
               <div className="text-sm text-gray-500 mt-1">{person.role}</div>
@@ -600,19 +665,23 @@ export const PersonDetailView = ({
           </div>
           <div>
             <label className={FORM_LABEL_CLASS}>Profile Photo</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => setProfilePhotoFile(event.target.files?.[0] || null)}
-              className={FORM_INPUT_CLASS}
-            />
-            <div className="mt-1 text-xs text-gray-500">
-              Uploaded files go to Firebase Storage and replace the profile photo URL above when saved.
+            <div className="flex items-center gap-4">
+              <Avatar src={profilePhotoPreviewUrl ?? person.avatar_url} name={`${profileForm.first_name} ${profileForm.last_name}`} size="lg" />
+              <div className="flex-1">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handlePhotoSelected(e.target.files?.[0] || null)}
+                  className={FORM_INPUT_CLASS}
+                />
+                {profilePhotoFile && (
+                  <div className="mt-1 flex items-center gap-2 text-xs text-emerald-700">
+                    <span>✓ Photo ready to save</span>
+                    <button type="button" className="text-gray-400 hover:text-gray-600 underline" onClick={() => { setProfilePhotoFile(null); }}>Remove</button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-          <div>
-            <label className={FORM_LABEL_CLASS}>Role Title</label>
-            <input className={FORM_INPUT_CLASS} value={profileForm.role} onChange={(event) => setProfileForm({ ...profileForm, role: event.target.value })} />
           </div>
           <div>
             <label className={FORM_LABEL_CLASS}>Default Acting Organization</label>
@@ -709,6 +778,43 @@ export const PersonDetailView = ({
           </div>
         </div>
       </Modal>
+
+      {/* Photo crop modal */}
+      {cropSrc && (
+        <Modal isOpen={!!cropSrc} onClose={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }} title="Crop Profile Photo">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">Drag to reposition. Resize the box to crop.</p>
+            <div className="flex justify-center max-h-[60vh] overflow-auto">
+              <ReactCrop
+                crop={crop}
+                onChange={(c) => setCrop(c)}
+                onComplete={(c) => setCompletedCrop(c)}
+                aspect={1}
+                circularCrop
+                minWidth={60}
+              >
+                <img
+                  ref={cropImgRef}
+                  src={cropSrc}
+                  onLoad={onCropImageLoad}
+                  alt="Crop preview"
+                  style={{ maxHeight: '55vh', maxWidth: '100%' }}
+                />
+              </ReactCrop>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => { URL.revokeObjectURL(cropSrc); setCropSrc(null); }} className="rounded border px-4 py-2 text-sm hover:bg-gray-50">Cancel</button>
+              <button
+                onClick={handleCropConfirm}
+                disabled={!completedCrop}
+                className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Use this crop
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

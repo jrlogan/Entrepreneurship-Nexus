@@ -194,7 +194,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                     </div>
                 </div>
                 <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-                    <div className="mb-3 font-medium text-gray-900">Demographics</div>
+                    <div className="mb-3 font-medium text-gray-900">Characteristics</div>
                     <div className="space-y-2 text-sm text-gray-700">
                         <label className="flex items-center gap-2">
                             <input type="checkbox" checked={minorityOwned} onChange={e => setMinorityOwned(e.target.checked)} />

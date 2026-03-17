@@ -18,8 +18,14 @@ export const uploadImageFile = async (
 
   const path = [...pathSegments, `${Date.now()}-${sanitizeFileName(file.name)}`].join('/');
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file, {
-    contentType: file.type || 'application/octet-stream',
-  });
+
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Upload timed out. Is the Storage emulator running? (firebase emulators:start --only firestore,functions,storage,auth)')), 15000)
+  );
+
+  await Promise.race([
+    uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' }),
+    timeout,
+  ]);
   return getDownloadURL(storageRef);
 };

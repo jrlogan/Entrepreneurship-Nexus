@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "local:start": "bash scripts/start-local-dev.sh",
     "build:functions": "npm --prefix functions run build",
-    "firebase:emulators": "npm run build:functions && firebase emulators:start --only auth,firestore,functions",
+    "firebase:emulators": "npm run build:functions && firebase emulators:start --only auth,firestore,functions,storage",
     "simulate:seed-local": "node scripts/seed-local-reference-data.mjs",
     "simulate:inbound-email": "node scripts/simulate-inbound-email.mjs",
     "simulate:create-auth-user": "node scripts/create-emulator-user.mjs",
@@ -28,7 +28,8 @@
     "@google/genai": "latest",
     "firebase": "^12.7.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "react-image-crop": "^11.0.10"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

@@ -183,14 +183,40 @@ export const DemoLink: React.FC<DemoLinkProps> = ({ href, children, className, t
 
 // --- Images & Avatars ---
 
+const ImageLightbox: React.FC<{ src: string; alt: string; onClose: () => void }> = ({ src, alt, onClose }) => (
+  // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+    onClick={onClose}
+  >
+    <div className="relative max-w-[90vw] max-h-[90vh]">
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-[90vh] rounded-lg shadow-2xl object-contain"
+        onClick={(e) => e.stopPropagation()}
+      />
+      <button
+        onClick={onClose}
+        className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-gray-700 shadow-lg flex items-center justify-center font-bold text-lg hover:bg-gray-100"
+        aria-label="Close"
+      >
+        ×
+      </button>
+    </div>
+  </div>
+);
+
 interface AvatarProps {
   src?: string;
   name: string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   className?: string;
+  enlargeable?: boolean;
 }
 
-export const Avatar: React.FC<AvatarProps> = ({ src, name, size = 'md', className = '' }) => {
+export const Avatar: React.FC<AvatarProps> = ({ src, name, size = 'md', className = '', enlargeable = false }) => {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const sizeClasses = {
     xs: 'w-6 h-6 text-[10px]',
     sm: 'w-8 h-8 text-xs',
@@ -210,17 +236,25 @@ export const Avatar: React.FC<AvatarProps> = ({ src, name, size = 'md', classNam
   // Deterministic color based on name length
   const colors = ['bg-indigo-100 text-indigo-600', 'bg-green-100 text-green-600', 'bg-blue-100 text-blue-600', 'bg-purple-100 text-purple-600', 'bg-pink-100 text-pink-600'];
   const colorClass = colors[name.length % colors.length];
+  const canEnlarge = enlargeable && !!src;
 
   return (
-    <div className={`relative inline-block rounded-full overflow-hidden flex-shrink-0 ${sizeClasses[size]} ${className}`}>
-      {src ? (
-        <img src={src} alt={name} className="w-full h-full object-cover" />
-      ) : (
-        <div className={`w-full h-full flex items-center justify-center font-bold ${colorClass}`}>
-          {initials}
-        </div>
-      )}
-    </div>
+    <>
+      <div
+        className={`relative inline-block rounded-full overflow-hidden flex-shrink-0 ${sizeClasses[size]} ${className} ${canEnlarge ? 'cursor-zoom-in' : ''}`}
+        onClick={canEnlarge ? () => setLightboxOpen(true) : undefined}
+        title={canEnlarge ? 'Click to enlarge' : undefined}
+      >
+        {src ? (
+          <img src={src} alt={name} className="w-full h-full object-cover" />
+        ) : (
+          <div className={`w-full h-full flex items-center justify-center font-bold ${colorClass}`}>
+            {initials}
+          </div>
+        )}
+      </div>
+      {lightboxOpen && src && <ImageLightbox src={src} alt={name} onClose={() => setLightboxOpen(false)} />}
+    </>
   );
 };
 
@@ -229,9 +263,11 @@ interface CompanyLogoProps {
   name: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
+  enlargeable?: boolean;
 }
 
-export const CompanyLogo: React.FC<CompanyLogoProps> = ({ src, name, size = 'md', className = '' }) => {
+export const CompanyLogo: React.FC<CompanyLogoProps> = ({ src, name, size = 'md', className = '', enlargeable = false }) => {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const sizeClasses = {
     sm: 'w-8 h-8 text-xs',
     md: 'w-12 h-12 text-lg',
@@ -243,17 +279,25 @@ export const CompanyLogo: React.FC<CompanyLogoProps> = ({ src, name, size = 'md'
   // Deterministic grayscale/monochrome feel for orgs
   const colors = ['bg-gray-100 text-gray-600', 'bg-slate-100 text-slate-600', 'bg-zinc-100 text-zinc-600'];
   const colorClass = colors[name.length % colors.length];
+  const canEnlarge = enlargeable && !!src;
 
   return (
-    <div className={`relative inline-block rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 ${sizeClasses[size]} ${className}`}>
-      {src ? (
-        <img src={src} alt={name} className="w-full h-full object-contain p-1 bg-white" />
-      ) : (
-        <div className={`w-full h-full flex items-center justify-center font-bold ${colorClass}`}>
-          {initial}
-        </div>
-      )}
-    </div>
+    <>
+      <div
+        className={`relative inline-block rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 ${sizeClasses[size]} ${className} ${canEnlarge ? 'cursor-zoom-in' : ''}`}
+        onClick={canEnlarge ? () => setLightboxOpen(true) : undefined}
+        title={canEnlarge ? 'Click to enlarge' : undefined}
+      >
+        {src ? (
+          <img src={src} alt={name} className="w-full h-full object-contain p-1 bg-white" />
+        ) : (
+          <div className={`w-full h-full flex items-center justify-center font-bold ${colorClass}`}>
+            {initial}
+          </div>
+        )}
+      </div>
+      {lightboxOpen && src && <ImageLightbox src={src} alt={name} onClose={() => setLightboxOpen(false)} />}
+    </>
   );
 };
 

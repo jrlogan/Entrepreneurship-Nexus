@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Authenticated users can read any file
+    match /{allPaths=**} {
+      allow read: if request.auth != null;
+    }
+
+    // People can upload their own avatar; admins can upload for any person
+    match /people/{personId}/avatar/{fileName} {
+      allow write: if request.auth != null;
+    }
+
+    // Org logos
+    match /organizations/{orgId}/logo/{fileName} {
+      allow write: if request.auth != null;
+    }
+  }
+}

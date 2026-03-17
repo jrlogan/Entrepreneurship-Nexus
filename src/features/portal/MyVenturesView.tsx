@@ -383,7 +383,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                     <h3 className="text-xl font-bold">Welcome back, {person.first_name}!</h3>
                     <p className="text-indigo-200 mt-2">Manage your organization, team, and ecosystem support.</p>
                  </div>
-                 <Avatar src={person.avatar_url} name={person.first_name} size="lg" className="border-4 border-indigo-800" />
+                 <Avatar src={person.avatar_url} name={person.first_name} size="lg" className="border-4 border-indigo-800" enlargeable />
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

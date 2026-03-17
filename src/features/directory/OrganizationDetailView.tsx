@@ -344,7 +344,7 @@ export const OrganizationDetailView = ({
                    <span className="sr-only">Back</span>
                    ←
                 </button>
-                <CompanyLogo src={org.logo_url} name={org.name} size="lg" />
+                <CompanyLogo src={org.logo_url} name={org.name} size="lg" enlargeable />
                 <div>
                    <h1 className="text-2xl font-bold text-gray-900 leading-none">{org.name}</h1>
                    <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -701,13 +701,15 @@ export const OrganizationDetailView = ({
                             </div>
                          </div>
                       </Card>
-                      <Card title="Demographics">
-                         <div className="space-y-2">
-                            <div className="flex justify-between text-sm"><span>Minority Owned</span> <span>{org.demographics.minority_owned ? '✅' : '❌'}</span></div>
-                            <div className="flex justify-between text-sm"><span>Woman Owned</span> <span>{org.demographics.woman_owned ? '✅' : '❌'}</span></div>
-                            <div className="flex justify-between text-sm"><span>Veteran Owned</span> <span>{org.demographics.veteran_owned ? '✅' : '❌'}</span></div>
-                         </div>
-                      </Card>
+                      {(org.demographics.minority_owned || org.demographics.woman_owned || org.demographics.veteran_owned) && (
+                        <Card title="Characteristics">
+                          <div className="flex flex-wrap gap-2">
+                            {org.demographics.minority_owned && <Badge color="purple">Minority Owned</Badge>}
+                            {org.demographics.woman_owned && <Badge color="indigo">Woman Owned</Badge>}
+                            {org.demographics.veteran_owned && <Badge color="green">Veteran Owned</Badge>}
+                          </div>
+                        </Card>
+                      )}
                    </div>
                 </div>
               )}
