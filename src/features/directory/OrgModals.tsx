@@ -272,15 +272,21 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
 
 // --- Manage Person Modal ---
 interface ManagePersonModalProps {
-    person?: Person; // If null, we are adding
+    person?: Person; // If set, we are editing
     orgId?: string; // Optional if adding global
     organizations?: Organization[]; // needed if orgId is null
+    allPeople?: Person[]; // For linking existing people
     isOpen: boolean;
     onClose: () => void;
     onSave: (person: Partial<Person>) => void;
+    onLink?: (personId: string, roleTitle: string, relationshipType: string) => void;
 }
 
-export const ManagePersonModal = ({ person, orgId, organizations, isOpen, onClose, onSave }: ManagePersonModalProps) => {
+export const ManagePersonModal = ({ person, orgId, organizations, allPeople, isOpen, onClose, onSave, onLink }: ManagePersonModalProps) => {
+    const [mode, setMode] = useState<'new' | 'link'>('new');
+    const [linkedPersonId, setLinkedPersonId] = useState('');
+    const [linkRoleTitle, setLinkRoleTitle] = useState('');
+    const [linkRelationshipType, setLinkRelationshipType] = useState('employee');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [email, setEmail] = useState('');
@@ -288,72 +294,146 @@ export const ManagePersonModal = ({ person, orgId, organizations, isOpen, onClos
     const [selectedOrgId, setSelectedOrgId] = useState('');
     const [formError, setFormError] = useState('');
 
+    const isEditing = !!person;
+
     useEffect(() => {
         if (isOpen) {
+            setMode('new');
+            setLinkedPersonId('');
+            setLinkRoleTitle('');
+            setLinkRelationshipType('employee');
             setFirstName(person?.first_name || '');
             setLastName(person?.last_name || '');
             setEmail(person?.email || '');
             setRole(person?.role || '');
             setSelectedOrgId(orgId || person?.organization_id || '');
+            setFormError('');
         }
     }, [isOpen, person, orgId]);
 
     const handleSave = () => {
         setFormError('');
-        if (!orgId && !selectedOrgId) {
-            setFormError("Please select an organization.");
+        if (mode === 'link') {
+            if (!linkedPersonId) { setFormError('Please select a person to link.'); return; }
+            onLink?.(linkedPersonId, linkRoleTitle, linkRelationshipType);
+            onClose();
             return;
         }
-
+        if (!orgId && !selectedOrgId) {
+            setFormError('Please select an organization.');
+            return;
+        }
         onSave({
-            id: person?.id, // Keep ID if editing
+            id: person?.id,
             first_name: firstName,
             last_name: lastName,
             email,
             role,
-            organization_id: orgId || selectedOrgId
+            organization_id: orgId || selectedOrgId,
         });
         onClose();
     };
 
     const orgOptions = organizations?.map(o => ({ id: o.id, label: o.name })) || [];
 
+    // People not already affiliated with this org
+    const linkablePeople = (allPeople || [])
+        .filter(p => {
+            if (!orgId) return true;
+            if (p.organization_id === orgId) return false;
+            if (p.organization_affiliations?.some(a => a.organization_id === orgId && a.status !== 'revoked')) return false;
+            return true;
+        })
+        .map(p => ({ id: p.id, label: `${p.first_name} ${p.last_name} — ${p.email}` }));
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={person ? "Edit Person" : "Add Person"}>
+        <Modal isOpen={isOpen} onClose={onClose} title={isEditing ? 'Edit Person' : 'Add Person'} wide={mode === 'link'}>
             <div className="space-y-4">
-                {/* Org Selector if Global Create */}
-                {!orgId && (
-                    <SearchableSelect 
-                        label="Organization"
-                        options={orgOptions}
-                        value={selectedOrgId}
-                        onChange={setSelectedOrgId}
-                        placeholder="Search for organization..."
-                    />
+                {/* Mode toggle — only show when adding (not editing) and linking is available */}
+                {!isEditing && onLink && (
+                    <div className="flex rounded-md border border-gray-200 overflow-hidden text-sm">
+                        <button
+                            type="button"
+                            onClick={() => { setMode('new'); setFormError(''); }}
+                            className={`flex-1 py-2 font-medium transition-colors ${mode === 'new' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            Create new person
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setMode('link'); setFormError(''); }}
+                            className={`flex-1 py-2 font-medium transition-colors ${mode === 'link' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            Link existing person
+                        </button>
+                    </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className={FORM_LABEL_CLASS}>First Name</label>
-                        <input className={FORM_INPUT_CLASS} value={firstName} onChange={e => setFirstName(e.target.value)} />
+                {mode === 'link' ? (
+                    <div className="min-h-72 space-y-3">
+                        <SearchableSelect
+                            label="Search people"
+                            options={linkablePeople}
+                            value={linkedPersonId}
+                            onChange={setLinkedPersonId}
+                            placeholder="Search by name or email..."
+                        />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className={FORM_LABEL_CLASS}>Role Title <span className="font-normal text-gray-400">(optional)</span></label>
+                                <input className={FORM_INPUT_CLASS} value={linkRoleTitle} onChange={e => setLinkRoleTitle(e.target.value)} placeholder="e.g. Advisor, Coach..." />
+                            </div>
+                            <div>
+                                <label className={FORM_LABEL_CLASS}>Relationship</label>
+                                <select className={FORM_SELECT_CLASS} value={linkRelationshipType} onChange={e => setLinkRelationshipType(e.target.value)}>
+                                    <option value="founder">Founder</option>
+                                    <option value="owner">Owner</option>
+                                    <option value="employee">Employee</option>
+                                    <option value="advisor">Advisor</option>
+                                    <option value="board">Board</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <label className={FORM_LABEL_CLASS}>Last Name</label>
-                        <input className={FORM_INPUT_CLASS} value={lastName} onChange={e => setLastName(e.target.value)} />
-                    </div>
-                </div>
-                <div>
-                    <label className={FORM_LABEL_CLASS}>Email</label>
-                    <input className={FORM_INPUT_CLASS} value={email} onChange={e => setEmail(e.target.value)} />
-                </div>
-                <div>
-                    <label className={FORM_LABEL_CLASS}>Job Title / Role</label>
-                    <input className={FORM_INPUT_CLASS} value={role} onChange={e => setRole(e.target.value)} />
-                </div>
+                ) : (
+                    <>
+                        {!orgId && (
+                            <SearchableSelect
+                                label="Organization"
+                                options={orgOptions}
+                                value={selectedOrgId}
+                                onChange={setSelectedOrgId}
+                                placeholder="Search for organization..."
+                            />
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className={FORM_LABEL_CLASS}>First Name</label>
+                                <input className={FORM_INPUT_CLASS} value={firstName} onChange={e => setFirstName(e.target.value)} />
+                            </div>
+                            <div>
+                                <label className={FORM_LABEL_CLASS}>Last Name</label>
+                                <input className={FORM_INPUT_CLASS} value={lastName} onChange={e => setLastName(e.target.value)} />
+                            </div>
+                        </div>
+                        <div>
+                            <label className={FORM_LABEL_CLASS}>Email</label>
+                            <input className={FORM_INPUT_CLASS} value={email} onChange={e => setEmail(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className={FORM_LABEL_CLASS}>Job Title / Role</label>
+                            <input className={FORM_INPUT_CLASS} value={role} onChange={e => setRole(e.target.value)} />
+                        </div>
+                    </>
+                )}
+
                 {formError && <p className="text-sm text-red-600 mt-2">{formError}</p>}
                 <div className="flex justify-end pt-2 gap-2">
                     <button onClick={onClose} className="px-4 py-2 border rounded hover:bg-gray-50 text-sm">Cancel</button>
-                    <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">Save Person</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">
+                        {mode === 'link' ? 'Link Person' : isEditing ? 'Save' : 'Create Person'}
+                    </button>
                 </div>
             </div>
         </Modal>

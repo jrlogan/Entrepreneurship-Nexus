@@ -49,6 +49,7 @@ export const PersonDetailView = ({
         relationship_type: affiliation.relationship_type || 'other',
         status: affiliation.status || 'active',
         can_self_manage: affiliation.can_self_manage ?? false,
+        is_primary: affiliation.organization_id === person.organization_id,
       }));
     }
 
@@ -59,6 +60,7 @@ export const PersonDetailView = ({
         relationship_type: person.system_role === 'entrepreneur' ? 'founder' : 'employee',
         status: 'active' as const,
         can_self_manage: person.system_role === 'entrepreneur',
+        is_primary: true,
       }];
     }
 
@@ -88,7 +90,6 @@ export const PersonDetailView = ({
     secondary_emails: person.secondary_emails || [] as string[],
     avatar_url: person.avatar_url || '',
     role: person.role,
-    organization_id: person.organization_id,
     affiliations: buildAffiliationDrafts(),
   });
 
@@ -120,7 +121,6 @@ export const PersonDetailView = ({
       secondary_emails: person.secondary_emails || [],
       avatar_url: person.avatar_url || '',
       role: person.role,
-      organization_id: person.organization_id,
       affiliations: buildAffiliationDrafts(),
     });
     setProfilePhotoFile(null);
@@ -233,9 +233,11 @@ export const PersonDetailView = ({
         relationship_type: affiliation.relationship_type || 'other',
         status: affiliation.status || 'active',
         can_self_manage: affiliation.can_self_manage ?? false,
+        is_primary: affiliation.is_primary ?? false,
       }));
     const activeAffiliations = normalizedAffiliations.filter((affiliation) => affiliation.status === 'active');
-    const primaryOrganizationId = profileForm.organization_id
+    const primaryOrganizationId =
+      normalizedAffiliations.find((a) => a.is_primary)?.organization_id
       || activeAffiliations[0]?.organization_id
       || normalizedAffiliations[0]?.organization_id
       || person.organization_id;
@@ -271,14 +273,16 @@ export const PersonDetailView = ({
     }
   };
 
-  const handleAffiliationChange = (index: number, field: 'organization_id' | 'role_title' | 'relationship_type' | 'status' | 'can_self_manage', value: string | boolean) => {
+  const handleAffiliationChange = (index: number, field: 'organization_id' | 'role_title' | 'relationship_type' | 'status' | 'can_self_manage' | 'is_primary', value: string | boolean) => {
     setProfileForm((current) => ({
       ...current,
-      affiliations: current.affiliations.map((affiliation, affiliationIndex) => (
-        affiliationIndex === index
-          ? { ...affiliation, [field]: value }
-          : affiliation
-      )),
+      affiliations: current.affiliations.map((affiliation, affiliationIndex) => {
+        if (field === 'is_primary') {
+          // Only one can be primary at a time
+          return { ...affiliation, is_primary: affiliationIndex === index };
+        }
+        return affiliationIndex === index ? { ...affiliation, [field]: value } : affiliation;
+      }),
     }));
   };
 
@@ -293,16 +297,23 @@ export const PersonDetailView = ({
           relationship_type: 'other',
           status: 'pending',
           can_self_manage: false,
+          is_primary: false,
         }
       ]
     }));
   };
 
   const handleRemoveAffiliation = (index: number) => {
-    setProfileForm((current) => ({
-      ...current,
-      affiliations: current.affiliations.filter((_, affiliationIndex) => affiliationIndex !== index)
-    }));
+    setProfileForm((current) => {
+      const next = current.affiliations.filter((_, i) => i !== index);
+      // If the removed one was primary, promote the first remaining active one
+      if (current.affiliations[index]?.is_primary && next.length > 0) {
+        const firstActive = next.findIndex((a) => a.status === 'active' && a.organization_id);
+        const promote = firstActive >= 0 ? firstActive : 0;
+        next[promote] = { ...next[promote], is_primary: true };
+      }
+      return { ...current, affiliations: next };
+    });
   };
 
   const formatAffiliationStatus = (status?: string) => {
@@ -380,12 +391,21 @@ export const PersonDetailView = ({
       <div className="space-y-6">
         {activeTab === 'associations' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {visibleAffiliations.map((affiliation, index) => {
+            {[...visibleAffiliations].sort((a, b) => {
+              const aIsPrimary = a.organization_id === person.organization_id ? 0 : 1;
+              const bIsPrimary = b.organization_id === person.organization_id ? 0 : 1;
+              return aIsPrimary - bIsPrimary;
+            }).map((affiliation, index) => {
               const organization = organizations.find((candidate) => candidate.id === affiliation.organization_id);
               if (!organization) return null;
               const isPrimary = organization.id === person.organization_id;
               return (
-                <Card key={`${organization.id}_${index}`} title={isPrimary ? 'Primary Organization' : 'Organization Affiliation'}>
+                <Card key={`${organization.id}_${index}`} title={
+                  <span className="flex items-center gap-2">
+                    Organization
+                    {isPrimary && <Badge color="indigo">Default</Badge>}
+                  </span>
+                }>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       {onSelectOrganization ? (
@@ -683,15 +703,6 @@ export const PersonDetailView = ({
               </div>
             </div>
           </div>
-          <div>
-            <label className={FORM_LABEL_CLASS}>Default Acting Organization</label>
-            <select className={FORM_SELECT_CLASS} value={profileForm.organization_id} onChange={(event) => setProfileForm({ ...profileForm, organization_id: event.target.value })}>
-              <option value="">Select a default organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>{organization.name}</option>
-              ))}
-            </select>
-          </div>
           <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
             <div className="mb-3 flex items-center justify-between gap-4">
               <div>
@@ -707,8 +718,22 @@ export const PersonDetailView = ({
             <div className="space-y-4">
               {profileForm.affiliations.map((affiliation, index) => (
                 <div key={`${affiliation.organization_id || 'new'}_${index}`} className="rounded border border-gray-200 bg-white p-4 space-y-3">
-                  <div className="flex justify-between gap-3">
-                    <div className="text-sm font-medium text-gray-900">Affiliation {index + 1}</div>
+                  <div className="flex justify-between items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      {affiliation.is_primary ? (
+                        <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">Default</span>
+                      ) : (
+                        affiliation.organization_id && (
+                          <button
+                            type="button"
+                            onClick={() => handleAffiliationChange(index, 'is_primary', true)}
+                            className="text-xs text-gray-500 hover:text-indigo-700 border border-gray-200 hover:border-indigo-300 px-2 py-0.5 rounded-full hover:bg-indigo-50 transition-colors"
+                          >
+                            Make default
+                          </button>
+                        )
+                      )}
+                    </div>
                     <button onClick={() => handleRemoveAffiliation(index)} className="text-xs text-gray-500 hover:text-red-600">
                       Remove
                     </button>

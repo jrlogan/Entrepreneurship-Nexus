@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Organization, Person, Initiative, Interaction, Referral, Service } from '../../domain/types';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { Card, Badge, CompanyLogo, InfoBanner, Modal, FORM_TEXTAREA_CLASS } from '../../shared/ui/Components';
+import { Card, Badge, CompanyLogo, InfoBanner, Modal, FORM_TEXTAREA_CLASS, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
 import { METRIC_SETS } from '../../domain/metrics/reporting_config';
 import { MetricAssignment } from '../../domain/metrics/reporting_types';
 import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
@@ -51,6 +51,7 @@ export const OrganizationDetailView = ({
     const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
     const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
     const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+    const [editAffiliationPerson, setEditAffiliationPerson] = useState<{ id: string; name: string; roleTitle: string; relationshipType: string; status: string } | null>(null);
     const [isEditOrgOpen, setIsEditOrgOpen] = useState(false);
     const [isSupportRequestOpen, setIsSupportRequestOpen] = useState(false);
     const [supportRequestNotes, setSupportRequestNotes] = useState('');
@@ -79,7 +80,10 @@ export const OrganizationDetailView = ({
             || normalized.includes('executive director');
     };
 
-    const orgPeople = people.filter(p => p.organization_id === org.id);
+    const orgPeople = people.filter(p =>
+      p.organization_id === org.id ||
+      p.organization_affiliations?.some(a => a.organization_id === org.id && a.status !== 'revoked')
+    );
     const orgInitiatives = initiatives.filter(i => i.organization_id === org.id);
     const orgInteractions = interactions.filter(i => i.organization_id === org.id);
     const orgReferrals = referrals.filter(r => r.referring_org_id === org.id || r.receiving_org_id === org.id || r.subject_org_id === org.id);
@@ -261,6 +265,48 @@ export const OrganizationDetailView = ({
 
     const handleSaveOrgProfile = async (updates: Partial<Organization>) => {
         await repos.organizations.update(org.id, updates);
+        onRefresh?.();
+    };
+
+    const handleLinkPerson = async (personId: string, roleTitle: string, relationshipType: string) => {
+        const target = people.find(p => p.id === personId);
+        if (!target) return;
+        type RelType = 'founder' | 'owner' | 'employee' | 'advisor' | 'board' | 'other';
+        const existingAffiliations = target.organization_affiliations || [];
+        const alreadyLinked = existingAffiliations.some(a => a.organization_id === org.id);
+        if (alreadyLinked) return;
+        await repos.people.update(personId, {
+            organization_affiliations: [
+                ...existingAffiliations,
+                {
+                    organization_id: org.id,
+                    role_title: roleTitle || null,
+                    relationship_type: ((relationshipType || 'employee') as RelType),
+                    status: 'active' as const,
+                    can_self_manage: false,
+                },
+            ],
+        });
+        onRefresh?.();
+    };
+
+    const handleUpdateAffiliation = async (personId: string, updates: { role_title: string; relationship_type: string; status: string }) => {
+        const target = people.find(p => p.id === personId);
+        if (!target) return;
+        type RelType = 'founder' | 'owner' | 'employee' | 'advisor' | 'board' | 'other';
+        type StatusType = 'active' | 'pending' | 'revoked';
+        const relType = (updates.relationship_type as RelType) || 'employee';
+        const statusType = (updates.status as StatusType) || 'active';
+        const existingAffiliations = target.organization_affiliations || [];
+        const hasAffiliation = existingAffiliations.some(a => a.organization_id === org.id);
+        const updatedAffiliations = hasAffiliation
+            ? existingAffiliations.map(a =>
+                a.organization_id === org.id
+                    ? { ...a, role_title: updates.role_title || null, relationship_type: relType, status: statusType }
+                    : a
+              )
+            : [...existingAffiliations, { organization_id: org.id, role_title: updates.role_title || null, relationship_type: relType, status: statusType, can_self_manage: false }];
+        await repos.people.update(personId, { organization_affiliations: updatedAffiliations });
         onRefresh?.();
     };
 
@@ -798,12 +844,17 @@ export const OrganizationDetailView = ({
                                <thead className="bg-gray-50">
                                    <tr>
                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role / Title</th>
                                        {isRestricted && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visibility</th>}
+                                       {isManageable && !isRestricted && <th className="px-6 py-3" />}
                                    </tr>
                                </thead>
                                <tbody className="bg-white divide-y divide-gray-200">
-                                   {visiblePeople.map(p => (
+                                   {visiblePeople.map(p => {
+                                       const affiliation = p.organization_affiliations?.find(a => a.organization_id === org.id);
+                                       const displayRole = affiliation?.role_title || p.role || '';
+                                       const displayRelationship = affiliation?.relationship_type || '';
+                                       return (
                                        <tr key={p.id}>
                                            <td className="px-6 py-4 text-sm font-medium text-indigo-600">
                                                {onSelectPerson ? (
@@ -814,7 +865,10 @@ export const OrganizationDetailView = ({
                                                    `${p.first_name} ${p.last_name}`
                                                )}
                                            </td>
-                                           <td className="px-6 py-4 text-sm text-gray-500">{p.role}</td>
+                                           <td className="px-6 py-4 text-sm text-gray-500">
+                                               {displayRole && <span>{displayRole}</span>}
+                                               {displayRelationship && <span className="ml-2 text-xs text-gray-400">({displayRelationship})</span>}
+                                           </td>
                                            {isRestricted && (
                                                <td className="px-6 py-4 text-right">
                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
@@ -822,8 +876,24 @@ export const OrganizationDetailView = ({
                                                    </span>
                                                </td>
                                            )}
+                                           {isManageable && !isRestricted && (
+                                               <td className="px-6 py-4 text-right">
+                                                   <button
+                                                       onClick={() => setEditAffiliationPerson({
+                                                           id: p.id,
+                                                           name: `${p.first_name} ${p.last_name}`,
+                                                           roleTitle: affiliation?.role_title || p.role || '',
+                                                           relationshipType: affiliation?.relationship_type || 'employee',
+                                                           status: affiliation?.status || 'active',
+                                                       })}
+                                                       className="text-xs text-indigo-600 hover:underline"
+                                                   >
+                                                       Edit role
+                                                   </button>
+                                               </td>
+                                           )}
                                        </tr>
-                                   ))}
+                                   )})}
                                    {visiblePeople.length === 0 && (
                                        <tr>
                                            <td colSpan={isRestricted ? 3 : 2} className="px-6 py-8 text-center text-sm text-gray-500 italic">
@@ -1420,8 +1490,72 @@ export const OrganizationDetailView = ({
                isOpen={isAddPersonOpen}
                onClose={() => setIsAddPersonOpen(false)}
                onSave={(personUpdates) => { void handleAddPerson(personUpdates); }}
+               onLink={(personId, roleTitle, relationshipType) => { void handleLinkPerson(personId, roleTitle, relationshipType); }}
                orgId={org.id}
+               allPeople={people}
            />
+
+           {/* Edit affiliation modal */}
+           <Modal isOpen={!!editAffiliationPerson} onClose={() => setEditAffiliationPerson(null)} title={`Edit Role — ${editAffiliationPerson?.name || ''}`}>
+               {editAffiliationPerson && (
+                   <div className="space-y-4">
+                       <div>
+                           <label className={FORM_LABEL_CLASS}>Role Title</label>
+                           <input
+                               className={FORM_INPUT_CLASS}
+                               value={editAffiliationPerson.roleTitle}
+                               onChange={e => setEditAffiliationPerson({ ...editAffiliationPerson, roleTitle: e.target.value })}
+                               placeholder="e.g. Founder, Advisor, Coach..."
+                           />
+                       </div>
+                       <div className="grid grid-cols-2 gap-3">
+                           <div>
+                               <label className={FORM_LABEL_CLASS}>Relationship</label>
+                               <select
+                                   className={FORM_SELECT_CLASS}
+                                   value={editAffiliationPerson.relationshipType}
+                                   onChange={e => setEditAffiliationPerson({ ...editAffiliationPerson, relationshipType: e.target.value })}
+                               >
+                                   <option value="founder">Founder</option>
+                                   <option value="owner">Owner</option>
+                                   <option value="employee">Employee</option>
+                                   <option value="advisor">Advisor</option>
+                                   <option value="board">Board</option>
+                                   <option value="other">Other</option>
+                               </select>
+                           </div>
+                           <div>
+                               <label className={FORM_LABEL_CLASS}>Status</label>
+                               <select
+                                   className={FORM_SELECT_CLASS}
+                                   value={editAffiliationPerson.status}
+                                   onChange={e => setEditAffiliationPerson({ ...editAffiliationPerson, status: e.target.value })}
+                               >
+                                   <option value="active">Active</option>
+                                   <option value="pending">Pending</option>
+                                   <option value="revoked">No longer active</option>
+                               </select>
+                           </div>
+                       </div>
+                       <div className="flex justify-end gap-2 pt-2">
+                           <button onClick={() => setEditAffiliationPerson(null)} className="px-4 py-2 border rounded hover:bg-gray-50 text-sm">Cancel</button>
+                           <button
+                               onClick={() => {
+                                   void handleUpdateAffiliation(editAffiliationPerson.id, {
+                                       role_title: editAffiliationPerson.roleTitle,
+                                       relationship_type: editAffiliationPerson.relationshipType,
+                                       status: editAffiliationPerson.status,
+                                   });
+                                   setEditAffiliationPerson(null);
+                               }}
+                               className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm"
+                           >
+                               Save
+                           </button>
+                       </div>
+                   </div>
+               )}
+           </Modal>
            {isManageable && (
                <EditOrgModal
                    org={org}

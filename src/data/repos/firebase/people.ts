@@ -18,6 +18,7 @@ interface FirestorePersonRecord {
   links?: Person['links'];
   organization_affiliations?: Person['organization_affiliations'];
   secondary_profile?: Person['secondary_profile'];
+  secondary_emails?: string[];
 }
 
 interface FirestorePersonMembershipRecord {
@@ -58,6 +59,7 @@ const toPerson = (
     tags: record.tags,
     external_refs: record.external_refs,
     links: record.links,
+    secondary_emails: record.secondary_emails,
   };
 };
 

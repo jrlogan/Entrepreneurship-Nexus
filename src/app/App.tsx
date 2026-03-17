@@ -154,7 +154,13 @@ const App = () => {
 
   // Context Management
   const [currentEcosystemId, setCurrentEcosystemId] = useState<string>(initialRoute.ecosystemId || demoUser.memberships?.[0]?.ecosystem_id || DEFAULT_ECO.id);
-  const [currentActingOrgId, setCurrentActingOrgId] = useState<string>('');
+  const [currentActingOrgId, setCurrentActingOrgId] = useState<string>(() => {
+    try { return localStorage.getItem('acting_org_id') || ''; } catch { return ''; }
+  });
+  const switchActingOrg = React.useCallback((orgId: string) => {
+    setCurrentActingOrgId(orgId);
+    try { localStorage.setItem('acting_org_id', orgId); } catch { /* ignore */ }
+  }, []);
   const activeMemberships = useMemo(() => activeUser?.memberships || [], [activeUser]);
   const currentMembership = activeMemberships.find(m => m.ecosystem_id === currentEcosystemId) || activeMemberships[0] || null;
   const currentRole = currentMembership?.system_role || activeUser?.system_role || 'entrepreneur';
@@ -181,24 +187,26 @@ const App = () => {
 
   useEffect(() => {
     if (!activeUser) {
-      setCurrentActingOrgId('');
+      switchActingOrg('');
       return;
     }
 
     if (activeOrganizationAffiliations.length === 0) {
-      setCurrentActingOrgId('');
+      switchActingOrg('');
       return;
     }
 
     const validOrgIds = new Set(activeOrganizationAffiliations.map((affiliation) => affiliation.organization_id));
     if (!currentActingOrgId || !validOrgIds.has(currentActingOrgId)) {
-      setCurrentActingOrgId(
-        currentMembership?.organization_id && validOrgIds.has(currentMembership.organization_id)
-          ? currentMembership.organization_id
-          : activeOrganizationAffiliations[0].organization_id
-      );
+      // Prefer: primary org → membership org → first affiliation
+      const primaryOrgId = activeUser?.organization_id;
+      const fallback =
+        (primaryOrgId && validOrgIds.has(primaryOrgId) ? primaryOrgId : null)
+        ?? (currentMembership?.organization_id && validOrgIds.has(currentMembership.organization_id) ? currentMembership.organization_id : null)
+        ?? activeOrganizationAffiliations[0].organization_id;
+      switchActingOrg(fallback);
     }
-  }, [activeOrganizationAffiliations, activeUser, currentActingOrgId, currentMembership]);
+  }, [activeOrganizationAffiliations, activeUser, currentActingOrgId, currentMembership, switchActingOrg]);
 
   useEffect(() => {
     if (CONFIG.IS_DEMO_MODE || !activeUser) {
@@ -564,7 +572,7 @@ const App = () => {
           tab: selectedTab,
           ecosystemId,
         }, 'push')}
-        onSwitchActingOrganization={setCurrentActingOrgId}
+        onSwitchActingOrganization={switchActingOrg}
         onSelectOrganization={navigateToOrg}
         view={view}
         onNavigate={handleNavigate}
@@ -861,7 +869,7 @@ const App = () => {
                             ]
                         });
                     }
-                    setCurrentActingOrgId(newOrg.id);
+                    switchActingOrg(newOrg.id);
                     applyRoute({ view: 'my_ventures', ecosystemId: currentEcosystemId }, 'push');
                 } else {
                     setView('directory');
