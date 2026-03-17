@@ -182,7 +182,7 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
             description: description || '',
             url: website,
             tax_status: 'for_profit',
-            year_incorporated: yearFormed,
+            ...(yearFormed ? { year_incorporated: yearFormed } : {}),
             roles: [role],
             demographics: { minority_owned: false, woman_owned: false, veteran_owned: false },
             classification: {

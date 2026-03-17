@@ -37,7 +37,9 @@ export const setDocument = async <T>(collectionName: string, id: string, data: T
     throw new Error('Firestore is not configured.');
   }
 
-  await setDoc(doc(db, collectionName, id), data as object, { merge });
+  // Firestore rejects undefined field values — strip them before writing
+  const clean = Object.fromEntries(Object.entries(data as object).filter(([, v]) => v !== undefined));
+  await setDoc(doc(db, collectionName, id), clean, { merge });
 };
 
 export const deleteDocument = async (collectionName: string, id: string) => {
