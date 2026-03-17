@@ -34,6 +34,7 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - run: echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> functions/.env.prod
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:

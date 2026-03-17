@@ -3507,3 +3507,155 @@ export const previewQueuedNotices = onRequest({ invoker: 'public' }, async (req,
     }),
   });
 });
+
+// ---------------------------------------------------------------------------
+// generateEsoProfile — AI-powered ESO profile generation from website content
+// ---------------------------------------------------------------------------
+
+export const generateEsoProfile = onRequest({ invoker: 'public', timeoutSeconds: 120 }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  const idToken = req.headers.authorization?.replace('Bearer ', '');
+  if (!idToken) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  let uid: string;
+  try {
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    uid = decoded.uid;
+  } catch {
+    res.status(401).json({ error: 'Invalid token' }); return;
+  }
+
+  const db = admin.firestore();
+  const personDoc = await db.collection('people').doc(uid).get();
+  if (!personDoc.exists || !['platform_admin', 'ecosystem_manager'].includes(personDoc.data()?.system_role)) {
+    res.status(403).json({ error: 'Admin only' }); return;
+  }
+
+  const { org_id, bulk, force } = req.body as { org_id?: string; bulk?: boolean; force?: boolean };
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) { res.status(500).json({ error: 'GEMINI_API_KEY not configured' }); return; }
+
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+  // Fetch and strip a URL to plain text
+  const fetchPageText = async (url: string): Promise<string> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const resp = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ESO-Profile-Bot/1.0)' } });
+      if (!resp.ok) return '';
+      const html = await resp.text();
+      // Strip tags, collapse whitespace, limit length
+      return html.replace(/<script[\s\S]*?<\/script>/gi, '')
+                 .replace(/<style[\s\S]*?<\/style>/gi, '')
+                 .replace(/<[^>]+>/g, ' ')
+                 .replace(/\s+/g, ' ')
+                 .trim()
+                 .slice(0, 12000);
+    } catch {
+      return '';
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const fetchBestPageText = async (baseUrl: string): Promise<string> => {
+    const normalized = baseUrl.replace(/\/$/, '');
+    const candidates = [`${normalized}/about`, `${normalized}/about-us`, `${normalized}/who-we-are`, normalized];
+    for (const url of candidates) {
+      const text = await fetchPageText(url);
+      if (text.length > 200) return text;
+    }
+    return '';
+  };
+
+  const generateDescription = async (org: admin.firestore.DocumentData, orgId: string): Promise<string | null> => {
+    const url: string = org.url || '';
+    if (!url) return null;
+
+    const pageText = await fetchBestPageText(url);
+    if (!pageText) return null;
+
+    const prompt = `You are writing a profile for an Entrepreneur Support Organization (ESO) that will be shown to entrepreneurs deciding who to reach out to for help.
+
+Organization name: ${org.name || orgId}
+Website: ${url}
+Website content (extracted text):
+${pageText}
+
+Write a concise, informative profile in Markdown format with these sections:
+- A 2-3 sentence opening paragraph describing what this organization does and who they serve (no heading needed)
+- **Who We Serve** — bullet list of the types of entrepreneurs or businesses they focus on
+- **Key Programs & Services** — bullet list of their main offerings (funding, coaching, incubation, etc.)
+
+Keep it factual, practical, and under 200 words. Do not invent information not supported by the website content. If the website doesn't have enough information, write what you can with a note that more detail can be found on their website.`;
+
+    try {
+      const result = await model.generateContent(prompt);
+      return result.response.text().trim();
+    } catch {
+      return null;
+    }
+  };
+
+  if (bulk) {
+    // Bulk mode: process all ESOs that have a URL and either no description or auto-generated one
+    const snapshot = await db.collection('organizations').get();
+    const esos = snapshot.docs.filter(d => {
+      const data = d.data();
+      const roles: string[] = data.roles || [];
+      if (!roles.includes('eso')) return false;
+      if (!data.url) return false;
+      if (!force && data.description_auto_generated === false) return false; // skip manual
+      return true;
+    });
+
+    const results: Array<{ id: string; name: string; status: string }> = [];
+    for (const doc of esos) {
+      const data = doc.data();
+      const already = data.description_auto_generated !== false && data.description && !force;
+      // Only skip if it already has a manual or AI description AND not forcing
+      if (!force && data.description_auto_generated === true && data.description) {
+        results.push({ id: doc.id, name: data.name, status: 'skipped_already_generated' });
+        continue;
+      }
+      if (!force && data.description_auto_generated === false) {
+        results.push({ id: doc.id, name: data.name, status: 'skipped_manual' });
+        continue;
+      }
+
+      const description = await generateDescription(data, doc.id);
+      if (description) {
+        await db.collection('organizations').doc(doc.id).update({ description, description_auto_generated: true });
+        results.push({ id: doc.id, name: data.name, status: 'generated' });
+      } else {
+        results.push({ id: doc.id, name: data.name, status: 'failed_no_content' });
+      }
+    }
+    res.json({ ok: true, results });
+    return;
+  }
+
+  // Single org mode
+  if (!org_id) { res.status(400).json({ error: 'org_id required' }); return; }
+  const orgDoc = await db.collection('organizations').doc(org_id).get();
+  if (!orgDoc.exists) { res.status(404).json({ error: 'Organization not found' }); return; }
+  const orgData = orgDoc.data()!;
+
+  if (!force && orgData.description_auto_generated === false) {
+    res.json({ ok: false, skipped: true, reason: 'Manual description — pass force:true to override' });
+    return;
+  }
+
+  const description = await generateDescription(orgData, org_id);
+  if (!description) {
+    res.status(422).json({ error: 'Could not fetch usable content from the organization website' });
+    return;
+  }
+
+  await db.collection('organizations').doc(org_id).update({ description, description_auto_generated: true });
+  res.json({ ok: true, description });
+});

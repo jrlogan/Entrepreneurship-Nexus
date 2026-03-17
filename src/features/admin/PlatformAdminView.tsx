@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ViewMode } from '../../app/types';
 import { getDocs, collection, orderBy, query, doc, updateDoc } from 'firebase/firestore';
 import { getFirestoreDb } from '../../services/firebaseApp';
+import { callHttpFunction } from '../../services/httpFunctionClient';
 
 interface Tool {
   view: ViewMode;
@@ -99,6 +100,77 @@ const downloadFeedbackCsv = (items: FeedbackItem[]) => {
   URL.revokeObjectURL(url);
 };
 
+type BulkResult = { id: string; name: string; status: string };
+
+const EsoProfileGenerator = () => {
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState<BulkResult[] | null>(null);
+  const [error, setError] = useState('');
+  const [force, setForce] = useState(false);
+
+  const run = async () => {
+    setRunning(true);
+    setError('');
+    setResults(null);
+    try {
+      const res = await callHttpFunction<{ bulk: boolean; force: boolean }, { ok: boolean; results: BulkResult[] }>(
+        'generateEsoProfile', { bulk: true, force }
+      );
+      setResults(res.results);
+    } catch (e: any) {
+      setError(e?.message || 'Generation failed.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const statusColor = (s: string) =>
+    s === 'generated' ? 'text-green-700' :
+    s === 'skipped_manual' ? 'text-gray-400' :
+    s === 'skipped_already_generated' ? 'text-indigo-400' :
+    'text-red-600';
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">ESO Profile Generator</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Uses AI to generate markdown descriptions for ESOs from their websites. Manual descriptions are preserved.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+            <input type="checkbox" checked={force} onChange={e => setForce(e.target.checked)} className="rounded" />
+            Force regenerate all
+          </label>
+          <button
+            onClick={() => void run()}
+            disabled={running}
+            className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-40"
+          >
+            {running ? '⏳ Running…' : '✨ Generate ESO Profiles'}
+          </button>
+        </div>
+      </div>
+      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {results && (
+        <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+          {results.map(r => (
+            <div key={r.id} className="flex items-center justify-between px-4 py-2 text-sm">
+              <span className="text-gray-800">{r.name}</span>
+              <span className={`text-xs font-medium ${statusColor(r.status)}`}>{r.status.replace(/_/g, ' ')}</span>
+            </div>
+          ))}
+          <div className="px-4 py-2 text-xs text-gray-400">
+            {results.filter(r => r.status === 'generated').length} generated ·{' '}
+            {results.filter(r => r.status.startsWith('skipped')).length} skipped ·{' '}
+            {results.filter(r => r.status.startsWith('failed')).length} failed
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
 export const PlatformAdminView = ({ onNavigate }: Props) => {
   const platformTools = PLATFORM_TOOLS.filter(t => t.scope === 'platform');
   const ecosystemTools = PLATFORM_TOOLS.filter(t => t.scope === 'ecosystem');
@@ -190,6 +262,8 @@ export const PlatformAdminView = ({ onNavigate }: Props) => {
           ))}
         </div>
       </section>
+
+      <EsoProfileGenerator />
 
       <section>
         <div className="flex items-center justify-between mb-3">

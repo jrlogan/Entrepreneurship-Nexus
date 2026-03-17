@@ -112,6 +112,9 @@ export interface Organization {
   verified_at?: string;
   verified_by?: string; // Person ID of the staff member who verified
 
+  // AI-generated profile content
+  description_auto_generated?: boolean; // true = AI-generated, can be regenerated; false/absent = manual, leave alone
+
   // ESO Service Catalog
   support_offerings?: SupportNeed[];
 
