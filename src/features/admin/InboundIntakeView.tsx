@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, Modal, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, InfoBanner } from '../../shared/ui/Components';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
-import { queryCollection, setDocument } from '../../services/firestoreClient';
+import { queryCollection, setDocument, deleteDocument } from '../../services/firestoreClient';
 import { useAuthSession } from '../../app/useAuthSession';
 import type { AuthorizedSenderDomain, InboundActivityType, InboundMessage, InboundParseResult, InboundRoute } from '../../domain/inbound/types';
 import type { Organization } from '../../domain/organizations/types';
@@ -228,6 +228,9 @@ export const InboundIntakeView = () => {
     referring_org_id: '',
   });
   const [isApproving, setIsApproving] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [confirmDeleteDomainId, setConfirmDeleteDomainId] = useState<string | null>(null);
 
   const handleOpenReview = (message: InboundMessage) => {
     const result = parseResultByMessageId.get(message.id);
@@ -244,6 +247,8 @@ export const InboundIntakeView = () => {
       receiving_org_id: result?.candidate_receiving_org_id || '',
       referring_org_id: result?.candidate_referring_org_id || '',
     });
+    setIsRejecting(false);
+    setRejectReason('');
     setError(null);
   };
 
@@ -267,15 +272,12 @@ export const InboundIntakeView = () => {
 
   const rejectMessage = async () => {
     if (!selectedMessage) return;
-    const reason = window.prompt('Reason for rejection:');
-    if (reason === null) return;
-
     setIsApproving(true);
     setError(null);
     try {
       await callHttpFunction('rejectInboundMessage', {
         inbound_message_id: selectedMessage.id,
-        reason,
+        reason: rejectReason,
       });
       setSelectedMessage(null);
       await loadData();
@@ -284,6 +286,12 @@ export const InboundIntakeView = () => {
     } finally {
       setIsApproving(false);
     }
+  };
+
+  const deleteDomain = async (id: string) => {
+    await deleteDocument('authorized_sender_domains', id);
+    setConfirmDeleteDomainId(null);
+    await loadData();
   };
 
   return (
@@ -564,13 +572,39 @@ export const InboundIntakeView = () => {
                         <option value="blocked">blocked</option>
                       </select>
                       {canManageAuthorizedDomains ? (
-                        <button
-                          onClick={() => void persistAuthorizedDomain(domainRecord)}
-                          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          disabled={isSavingDomain}
-                        >
-                          Save
-                        </button>
+                        confirmDeleteDomainId === domainRecord.id ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setConfirmDeleteDomainId(null)}
+                              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => void deleteDomain(domainRecord.id)}
+                              className="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
+                            >
+                              Confirm delete
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => void persistAuthorizedDomain(domainRecord)}
+                              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                              disabled={isSavingDomain}
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteDomainId(domainRecord.id)}
+                              className="rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                              title="Delete domain"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )
                       ) : (
                         <div className="flex items-center justify-end">
                           <Badge color={domainRecord.is_active ? 'green' : 'gray'}>{domainRecord.is_active ? 'active' : 'inactive'}</Badge>
@@ -809,9 +843,36 @@ export const InboundIntakeView = () => {
               </div>
             </div>
 
+            {isRejecting ? (
+              <div className="space-y-3 pt-4 border-t border-gray-100">
+                <label className={FORM_LABEL_CLASS}>Reason for rejection</label>
+                <textarea
+                  className={`${FORM_INPUT_CLASS} min-h-[80px]`}
+                  placeholder="Optional: describe why this introduction is being rejected"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                />
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setIsRejecting(false)}
+                    disabled={isApproving}
+                    className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={() => void rejectMessage()}
+                    disabled={isApproving}
+                    className="rounded bg-red-600 px-6 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {isApproving ? 'Rejecting...' : 'Confirm Rejection'}
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="flex justify-between gap-3 pt-4 border-t border-gray-100">
               <button
-                onClick={() => void rejectMessage()}
+                onClick={() => setIsRejecting(true)}
                 disabled={isApproving}
                 className="rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
               >
@@ -833,6 +894,7 @@ export const InboundIntakeView = () => {
                 </button>
               </div>
             </div>
+            )}
           </div>
         </Modal>
       )}
