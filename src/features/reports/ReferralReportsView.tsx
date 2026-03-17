@@ -6,12 +6,14 @@ import { IconShare, IconRocket, IconBuilding, IconCheck } from '../../shared/ui/
 import { loadEnums } from '../../domain/standards/loadStandards';
 import type { Referral } from '../../domain/referrals/types';
 import type { Organization } from '../../domain/organizations/types';
+import type { Person } from '../../domain/people/types';
 
 export const ReferralReportsView = () => {
     const repos = useRepos();
     const viewer = useViewer();
     const [referrals, setReferrals] = useState<Referral[]>([]);
     const [organizations, setOrganizations] = useState<Organization[]>([]);
+    const [people, setPeople] = useState<Person[]>([]);
     
     const enums = loadEnums();
 
@@ -19,14 +21,16 @@ export const ReferralReportsView = () => {
         let cancelled = false;
 
         const loadData = async () => {
-            const [nextReferrals, nextOrganizations] = await Promise.all([
+            const [nextReferrals, nextOrganizations, nextPeople] = await Promise.all([
                 repos.referrals.getAll(viewer),
                 repos.organizations.getAll(viewer, viewer.ecosystemId),
+                repos.people.getAll(viewer.ecosystemId),
             ]);
 
             if (!cancelled) {
                 setReferrals(nextReferrals);
                 setOrganizations(nextOrganizations);
+                setPeople(nextPeople);
             }
         };
 
@@ -59,6 +63,7 @@ export const ReferralReportsView = () => {
         // 4. Leaderboards
         const senders: Record<string, number> = {};
         const receivers: Record<string, number> = {};
+        const individualReferrers: Record<string, number> = {};
 
         referrals.forEach(r => {
             // Status
@@ -79,8 +84,9 @@ export const ReferralReportsView = () => {
             }
 
             // Leaderboards
-            senders[r.referring_org_id] = (senders[r.referring_org_id] || 0) + 1;
-            receivers[r.receiving_org_id] = (receivers[r.receiving_org_id] || 0) + 1;
+            if (r.referring_org_id) senders[r.referring_org_id] = (senders[r.referring_org_id] || 0) + 1;
+            if (r.receiving_org_id) receivers[r.receiving_org_id] = (receivers[r.receiving_org_id] || 0) + 1;
+            if (r.referring_person_id) individualReferrers[r.referring_person_id] = (individualReferrers[r.referring_person_id] || 0) + 1;
         });
 
         const avgVelocity = closedCount > 0 ? Math.round(totalDaysToClose / closedCount) : 0;
@@ -97,6 +103,16 @@ export const ReferralReportsView = () => {
             .slice(0, 5)
             .map(([id, count]) => ({ id, count, name: organizations.find(o => o.id === id)?.name || 'Unknown' }));
 
+        const topIndividualReferrers = Object.entries(individualReferrers)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10)
+            .map(([id, count]) => {
+                const p = people.find(person => person.id === id);
+                const name = p ? `${p.first_name} ${p.last_name}`.trim() : 'Unknown';
+                const org = p?.primary_organization_id ? organizations.find(o => o.id === p.primary_organization_id)?.name ?? null : null;
+                return { id, count, name, org };
+            });
+
         return {
             total,
             counts,
@@ -104,9 +120,10 @@ export const ReferralReportsView = () => {
             completionRate,
             outcomes,
             topSenders,
-            topReceivers
+            topReceivers,
+            topIndividualReferrers,
         };
-    }, [referrals, organizations]);
+    }, [referrals, organizations, people]);
 
     if (!stats) {
         return (
@@ -253,6 +270,29 @@ export const ReferralReportsView = () => {
                     </div>
                 </Card>
             </div>
+
+            {/* Individual Connector Leaderboard */}
+            {stats.topIndividualReferrers.length > 0 && (
+            <Card title="Individual Connector Leaderboard">
+                <p className="text-sm text-gray-500 mb-4">Staff members who have made the most referrals, tracked from inbound emails where the sender is a known system user.</p>
+                <ul className="divide-y divide-gray-100">
+                    {stats.topIndividualReferrers.map((entry, i) => (
+                        <li key={entry.id} className="flex items-center justify-between py-3 text-sm">
+                            <div className="flex items-center gap-3">
+                                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-yellow-100 text-yellow-700' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-600' : 'bg-gray-50 text-gray-400'}`}>
+                                    {i + 1}
+                                </span>
+                                <div>
+                                    <div className="font-medium text-gray-900">{entry.name}</div>
+                                    {entry.org && <div className="text-xs text-gray-500">{entry.org}</div>}
+                                </div>
+                            </div>
+                            <Badge color="blue">{entry.count} referral{entry.count === 1 ? '' : 's'}</Badge>
+                        </li>
+                    ))}
+                </ul>
+            </Card>
+            )}
         </div>
     );
 };
