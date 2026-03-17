@@ -112,10 +112,7 @@ export class FirebaseOrganizationsRepo {
   }
 
   async update(id: string, updates: Partial<Organization>): Promise<void> {
-    const updateDoc = {
-        ...updates,
-        updated_at: new Date().toISOString()
-    };
+    const updateDoc = { ...updates, updated_at: new Date().toISOString() };
     await updateDocument('organizations', id, updateDoc);
   }
 

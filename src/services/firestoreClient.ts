@@ -54,5 +54,7 @@ export const updateDocument = async <T>(collectionName: string, id: string, data
     throw new Error('Firestore is not configured.');
   }
 
-  await updateDoc(doc(db, collectionName, id), data as object);
+  // Firestore rejects undefined field values — strip them before writing
+  const clean = Object.fromEntries(Object.entries(data as object).filter(([, v]) => v !== undefined));
+  await updateDoc(doc(db, collectionName, id), clean);
 };
