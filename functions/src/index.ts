@@ -3541,43 +3541,58 @@ export const generateEsoProfile = onRequest({ invoker: 'public', timeoutSeconds:
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   // Fetch and strip a URL to plain text
-  const fetchPageText = async (url: string): Promise<string> => {
+  const fetchPageText = async (url: string): Promise<{ text: string; status: number | null; error?: string }> => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const resp = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ESO-Profile-Bot/1.0)' } });
-      if (!resp.ok) return '';
+      const resp = await fetch(url, {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
+      });
+      if (!resp.ok) return { text: '', status: resp.status, error: `HTTP ${resp.status}` };
       const html = await resp.text();
-      // Strip tags, collapse whitespace, limit length
-      return html.replace(/<script[\s\S]*?<\/script>/gi, '')
-                 .replace(/<style[\s\S]*?<\/style>/gi, '')
-                 .replace(/<[^>]+>/g, ' ')
-                 .replace(/\s+/g, ' ')
-                 .trim()
-                 .slice(0, 12000);
-    } catch {
-      return '';
+      const text = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 14000);
+      return { text, status: resp.status };
+    } catch (e: any) {
+      return { text: '', status: null, error: e?.message || 'fetch error' };
     } finally {
       clearTimeout(timeout);
     }
   };
 
-  const fetchBestPageText = async (baseUrl: string): Promise<string> => {
-    const normalized = baseUrl.replace(/\/$/, '');
-    const candidates = [`${normalized}/about`, `${normalized}/about-us`, `${normalized}/who-we-are`, normalized];
+  const fetchBestPageText = async (baseUrl: string): Promise<{ text: string; log: string[] }> => {
+    // Normalize: ensure https:// prefix
+    let normalized = baseUrl.replace(/\/$/, '');
+    if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+
+    const candidates = [normalized, `${normalized}/about`, `${normalized}/about-us`, `${normalized}/who-we-are`];
+    const log: string[] = [];
     for (const url of candidates) {
-      const text = await fetchPageText(url);
-      if (text.length > 200) return text;
+      const result = await fetchPageText(url);
+      log.push(`${url} → status=${result.status ?? 'n/a'} len=${result.text.length}${result.error ? ` err=${result.error}` : ''}`);
+      if (result.text.length > 300) return { text: result.text, log };
     }
-    return '';
+    return { text: '', log };
   };
 
-  const generateDescription = async (org: admin.firestore.DocumentData, orgId: string): Promise<string | null> => {
+  const generateDescription = async (org: admin.firestore.DocumentData, orgId: string): Promise<{ description: string | null; fetchLog: string[] }> => {
     const url: string = org.url || '';
-    if (!url) return null;
+    if (!url) return { description: null, fetchLog: ['no URL set'] };
 
-    const pageText = await fetchBestPageText(url);
-    if (!pageText) return null;
+    const { text: pageText, log: fetchLog } = await fetchBestPageText(url);
+    if (!pageText) return { description: null, fetchLog };
 
     const prompt = `You are writing a profile for an Entrepreneur Support Organization (ESO) that will be shown to entrepreneurs deciding who to reach out to for help.
 
@@ -3595,9 +3610,9 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
 
     try {
       const result = await model.generateContent(prompt);
-      return result.response.text().trim();
-    } catch {
-      return null;
+      return { description: result.response.text().trim(), fetchLog };
+    } catch (e: any) {
+      return { description: null, fetchLog: [...fetchLog, `Gemini error: ${e?.message}`] };
     }
   };
 
@@ -3627,12 +3642,12 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
         continue;
       }
 
-      const description = await generateDescription(data, doc.id);
+      const { description, fetchLog } = await generateDescription(data, doc.id);
       if (description) {
         await db.collection('organizations').doc(doc.id).update({ description, description_auto_generated: true });
         results.push({ id: doc.id, name: data.name, status: 'generated' });
       } else {
-        results.push({ id: doc.id, name: data.name, status: 'failed_no_content' });
+        results.push({ id: doc.id, name: data.name, status: `failed: ${fetchLog.at(-1) || 'no content'}` });
       }
     }
     res.json({ ok: true, results });
@@ -3650,9 +3665,9 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
     return;
   }
 
-  const description = await generateDescription(orgData, org_id);
+  const { description, fetchLog } = await generateDescription(orgData, org_id);
   if (!description) {
-    res.status(422).json({ error: 'Could not fetch usable content from the organization website' });
+    res.status(422).json({ error: 'Could not fetch usable content from the organization website', fetchLog });
     return;
   }
 
