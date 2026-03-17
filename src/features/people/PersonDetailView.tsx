@@ -99,6 +99,7 @@ export const PersonDetailView = ({
     avatar_url: person.avatar_url || '',
     role: person.role,
     affiliations: buildAffiliationDrafts(),
+    links: person.links || [] as Array<{ platform: 'linkedin' | 'twitter' | 'website' | 'github' | 'other'; url: string }>,
   });
 
   const personName = `${person.first_name} ${person.last_name}`;
@@ -131,6 +132,7 @@ export const PersonDetailView = ({
       avatar_url: person.avatar_url || '',
       role: person.role,
       affiliations: buildAffiliationDrafts(),
+      links: person.links || [],
     });
     setProfilePhotoFile(null);
     setProfilePhotoPreviewUrl(null);
@@ -272,6 +274,7 @@ export const PersonDetailView = ({
               role_title: secondaryAffiliation.role_title || 'Additional Affiliation',
             }
           : undefined,
+        links: profileForm.links.filter(l => l.url.trim()),
       });
       setShowEditProfile(false);
       onRefresh?.();
@@ -422,7 +425,7 @@ export const PersonDetailView = ({
             <a key={idx} href={link.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-gray-600 hover:text-indigo-600 transition-colors">
               <span className="font-bold uppercase text-xs">{link.platform}</span>
             </a>
-          )) : <span className="text-sm text-gray-400 italic">No social links added.</span>}
+          )) : <span className="text-sm text-gray-400 italic">{canEditProfile ? <button onClick={() => setShowEditProfile(true)} className="underline hover:text-indigo-500">Add LinkedIn or other links</button> : 'No social links added.'}</span>}
         </div>
       </div>
 
@@ -433,7 +436,7 @@ export const PersonDetailView = ({
             { id: 'interactions', label: `Interactions (${personInteractions.length})` },
             { id: 'referrals', label: `Referrals (${personReferrals.length})` },
             { id: 'participation', label: `Participation (${personParticipations.length})` },
-            ...(canEditProfile ? [{ id: 'settings', label: isOwnProfile ? 'My Settings' : 'Settings' }] : []),
+            ...((isOwnProfile || isAdminViewer) ? [{ id: 'settings', label: isOwnProfile ? 'My Settings' : 'Settings' }] : []),
           ].map((tab) => (
             <button key={tab.id} onClick={() => selectTab(tab.id as 'associations' | 'interactions' | 'referrals' | 'participation' | 'settings')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{tab.label}</button>
           ))}
@@ -774,9 +777,53 @@ export const PersonDetailView = ({
             </div>
           </div>
           <div>
+            <label className={FORM_LABEL_CLASS}>Social Links</label>
+            <div className="space-y-2">
+              {profileForm.links.map((link, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <select
+                    className="rounded border border-gray-300 text-sm px-2 py-1.5 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    value={link.platform}
+                    onChange={e => {
+                      const next = [...profileForm.links];
+                      next[i] = { ...next[i], platform: e.target.value as typeof link.platform };
+                      setProfileForm({ ...profileForm, links: next });
+                    }}
+                  >
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="website">Website</option>
+                    <option value="twitter">Twitter / X</option>
+                    <option value="github">GitHub</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <input
+                    className={FORM_INPUT_CLASS}
+                    value={link.url}
+                    placeholder="https://..."
+                    onChange={e => {
+                      const next = [...profileForm.links];
+                      next[i] = { ...next[i], url: e.target.value };
+                      setProfileForm({ ...profileForm, links: next });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setProfileForm({ ...profileForm, links: profileForm.links.filter((_, j) => j !== i) })}
+                    className="rounded border border-red-200 px-2 py-1.5 text-sm text-red-500 hover:bg-red-50"
+                  >×</button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setProfileForm({ ...profileForm, links: [...profileForm.links, { platform: 'linkedin', url: '' }] })}
+                className="text-sm text-indigo-600 hover:underline"
+              >+ Add link</button>
+            </div>
+          </div>
+          <div>
             <label className={FORM_LABEL_CLASS}>Profile Photo</label>
             <div className="flex items-center gap-4">
-              <Avatar src={profilePhotoPreviewUrl ?? person.avatar_url} name={`${profileForm.first_name} ${profileForm.last_name}`} size="lg" />
+              <Avatar src={profilePhotoPreviewUrl ?? person.avatar_url} name={personName} size="lg" />
               <div className="flex-1">
                 <input
                   type="file"

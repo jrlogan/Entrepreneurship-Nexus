@@ -9,6 +9,7 @@ import { MetricAssignment } from '../../domain/metrics/reporting_types';
 import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
 import { RESTRICTED_INITIATIVE_NAME, REDACTED_TEXT } from '../../domain/access/redaction';
 import { EditOrgModal, ManagePersonModal } from './OrgModals';
+import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 
 interface OrganizationDetailViewProps {
@@ -48,6 +49,7 @@ export const OrganizationDetailView = ({
     const [showAllEvents, setShowAllEvents] = useState(false);
     const [showPrivacyHelp, setShowPrivacyHelp] = useState(false);
     const [isUpdatingReferral, setIsUpdatingReferral] = useState<string | null>(null);
+    const [showCreateReferral, setShowCreateReferral] = useState(false);
     const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
     const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
     const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
@@ -991,6 +993,16 @@ export const OrganizationDetailView = ({
               
               {activeTab === 'referrals' && (
                   <div className="space-y-4">
+                      {!isEntrepreneurViewer && (
+                          <div className="flex justify-end">
+                              <button
+                                  onClick={() => setShowCreateReferral(true)}
+                                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
+                              >
+                                  + Make Referral
+                              </button>
+                          </div>
+                      )}
                       {orgReferrals.map(ref => {
                           const referrer = organizations.find(o => o.id === ref.referring_org_id);
                           const receiver = organizations.find(o => o.id === ref.receiving_org_id);
@@ -1485,6 +1497,25 @@ export const OrganizationDetailView = ({
                   </div>
               )}
            </div>
+
+           <CreateReferralModal
+               isOpen={showCreateReferral}
+               onClose={() => setShowCreateReferral(false)}
+               onSave={async (referral) => {
+                   await repos.referrals.add({
+                       id: `ref_${Date.now()}`,
+                       ecosystem_id: viewer.ecosystemId,
+                       source: 'manual_ui',
+                       date: new Date().toISOString(),
+                       ...referral,
+                   } as Referral);
+                   setShowCreateReferral(false);
+                   onRefresh?.();
+               }}
+               subjectOrg={org}
+               organizations={organizations}
+               currentOrgId={viewer.orgId}
+           />
 
            <ManagePersonModal
                isOpen={isAddPersonOpen}

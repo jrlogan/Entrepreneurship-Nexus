@@ -190,7 +190,8 @@ service cloud.firestore {
     match /feedback/{feedbackId} {
       allow create: if isAuthenticated();
       allow read: if isPlatformAdmin();
-      allow update, delete: if false;
+      allow update: if isPlatformAdmin();
+      allow delete: if false;
     }
 
     match /{document=**} {

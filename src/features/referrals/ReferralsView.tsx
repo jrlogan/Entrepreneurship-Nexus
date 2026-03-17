@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Badge, Modal, FORM_LABEL_CLASS, FORM_INPUT_CLASS, FORM_TEXTAREA_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
 import { loadEnums } from '../../domain/standards/loadStandards';
 import { EnumSelect } from '../../shared/EnumSelect';
@@ -7,6 +7,8 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Referral, Person } from '../../domain/types';
 import { CreateReferralModal } from './CreateReferralModal';
 import { callHttpFunction } from '../../services/httpFunctionClient';
+import { queryCollection } from '../../services/firestoreClient';
+import type { InboundRoute } from '../../domain/inbound/types';
 
 export const ReferralsView = ({
     currentUser,
@@ -55,11 +57,18 @@ export const ReferralsView = ({
     const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
     const [feedbackTone, setFeedbackTone] = useState<'success' | 'error'>('success');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [inboundRoutes, setInboundRoutes] = useState<InboundRoute[]>([]);
+    const [showEmailTemplate, setShowEmailTemplate] = useState(false);
+    const [templateCopied, setTemplateCopied] = useState<'to' | 'bcc' | 'subject' | 'body' | null>(null);
 
     // Interaction Log State (within Referral Modal)
     const [intDate, setIntDate] = useState('');
     const [intType, setIntType] = useState('call');
     const [intNotes, setIntNotes] = useState('');
+
+    useEffect(() => {
+        queryCollection<InboundRoute>('inbound_routes').then(setInboundRoutes).catch(() => {});
+    }, []);
 
     const enums = loadEnums();
     const defaultFollowUpDate = () => {
@@ -68,7 +77,7 @@ export const ReferralsView = ({
         return next.toISOString().split('T')[0];
     };
     
-    const currentOrgId = currentUser.organization_id;
+    const currentOrgId = viewer.orgId || currentUser.organization_id;
     const isSystemAdmin = ['platform_admin', 'ecosystem_manager'].includes(currentUser.system_role);
     const viewerOrg = organizations.find((o: any) => o.id === currentOrgId);
     // Build combined template list: personal first, then org-level, no duplicates by id
@@ -440,6 +449,50 @@ export const ReferralsView = ({
         };
     };
 
+    const getEmailTemplate = (ref: Referral) => {
+        const subjectPerson = people.find(p => p.id === ref.subject_person_id);
+        const subOrg = organizations.find(o => o.id === ref.subject_org_id);
+        const refOrg = organizations.find(o => o.id === ref.referring_org_id);
+        const recOrg = organizations.find(o => o.id === ref.receiving_org_id);
+        const bccRoute = inboundRoutes.find(r =>
+            r.ecosystem_id === viewer.ecosystemId &&
+            r.activity_type === 'introduction' &&
+            r.is_active
+        );
+
+        const firstName = subjectPerson?.first_name || '[Client First Name]';
+        const fullName = subjectPerson ? `${subjectPerson.first_name} ${subjectPerson.last_name}` : '[Client Name]';
+        const clientOrg = subOrg?.name || '[Client Organization]';
+        const senderOrg = refOrg?.name || '[Your Organization]';
+        const receiverOrg = recOrg?.name || '[Receiving Organization]';
+
+        return {
+            to: subjectPerson?.email || '[client email]',
+            bcc: bccRoute?.route_address || '[BCC tracking address — set up in Inbound Intake]',
+            hasBcc: !!bccRoute,
+            subject: `Introduction: ${senderOrg} → ${receiverOrg}`,
+            body: `Hi ${firstName},
+
+I'm reaching out from ${senderOrg}. We received an introduction from ${senderOrg === refOrg?.name ? 'our network' : refOrg?.name || 'a partner'} and wanted to connect regarding ${clientOrg}.
+
+${ref.notes ? `Background note:\n"${ref.notes}"\n` : ''}
+I'd love to learn more about what you're working on and how we might be able to help. [Add your specific next step here — e.g. schedule a call, visit our space, apply to a program.]
+
+[Your Name]
+[Your Title]
+${receiverOrg}
+[Phone / Calendar link]`,
+        };
+    };
+
+    const copyField = async (text: string, field: typeof templateCopied) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setTemplateCopied(field);
+            setTimeout(() => setTemplateCopied(null), 1800);
+        } catch { /* ignore */ }
+    };
+
     const getReferralLabel = (ref: Referral) => {
         const subjectPerson = people.find(p => p.id === ref.subject_person_id);
         if (subjectPerson) {
@@ -551,17 +604,122 @@ export const ReferralsView = ({
         : false;
     const isAcceptanceEmailValid = !sendAcceptanceEmail || !!acceptanceEmailMessage.trim();
 
+    // Generic intro email template for the page-level template block
+    const bccRoute = inboundRoutes.find(r =>
+        r.ecosystem_id === viewer.ecosystemId &&
+        r.activity_type === 'introduction' &&
+        r.is_active
+    );
+    const genericTemplate = {
+        bcc: bccRoute?.route_address || null,
+        subject: `Introduction: [Your Organization] → [Receiving Organization]`,
+        body: `Hi [Client First Name],
+
+I'm reaching out from [Your Organization]. We received a referral from [Referring Organization] and wanted to connect with you about [Client Organization / Venture Name].
+
+[Referral note or context from the system:]
+"[Paste the referral note here]"
+
+I'd love to learn more about what you're working on and how we can help. [Add your specific next step — e.g. schedule a call, visit our space, apply to a program.]
+
+[Your Name]
+[Your Title]
+[Your Organization]
+[Phone / Calendar link]`,
+    };
+
     return (
         <div className="space-y-6">
              <div className="flex justify-between items-center">
                  <h2 className="text-2xl font-bold text-gray-800">Referrals</h2>
-                 <button 
+                 <button
                     onClick={() => setIsCreateModalOpen(true)}
                     className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                  >
                     New Referral
                  </button>
              </div>
+
+             {/* Intro Email Template — for ESO staff to copy into their own email client / CRM */}
+             {!isSystemAdmin && currentUser.system_role !== 'entrepreneur' && (
+                 <div className="rounded-lg border border-slate-200 overflow-hidden">
+                     <button
+                         type="button"
+                         onClick={() => setShowEmailTemplate(v => !v)}
+                         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 text-left transition-colors"
+                     >
+                         <div className="flex items-center gap-2">
+                             <span className="text-sm font-semibold text-slate-700">Intro Email Template</span>
+                             <span className="text-xs text-slate-400">Copy this into your email client or CRM as a starting point for referral introductions</span>
+                         </div>
+                         <span className="text-slate-400 text-xs ml-4 shrink-0">{showEmailTemplate ? '▲ Hide' : '▼ Show'}</span>
+                     </button>
+
+                     {showEmailTemplate && (
+                         <div className="p-4 space-y-4 bg-white border-t border-slate-200">
+                             <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+                                 Send this from your own inbox. BCC the tracking address so the system automatically logs the outreach.
+                                 Fill in every <strong>[bracket]</strong> before sending — the referral note can be copied from the specific referral record.
+                             </div>
+
+                             {/* BCC address */}
+                             <div className="space-y-1">
+                                 <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">BCC (Tracking Address)</div>
+                                 {genericTemplate.bcc ? (
+                                     <div className="flex items-center gap-2">
+                                         <code className="flex-1 text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2 text-slate-800">{genericTemplate.bcc}</code>
+                                         <button
+                                             type="button"
+                                             onClick={() => void copyField(genericTemplate.bcc!, 'bcc')}
+                                             className="shrink-0 text-xs px-3 py-2 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
+                                         >
+                                             {templateCopied === 'bcc' ? '✓ Copied' : 'Copy'}
+                                         </button>
+                                     </div>
+                                 ) : (
+                                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                                         No active inbound route configured for this ecosystem — set one up in <strong>Inbound Intake</strong> to get your tracking address.
+                                     </p>
+                                 )}
+                             </div>
+
+                             {/* Subject */}
+                             <div className="space-y-1">
+                                 <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject Line</div>
+                                 <div className="flex items-center gap-2">
+                                     <code className="flex-1 text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2 text-slate-800">{genericTemplate.subject}</code>
+                                     <button
+                                         type="button"
+                                         onClick={() => void copyField(genericTemplate.subject, 'subject')}
+                                         className="shrink-0 text-xs px-3 py-2 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
+                                     >
+                                         {templateCopied === 'subject' ? '✓ Copied' : 'Copy'}
+                                     </button>
+                                 </div>
+                             </div>
+
+                             {/* Body */}
+                             <div className="space-y-1">
+                                 <div className="flex items-center justify-between">
+                                     <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Email Body</div>
+                                     <button
+                                         type="button"
+                                         onClick={() => void copyField(genericTemplate.body, 'body')}
+                                         className="text-xs px-3 py-1.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
+                                     >
+                                         {templateCopied === 'body' ? '✓ Copied' : 'Copy body'}
+                                     </button>
+                                 </div>
+                                 <pre className="text-sm bg-slate-50 border border-slate-200 rounded p-3 text-slate-800 whitespace-pre-wrap leading-relaxed font-sans">{genericTemplate.body}</pre>
+                             </div>
+
+                             <p className="text-xs text-slate-400">
+                                 When you open a specific referral record, the template there will be pre-filled with that client's name, org, and referral notes — ready to copy in one click.
+                             </p>
+                         </div>
+                     )}
+                 </div>
+             )}
 
              {/* Tabs */}
              <div className="border-b border-gray-200">
@@ -762,7 +920,7 @@ export const ReferralsView = ({
 
              {/* Referral Detail Modal */}
              {selectedReferral && (
-                 <Modal isOpen={!!selectedReferral} onClose={() => setSelectedReferral(null)} title="Manage Referral" wide>
+                 <Modal isOpen={!!selectedReferral} onClose={() => { setSelectedReferral(null); setShowEmailTemplate(false); }} title="Manage Referral" wide>
                      <div className="space-y-6">
                          <div className="bg-gray-50 p-4 rounded border border-gray-200 text-sm">
                              <div className="grid grid-cols-2 gap-4 mb-2">
@@ -786,7 +944,75 @@ export const ReferralsView = ({
                              </div>
                          </div>
 
-                         {/* Email Preview Section */}
+                         {/* Email Template Panel — for receiving org staff to copy into their own email client */}
+                        {(selectedReferral.receiving_org_id === currentOrgId || isSystemAdmin) && (() => {
+                            const tmpl = getEmailTemplate(selectedReferral);
+                            return (
+                                <div className="rounded border border-slate-200 overflow-hidden text-sm">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowEmailTemplate(v => !v)}
+                                        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 text-left transition-colors"
+                                    >
+                                        <div>
+                                            <span className="font-semibold text-slate-800">Email Template</span>
+                                            <span className="ml-2 text-xs text-slate-500">Copy a pre-filled intro email to send from your own email client</span>
+                                        </div>
+                                        <span className="text-slate-400 text-xs">{showEmailTemplate ? '▲ Hide' : '▼ Show'}</span>
+                                    </button>
+                                    {showEmailTemplate && (
+                                        <div className="p-4 space-y-3 bg-white border-t border-slate-200">
+                                            {!tmpl.hasBcc && (
+                                                <div className="rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                                                    No active inbound route found for this ecosystem. Set one up in <strong>Inbound Intake</strong> so the BCC address auto-populates here.
+                                                </div>
+                                            )}
+                                            <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+                                                Send this email from your own inbox. BCC the tracking address so the system automatically logs the outreach against this referral.
+                                            </div>
+
+                                            {/* Field rows */}
+                                            {[
+                                                { label: 'To', value: tmpl.to, field: 'to' as const },
+                                                { label: 'BCC', value: tmpl.bcc, field: 'bcc' as const },
+                                                { label: 'Subject', value: tmpl.subject, field: 'subject' as const },
+                                            ].map(({ label, value, field }) => (
+                                                <div key={field} className="flex items-center gap-2">
+                                                    <span className="w-14 text-xs font-semibold text-slate-500 text-right flex-shrink-0">{label}</span>
+                                                    <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-slate-800 truncate">{value}</code>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void copyField(value, field)}
+                                                        className="text-xs px-2 py-1.5 rounded border border-slate-200 text-slate-600 hover:bg-slate-100 whitespace-nowrap"
+                                                    >
+                                                        {templateCopied === field ? '✓ Copied' : 'Copy'}
+                                                    </button>
+                                                </div>
+                                            ))}
+
+                                            {/* Body */}
+                                            <div className="space-y-1">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-semibold text-slate-500">Body</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void copyField(tmpl.body, 'body')}
+                                                        className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
+                                                    >
+                                                        {templateCopied === 'body' ? '✓ Copied' : 'Copy body'}
+                                                    </button>
+                                                </div>
+                                                <pre className="text-xs bg-slate-50 border border-slate-200 rounded p-3 text-slate-800 whitespace-pre-wrap leading-relaxed font-sans">{tmpl.body}</pre>
+                                            </div>
+
+                                            <p className="text-xs text-slate-400">Placeholders in [brackets] should be completed before sending. The body is a starting point — edit as needed before you send.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
+                        {/* Email Preview Section */}
                          {selectedReferral.intro_email_sent && (
                              <div className="mt-4 border border-indigo-200 rounded-md overflow-hidden text-sm bg-indigo-50/50">
                                  <div className="bg-indigo-100 px-3 py-2 border-b border-indigo-200 flex justify-between items-center">

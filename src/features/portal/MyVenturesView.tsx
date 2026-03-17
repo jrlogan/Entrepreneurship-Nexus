@@ -97,7 +97,10 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
     }, [activeAffiliations, organizations]);
     
     // 2. Employees (Team members in my org)
-    const myTeam = people.filter(p => p.organization_id === myOrg?.id && p.id !== person.id);
+    const myTeam = people.filter(p => p.id !== person.id && myOrg && (
+        p.organization_id === myOrg.id ||
+        p.organization_affiliations?.some(a => a.organization_id === myOrg.id && a.status !== 'revoked')
+    ));
 
     // 3. Initiatives (Active Projects)
     // Filter to show initiatives for ANY of the user's orgs

@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ViewMode } from '../../app/types';
-import { getDocs, collection, orderBy, query } from 'firebase/firestore';
+import { getDocs, collection, orderBy, query, doc, updateDoc } from 'firebase/firestore';
 import { getFirestoreDb } from '../../services/firebaseApp';
 
 interface Tool {
@@ -68,38 +68,74 @@ interface Props {
   onNavigate: (view: ViewMode) => void;
 }
 
-const downloadFeedback = async (setStatus: (s: string) => void) => {
-  const db = getFirestoreDb();
-  if (!db) { setStatus('Not available in demo mode.'); return; }
-  setStatus('Fetching…');
-  try {
-    const snap = await getDocs(query(collection(db, 'feedback'), orderBy('created_at', 'desc')));
-    const rows = snap.docs.map(d => d.data());
-    if (rows.length === 0) { setStatus('No feedback yet.'); return; }
+interface FeedbackItem {
+  _id: string;
+  created_at: string;
+  person_name: string | null;
+  role: string | null;
+  org_name: string | null;
+  current_view: string | null;
+  text: string;
+  url: string | null;
+  resolved?: boolean;
+  person_id?: string | null;
+  org_id?: string | null;
+  ecosystem_id?: string | null;
+  user_agent?: string | null;
+  screen_width?: number | null;
+  screen_height?: number | null;
+}
 
-    // Build CSV
-    const cols = ['created_at', 'person_name', 'role', 'org_name', 'current_view', 'text', 'url', 'screen_width', 'screen_height', 'person_id', 'org_id', 'ecosystem_id', 'user_agent'];
-    const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const csv = [cols.join(','), ...rows.map(r => cols.map(c => escape((r as Record<string, unknown>)[c])).join(','))].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `feedback-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus(`Downloaded ${rows.length} entries.`);
-    setTimeout(() => setStatus(''), 3000);
-  } catch (e) {
-    setStatus('Error fetching feedback.');
-  }
+const downloadFeedbackCsv = (items: FeedbackItem[]) => {
+  const cols = ['created_at', 'person_name', 'role', 'org_name', 'current_view', 'text', 'url', 'resolved', 'screen_width', 'screen_height', 'person_id', 'org_id', 'ecosystem_id', 'user_agent'];
+  const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.join(','), ...items.map(r => cols.map(c => escape((r as unknown as Record<string, unknown>)[c])).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `feedback-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 export const PlatformAdminView = ({ onNavigate }: Props) => {
   const platformTools = PLATFORM_TOOLS.filter(t => t.scope === 'platform');
   const ecosystemTools = PLATFORM_TOOLS.filter(t => t.scope === 'ecosystem');
-  const [feedbackStatus, setFeedbackStatus] = useState('');
+  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+  const [showResolved, setShowResolved] = useState(false);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  const loadFeedback = useCallback(async () => {
+    const db = getFirestoreDb();
+    if (!db) { setFeedbackError('Not available in demo mode.'); return; }
+    setFeedbackLoading(true);
+    setFeedbackError('');
+    try {
+      const snap = await getDocs(query(collection(db, 'feedback'), orderBy('created_at', 'desc')));
+      setFeedback(snap.docs.map(d => ({ _id: d.id, ...d.data() } as FeedbackItem)));
+    } catch {
+      setFeedbackError('Error loading feedback.');
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadFeedback(); }, [loadFeedback]);
+
+  const handleResolve = async (item: FeedbackItem) => {
+    const db = getFirestoreDb();
+    if (!db) return;
+    setResolvingId(item._id);
+    try {
+      await updateDoc(doc(db, 'feedback', item._id), { resolved: !item.resolved });
+      setFeedback(prev => prev.map(f => f._id === item._id ? { ...f, resolved: !f.resolved } : f));
+    } finally {
+      setResolvingId(null);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -156,20 +192,81 @@ export const PlatformAdminView = ({ onNavigate }: Props) => {
       </section>
 
       <section>
-        <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">User Feedback</h2>
-        <div className="p-4 bg-white rounded-lg border border-gray-200 flex items-center justify-between gap-4">
-          <div>
-            <div className="font-semibold text-gray-900">Download Feedback Log</div>
-            <div className="text-sm text-gray-500 mt-0.5">Export all submitted feedback as a CSV for review.</div>
-            {feedbackStatus && <div className="text-xs text-indigo-600 mt-1">{feedbackStatus}</div>}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400">User Feedback</h2>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+              <input type="checkbox" checked={showResolved} onChange={e => setShowResolved(e.target.checked)} className="rounded" />
+              Show resolved
+            </label>
+            <button
+              onClick={() => downloadFeedbackCsv(feedback)}
+              disabled={feedback.length === 0}
+              className="text-xs px-3 py-1.5 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              Download CSV
+            </button>
+            <button
+              onClick={() => void loadFeedback()}
+              disabled={feedbackLoading}
+              className="text-xs px-3 py-1.5 border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              {feedbackLoading ? 'Loading…' : 'Refresh'}
+            </button>
           </div>
-          <button
-            onClick={() => void downloadFeedback(setFeedbackStatus)}
-            className="shrink-0 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700 transition"
-          >
-            Download CSV
-          </button>
         </div>
+
+        {feedbackError && <p className="text-sm text-red-600 mb-2">{feedbackError}</p>}
+
+        {(() => {
+          const visible = feedback.filter(f => showResolved || !f.resolved);
+          const resolvedCount = feedback.filter(f => f.resolved).length;
+          if (feedbackLoading && feedback.length === 0) {
+            return <p className="text-sm text-gray-400 text-center py-6">Loading feedback…</p>;
+          }
+          if (feedback.length === 0) {
+            return <p className="text-sm text-gray-400 text-center py-6">No feedback submitted yet.</p>;
+          }
+          if (visible.length === 0) {
+            return <p className="text-sm text-gray-400 text-center py-6">All {resolvedCount} item{resolvedCount !== 1 ? 's' : ''} resolved. Check "Show resolved" to review them.</p>;
+          }
+          return (
+            <div className="space-y-2">
+              {resolvedCount > 0 && !showResolved && (
+                <p className="text-xs text-gray-400">{resolvedCount} resolved item{resolvedCount !== 1 ? 's' : ''} hidden.</p>
+              )}
+              {visible.map(item => (
+                <div
+                  key={item._id}
+                  className={`bg-white rounded-lg border px-4 py-3 flex gap-4 items-start transition-opacity ${item.resolved ? 'border-gray-100 opacity-60' : 'border-gray-200'}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 mb-1">
+                      <span className="font-medium text-gray-700">{item.person_name || 'Unknown'}</span>
+                      {item.role && <span>· {item.role.replace(/_/g, ' ')}</span>}
+                      {item.org_name && <span>· {item.org_name}</span>}
+                      {item.current_view && <span>· view: {item.current_view}</span>}
+                      <span>· {item.created_at ? new Date(item.created_at).toLocaleString() : '—'}</span>
+                    </div>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{item.text}</p>
+                  </div>
+                  <button
+                    onClick={() => void handleResolve(item)}
+                    disabled={resolvingId === item._id}
+                    title={item.resolved ? 'Mark as open' : 'Mark as resolved'}
+                    className={`shrink-0 mt-0.5 rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      item.resolved
+                        ? 'border-gray-200 text-gray-400 hover:border-indigo-300 hover:text-indigo-600'
+                        : 'border-green-300 text-green-700 hover:bg-green-50'
+                    } disabled:opacity-50`}
+                  >
+                    {resolvingId === item._id ? '…' : item.resolved ? 'Reopen' : '✓ Resolve'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </section>
     </div>
   );

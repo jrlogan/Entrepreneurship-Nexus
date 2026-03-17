@@ -136,24 +136,7 @@ export const NEW_HAVEN_ECOSYSTEM: Ecosystem = {
       ]
     }
   ],
-  portal_links: [
-    {
-      id: 'link_grant_01',
-      label: 'Apply for Innovation Grant',
-      url: '#',
-      icon: '💰',
-      description: 'Annual state funding for hardware startups.',
-      audience: 'entrepreneur'
-    },
-    {
-      id: 'link_events_01',
-      label: 'Community Calendar',
-      url: '#',
-      icon: '📅',
-      description: 'Upcoming networking events and workshops.',
-      audience: 'all'
-    }
-  ],
+  portal_links: [],
   tags: ['ClimateTech', 'BioTech', 'SaaS', 'Main Street']
 };
 
