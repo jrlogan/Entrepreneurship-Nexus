@@ -34,10 +34,13 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
 
+    // Roles State
+    const [roles, setRoles] = useState<string[]>(org.roles || []);
+    const isEso = roles.includes('eso');
+
     // ESO Domain State
     const [esoDomains, setEsoDomains] = useState<string[]>([]);
     const [domainInput, setDomainInput] = useState('');
-    const isEso = org.roles.includes('eso');
     const ecosystemTagOptions = Array.from(new Set(
         ALL_ECOSYSTEMS
             .filter((ecosystem) => org.ecosystem_ids.includes(ecosystem.id) || ecosystem.id === viewer.ecosystemId)
@@ -50,6 +53,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
             setDescription(org.description);
             setUrl(org.url || '');
             setTaxStatus(org.tax_status);
+            setRoles(org.roles || []);
             setIndustryTags(org.classification.industry_tags || []);
             setSupportOfferings((org.support_offerings || []).join(', '));
             setMinorityOwned(org.demographics.minority_owned);
@@ -87,6 +91,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                 url,
                 logo_url: resolvedLogoUrl,
                 tax_status: taxStatus,
+                roles: roles as Organization['roles'],
                 demographics: {
                     minority_owned: minorityOwned,
                     woman_owned: womanOwned,
@@ -167,6 +172,37 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                         <option value="other">Other</option>
                     </select>
                 </div>
+                {(viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager') && (
+                    <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
+                        <div className="mb-2 font-medium text-gray-900 text-sm">Organization Type</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-700">
+                            {([
+                                ['eso', 'ESO (Support Org)'],
+                                ['startup', 'Startup / Venture'],
+                                ['small_business', 'Small Business'],
+                                ['nonprofit', 'Nonprofit'],
+                                ['government', 'Government'],
+                                ['education', 'Education'],
+                                ['funder', 'Funder'],
+                                ['service_provider', 'Service Provider'],
+                                ['workspace', 'Workspace'],
+                                ['community_org', 'Community Org'],
+                                ['anchor_institution', 'Anchor Institution'],
+                            ] as [string, string][]).map(([value, label]) => (
+                                <label key={value} className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={roles.includes(value)}
+                                        onChange={e => setRoles(prev =>
+                                            e.target.checked ? [...prev, value] : prev.filter(r => r !== value)
+                                        )}
+                                    />
+                                    {label}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div>
                     <label className={FORM_LABEL_CLASS}>Industry Tags</label>
                     <div className="flex flex-wrap gap-2 rounded border border-gray-200 bg-gray-50 p-3">
