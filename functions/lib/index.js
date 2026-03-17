@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -2972,4 +2972,179 @@ exports.previewQueuedNotices = (0, https_1.onRequest)({ invoker: 'public' }, asy
             };
         }),
     });
+});
+// ---------------------------------------------------------------------------
+// generateEsoProfile — AI-powered ESO profile generation from website content
+// ---------------------------------------------------------------------------
+exports.generateEsoProfile = (0, https_1.onRequest)({ invoker: 'public', timeoutSeconds: 120 }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    const idToken = req.headers.authorization?.replace('Bearer ', '');
+    if (!idToken) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+    }
+    let uid;
+    try {
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        uid = decoded.uid;
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+    }
+    const db = admin.firestore();
+    const personDoc = await db.collection('people').doc(uid).get();
+    if (!personDoc.exists || !['platform_admin', 'ecosystem_manager'].includes(personDoc.data()?.system_role)) {
+        res.status(403).json({ error: 'Admin only' });
+        return;
+    }
+    const { org_id, bulk, force } = req.body;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+        return;
+    }
+    const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // Fetch and strip a URL to plain text
+    const fetchPageText = async (url) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        try {
+            const resp = await fetch(url, {
+                signal: controller.signal,
+                redirect: 'follow',
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                },
+            });
+            if (!resp.ok)
+                return { text: '', status: resp.status, error: `HTTP ${resp.status}` };
+            const html = await resp.text();
+            const text = html
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 14000);
+            return { text, status: resp.status };
+        }
+        catch (e) {
+            return { text: '', status: null, error: e?.message || 'fetch error' };
+        }
+        finally {
+            clearTimeout(timeout);
+        }
+    };
+    const fetchBestPageText = async (baseUrl) => {
+        // Normalize: ensure https:// prefix
+        let normalized = baseUrl.replace(/\/$/, '');
+        if (!/^https?:\/\//i.test(normalized))
+            normalized = `https://${normalized}`;
+        const candidates = [normalized, `${normalized}/about`, `${normalized}/about-us`, `${normalized}/who-we-are`];
+        const log = [];
+        for (const url of candidates) {
+            const result = await fetchPageText(url);
+            log.push(`${url} → status=${result.status ?? 'n/a'} len=${result.text.length}${result.error ? ` err=${result.error}` : ''}`);
+            if (result.text.length > 300)
+                return { text: result.text, log };
+        }
+        return { text: '', log };
+    };
+    const generateDescription = async (org, orgId) => {
+        const url = org.url || '';
+        if (!url)
+            return { description: null, fetchLog: ['no URL set'] };
+        const { text: pageText, log: fetchLog } = await fetchBestPageText(url);
+        if (!pageText)
+            return { description: null, fetchLog };
+        const prompt = `You are writing a profile for an Entrepreneur Support Organization (ESO) that will be shown to entrepreneurs deciding who to reach out to for help.
+
+Organization name: ${org.name || orgId}
+Website: ${url}
+Website content (extracted text):
+${pageText}
+
+Write a concise, informative profile in Markdown format with these sections:
+- A 2-3 sentence opening paragraph describing what this organization does and who they serve (no heading needed)
+- **Who We Serve** — bullet list of the types of entrepreneurs or businesses they focus on
+- **Key Programs & Services** — bullet list of their main offerings (funding, coaching, incubation, etc.)
+
+Keep it factual, practical, and under 200 words. Do not invent information not supported by the website content. If the website doesn't have enough information, write what you can with a note that more detail can be found on their website.`;
+        try {
+            const result = await model.generateContent(prompt);
+            return { description: result.response.text().trim(), fetchLog };
+        }
+        catch (e) {
+            return { description: null, fetchLog: [...fetchLog, `Gemini error: ${e?.message}`] };
+        }
+    };
+    if (bulk) {
+        // Bulk mode: process all ESOs that have a URL and either no description or auto-generated one
+        const snapshot = await db.collection('organizations').get();
+        const esos = snapshot.docs.filter(d => {
+            const data = d.data();
+            const roles = data.roles || [];
+            if (!roles.includes('eso'))
+                return false;
+            if (!data.url)
+                return false;
+            if (!force && data.description_auto_generated === false && data.description?.trim())
+                return false; // skip manual (only if non-empty)
+            return true;
+        });
+        const results = [];
+        for (const doc of esos) {
+            const data = doc.data();
+            const already = data.description_auto_generated !== false && data.description && !force;
+            // Only skip if it already has a manual or AI description AND not forcing
+            if (!force && data.description_auto_generated === true && data.description) {
+                results.push({ id: doc.id, name: data.name, status: 'skipped_already_generated' });
+                continue;
+            }
+            if (!force && data.description_auto_generated === false && data.description?.trim()) {
+                results.push({ id: doc.id, name: data.name, status: 'skipped_manual' });
+                continue;
+            }
+            const { description, fetchLog } = await generateDescription(data, doc.id);
+            if (description) {
+                await db.collection('organizations').doc(doc.id).update({ description, description_auto_generated: true });
+                results.push({ id: doc.id, name: data.name, status: 'generated' });
+            }
+            else {
+                results.push({ id: doc.id, name: data.name, status: `failed: ${fetchLog.at(-1) || 'no content'}` });
+            }
+        }
+        res.json({ ok: true, results });
+        return;
+    }
+    // Single org mode
+    if (!org_id) {
+        res.status(400).json({ error: 'org_id required' });
+        return;
+    }
+    const orgDoc = await db.collection('organizations').doc(org_id).get();
+    if (!orgDoc.exists) {
+        res.status(404).json({ error: 'Organization not found' });
+        return;
+    }
+    const orgData = orgDoc.data();
+    if (!force && orgData.description_auto_generated === false && orgData.description?.trim()) {
+        res.json({ ok: false, skipped: true, reason: 'Manual description — pass force:true to override' });
+        return;
+    }
+    const { description, fetchLog } = await generateDescription(orgData, org_id);
+    if (!description) {
+        res.status(422).json({ error: 'Could not fetch usable content from the organization website', fetchLog });
+        return;
+    }
+    await db.collection('organizations').doc(org_id).update({ description, description_auto_generated: true });
+    res.json({ ok: true, description });
 });
