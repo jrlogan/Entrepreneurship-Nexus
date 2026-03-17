@@ -3609,7 +3609,7 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
       const roles: string[] = data.roles || [];
       if (!roles.includes('eso')) return false;
       if (!data.url) return false;
-      if (!force && data.description_auto_generated === false) return false; // skip manual
+      if (!force && data.description_auto_generated === false && data.description?.trim()) return false; // skip manual (only if non-empty)
       return true;
     });
 
@@ -3622,7 +3622,7 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
         results.push({ id: doc.id, name: data.name, status: 'skipped_already_generated' });
         continue;
       }
-      if (!force && data.description_auto_generated === false) {
+      if (!force && data.description_auto_generated === false && data.description?.trim()) {
         results.push({ id: doc.id, name: data.name, status: 'skipped_manual' });
         continue;
       }
@@ -3645,7 +3645,7 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
   if (!orgDoc.exists) { res.status(404).json({ error: 'Organization not found' }); return; }
   const orgData = orgDoc.data()!;
 
-  if (!force && orgData.description_auto_generated === false) {
+  if (!force && orgData.description_auto_generated === false && orgData.description?.trim()) {
     res.json({ ok: false, skipped: true, reason: 'Manual description — pass force:true to override' });
     return;
   }

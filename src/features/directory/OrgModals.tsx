@@ -180,7 +180,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                                     try {
                                         const result = await callHttpFunction<{org_id: string; force: boolean}, {ok: boolean; description?: string; skipped?: boolean; reason?: string}>('generateEsoProfile', { org_id: org.id, force: false });
                                         if (result.skipped) {
-                                            setGenerateError('This org has a manual description. Use "Force regenerate" to overwrite it.');
+                                            setGenerateError('This org has a manually-written description. Edit this org, clear the description, then try again — or contact an admin to force-regenerate it.');
                                         } else if (result.description) {
                                             setDescription(result.description);
                                             // Mark as auto-generated in the save payload via flag
