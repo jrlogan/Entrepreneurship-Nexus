@@ -134,6 +134,49 @@
       - Archive loser record (`status: 'archived'`)
       - See org merge in `DataQualityView.tsx:handleMergeConfirm` as reference pattern                                                                                                                                                      
                                                                                                                                                                                          
+
+  ### Phase 4+: Taxonomy & Classification — E3 Survey Insights
+  **Reference:** Innovation ARC E3 Partner Relationships survey (2025). Reviewed for alignment
+  with regional ecosystem vocabulary and data structures already in use by CT partners.
+
+  - [ ] **Add `informal_group` to OrganizationType**
+    Survey includes "Informal Group" as a valid entity type — covers early coalitions, meetup
+    organizers, and networks that are real ecosystem players but not legally incorporated.
+    New set: `startup | small_business | business | nonprofit | government_agency | informal_group | other`
+
+  - [ ] **Align SupportNeed values to E3 6-stage framework**
+    Survey's "Support Areas" use a stage-based vocabulary already familiar to CT partners:
+    `business_concept | product_technology | formation | capital_fundraising | sales_marketing | operations`
+    Current `inbound/types.ts` SupportNeed values are close but not aligned. Updating would make
+    Nexus intake data directly comparable to E3 survey responses and regional reporting.
+
+  - [ ] **Structured industry tag enum (replace free-form strings)**
+    Current `classification.industry_tags` is free-form. Survey uses a consistent regional list:
+    `life_sciences_biotech | climatetech_clean_energy | advanced_manufacturing |
+    quantum_computing | software_it_data | fintech | consumer_products |
+    food_beverage_hospitality | arts_creative_economy | social_enterprise | other`
+    Replacing free-form with an enum enables cross-org filtering and reporting. Free-form
+    `tags` field remains for anything outside this list.
+
+  - [ ] **E3 Readiness pipeline template**
+    Survey Q12-17 define a 6-stage ESO capability/client journey framework with specific
+    sub-tasks per stage, rated None/Ad-hoc/Established/Core. This maps directly to our
+    pipeline/initiative system. Build as a standard pipeline template ESOs can adopt:
+    - Business Concept Ready (problem definition, market research, value prop, biz model canvas)
+    - Product Ready (product definition, IP, concept testing, prototyping, production costs)
+    - Formation Ready (business structure, legal registration, certifications, banking)
+    - Capital Ready (capital needs, target providers, documentation, pitch, milestones)
+    - Sales Ready (customer ID, channels, marketing, sales pitch, retention)
+    - Operations Ready (hiring, policies, facility, production capacity, distribution)
+
+  - [ ] **ESO relationship strength scoring**
+    Survey Q18 asks ESOs to self-rate relationships with other orgs on a 0–5 scale:
+    None → Aware → Interacting → Coordinated → Collaborative → Strategic Partner
+    Nexus can auto-compute this from real referral and interaction data rather than
+    asking ESOs to self-report. Feeds directly into analytics/network graph (Kumu export).
+    Formula idea: 0 referrals/interactions = None, 1-2 interactions = Aware, active referrals
+    = Coordinated+, mutual referrals + high frequency = Collaborative/Strategic.
+
   ### Phase 5: Technical Audit & Security (Post-Demo Refinement)
   **Goal:** Harden the platform for production-scale traffic and security.
 

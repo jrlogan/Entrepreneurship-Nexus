@@ -29,7 +29,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
     const [url, setUrl] = useState(org.url || '');
     const [taxStatus, setTaxStatus] = useState(org.tax_status);
     const [industryTags, setIndustryTags] = useState<string[]>(org.classification.industry_tags || []);
-    const [supportOfferings, setSupportOfferings] = useState((org.support_offerings || []).join(', '));
+    const [supportOfferings, setSupportOfferings] = useState<string[]>(org.support_offerings || []);
     const [ownerCharacteristics, setOwnerCharacteristics] = useState<OwnerCharacteristic[]>(org.owner_characteristics || []);
     const [certifications, setCertifications] = useState<OrgCertification[]>(org.certifications || []);
     const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -61,7 +61,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
             setRoles((org.roles || []).filter(r => ['eso', 'funder', 'resource'].includes(r)));
             setOrgType(org.org_type || 'other');
             setIndustryTags(org.classification.industry_tags || []);
-            setSupportOfferings((org.support_offerings || []).join(', '));
+            setSupportOfferings(org.support_offerings || []);
             setOwnerCharacteristics(org.owner_characteristics || []);
             setCertifications(org.certifications || []);
             setLogoFile(null);
@@ -110,7 +110,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                     ...org.classification,
                     industry_tags: industryTags
                 },
-                support_offerings: supportOfferings.split(',').map(s => s.trim()).filter(Boolean) as Organization['support_offerings']
+                support_offerings: supportOfferings as Organization['support_offerings']
             });
 
             if (isEso && esoDomains.length > 0) {
@@ -318,13 +318,23 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                 </div>
                 {isEso && (
                     <div>
-                        <label className={FORM_LABEL_CLASS}>Support Offerings (comma separated)</label>
-                        <input
-                            className={FORM_INPUT_CLASS}
-                            value={supportOfferings}
-                            onChange={e => setSupportOfferings(e.target.value)}
-                            placeholder="funding, business_coaching, networking"
-                        />
+                        <div className="mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Support Offerings</div>
+                        <div className="grid grid-cols-2 gap-1 text-sm text-gray-700">
+                            {ENUMS.SupportNeed.map(opt => (
+                                <label key={opt.id} className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={supportOfferings.includes(opt.id)}
+                                        onChange={e => setSupportOfferings(prev =>
+                                            e.target.checked
+                                                ? [...prev, opt.id]
+                                                : prev.filter(v => v !== opt.id)
+                                        )}
+                                    />
+                                    {opt.label}
+                                </label>
+                            ))}
+                        </div>
                     </div>
                 )}
                 {isEso && (

@@ -160,16 +160,10 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     setSuccess(null);
     try {
       await signInWithGoogle();
-      // Auto-complete signup so Google users are never stuck at the profile screen.
-      // Uses merge:true on the backend, so existing profiles are not overwritten.
-      try {
-        await callHttpFunction('completeSelfSignup', {
-          ecosystem_id: signupForm.ecosystem_id || defaultEcosystemId,
-        });
-      } catch {
-        // If auto-signup fails (e.g. emulator not running) the needs_profile
-        // screen will show the manual form as a fallback — not a fatal error.
-      }
+      // Do NOT call completeSelfSignup here — it runs unconditionally and would
+      // create an entrepreneur-role membership for existing ESO/admin accounts,
+      // overriding their real role. New users who have no profile will land on
+      // the needs_profile screen and complete signup from there.
       if (inviteToken) {
         try {
           await callHttpFunction('acceptInvite', { token: inviteToken });

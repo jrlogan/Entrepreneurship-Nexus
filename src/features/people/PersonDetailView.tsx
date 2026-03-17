@@ -8,6 +8,7 @@ import { LogInteractionModal } from '../interactions/LogInteractionModal';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { getAllOrganizationAffiliations } from '../../domain/people/affiliations';
+import { ENUMS } from '../../domain/standards/enums';
 import { uploadImageFile } from '../../services/storageUploads';
 
 interface PersonDetailViewProps {
@@ -673,7 +674,7 @@ export const PersonDetailView = ({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm text-gray-600">
-                          {service.participation_type?.replace(/_/g, ' ') || 'program'} with {provider?.name || 'Partner organization'}
+                          {ENUMS.ServiceParticipationType?.find(o => o.id === service.participation_type)?.label ?? service.participation_type?.replace(/_/g, ' ') ?? 'program'} with {provider?.name || 'Partner organization'}
                         </div>
                         <div className="mt-1 text-xs text-gray-500">{formatParticipationWindow(service)}</div>
                       </div>

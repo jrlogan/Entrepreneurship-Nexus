@@ -8,20 +8,7 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { InitiativeDetailModal } from './InitiativeDetailModal';
 import { EditOrgModal, ManageInitiativeModal } from '../directory/OrgModals';
 import { getActiveOrganizationAffiliations } from '../../domain/people/affiliations';
-
-const SUPPORT_NEED_OPTIONS = [
-    'funding',
-    'legal',
-    'business_coaching',
-    'product_development',
-    'manufacturing',
-    'marketing',
-    'sales',
-    'hiring',
-    'resource',
-    'networking',
-    'other',
-] as const;
+import { ENUMS } from '../../domain/standards/enums';
 
 interface MyVenturesProps {
     person: Person;
@@ -795,7 +782,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                                             <div>
                                                 <div className="text-sm font-medium text-gray-900">{service.name}</div>
                                                 <div className="mt-1 text-xs text-gray-500">
-                                                    {service.participation_type?.replace(/_/g, ' ') || 'program'} with {provider?.name || 'Partner organization'}
+                                                    {ENUMS.ServiceParticipationType?.find(o => o.id === service.participation_type)?.label ?? service.participation_type?.replace(/_/g, ' ') ?? 'program'} with {provider?.name || 'Partner organization'}
                                                 </div>
                                             </div>
                                             <Badge color={getParticipationStatusColor(service)}>
@@ -1024,9 +1011,9 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                                 className="w-full rounded border border-gray-300 px-3 py-2 text-sm bg-white"
                             >
                                 <option value="all">All support types</option>
-                                {SUPPORT_NEED_OPTIONS.map((option) => (
-                                    <option key={option} value={option}>
-                                        {option.replace(/_/g, ' ')}
+                                {ENUMS.SupportNeed.map((option) => (
+                                    <option key={option.id} value={option.id}>
+                                        {option.label}
                                     </option>
                                 ))}
                             </select>
@@ -1055,7 +1042,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                                         <div className="mt-2 flex flex-wrap gap-2">
                                             {(org.support_offerings || []).slice(0, 3).map((offering) => (
                                                 <span key={offering} className="text-[11px] bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100">
-                                                    {offering.replace(/_/g, ' ')}
+                                                    {ENUMS.SupportNeed?.find(o => o.id === offering)?.label ?? offering.replace(/_/g, ' ')}
                                                 </span>
                                             ))}
                                             {org.classification.industry_tags.slice(0, 2).map((tag) => (

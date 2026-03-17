@@ -28,6 +28,7 @@ export const DATA_DICTIONARY: EntityDefinition[] = [
             { name: 'roles', type: 'array', required: true, description: 'Functional roles in the ecosystem: eso (support org), funder (provides capital), workspace (physical space).', enumRef: 'OrganizationRole' },
             { name: 'org_type', type: 'string', required: false, description: 'Entity classification — startup, small_business, business, nonprofit, government_agency, or other.', enumRef: 'OrganizationType' },
             { name: 'tax_status', type: 'enum', required: true, description: 'IRS tax designation.', enumRef: 'TaxStatus' },
+            { name: 'support_offerings', type: 'array', required: false, description: 'Support areas this organization provides (for ESOs) or needs (for ventures).', enumRef: 'SupportNeed' },
             { name: 'industry_tags', type: 'array<string>', required: false, description: 'Flexible tagging for sector (e.g. BioTech, SaaS).' },
             { name: 'naics_code', type: 'string', required: false, description: 'North American Industry Classification System code.' },
             { name: 'logo_url', type: 'string (url)', required: false, description: 'Brand image/logo URL.' },
@@ -64,7 +65,7 @@ export const DATA_DICTIONARY: EntityDefinition[] = [
         fields: [
             { name: 'date', type: 'date (ISO)', required: true, description: 'When the interaction occurred.' },
             { name: 'type', type: 'enum', required: true, description: 'The medium of interaction.', enumRef: 'InteractionType' },
-            { name: 'visibility', type: 'enum', required: true, description: 'Sharing scope (Network vs Private).', enumRef: 'InteractionVisibility' },
+            { name: 'visibility', type: 'enum', required: true, description: 'Sharing scope (Network vs Private to your org).', enumRef: 'InteractionVisibility' },
             { name: 'notes', type: 'string', required: true, description: 'Unstructured summary of the event.' },
             { name: 'note_confidential', type: 'boolean', required: false, description: 'Strict privacy override. If true, content is hidden from network partners.' },
             { name: 'advisor_suggestions', type: 'array', required: false, description: 'Snapshot of AI recommendations generated during logging.' }
@@ -98,6 +99,22 @@ export const DATA_DICTIONARY: EntityDefinition[] = [
             { name: 'outcome_tags', type: 'array<string>', required: false, description: 'Free-text tags describing specific results.' },
             { name: 'owner_id', type: 'string', required: false, description: 'Staff member responsible for managing the referral.' },
             { name: 'follow_up_date', type: 'date', required: false, description: 'Reminder date for check-in.' }
+        ]
+    },
+    {
+        id: 'service',
+        name: 'Service',
+        description: 'A structured participation record capturing a venture\'s enrollment in an ESO program, membership, or service over a time range. Distinct from point-in-time Interactions.',
+        fields: [
+            { name: 'id', type: 'string (uuid)', required: true, description: 'Unique system identifier.' },
+            { name: 'name', type: 'string', required: true, description: 'Name of the program or service (e.g. "Incubator Cohort 3", "Makerspace Membership").' },
+            { name: 'provider_org_id', type: 'string', required: true, description: 'The ESO delivering the service.' },
+            { name: 'recipient_org_id', type: 'string', required: false, description: 'The venture or organization receiving the service.' },
+            { name: 'participation_type', type: 'enum', required: false, description: 'The nature of the engagement.', enumRef: 'ServiceParticipationType' },
+            { name: 'status', type: 'enum', required: true, description: 'Current enrollment state: active, past, applied, or waitlisted.' },
+            { name: 'start_date', type: 'date', required: true, description: 'When the participation began.' },
+            { name: 'end_date', type: 'date', required: false, description: 'When participation ended. Null if ongoing.' },
+            { name: 'description', type: 'string', required: false, description: 'Optional notes about the service or enrollment context.' }
         ]
     }
 ];

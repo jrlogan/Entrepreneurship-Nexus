@@ -8,6 +8,7 @@ import { METRIC_SETS } from '../../domain/metrics/reporting_config';
 import { MetricAssignment } from '../../domain/metrics/reporting_types';
 import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
 import { RESTRICTED_INITIATIVE_NAME, REDACTED_TEXT } from '../../domain/access/redaction';
+import { ENUMS } from '../../domain/standards/enums';
 import { EditOrgModal, ManagePersonModal } from './OrgModals';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
@@ -732,7 +733,7 @@ export const OrganizationDetailView = ({
                                      {(org.support_offerings || []).length > 0 ? (
                                         (org.support_offerings || []).map((offering) => (
                                             <span key={offering} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-100">
-                                                {offering.replace(/_/g, ' ')}
+                                                {ENUMS.SupportNeed?.find(o => o.id === offering)?.label ?? offering.replace(/_/g, ' ')}
                                             </span>
                                         ))
                                      ) : (
@@ -947,7 +948,7 @@ export const OrganizationDetailView = ({
                                       <div className="flex items-start justify-between gap-3">
                                           <div>
                                               <div className="text-sm text-gray-600">
-                                                  {service.participation_type?.replace(/_/g, ' ') || 'program'} with {provider?.name || 'Partner organization'}
+                                                  {ENUMS.ServiceParticipationType?.find(o => o.id === service.participation_type)?.label ?? service.participation_type?.replace(/_/g, ' ') ?? 'program'} with {provider?.name || 'Partner organization'}
                                               </div>
                                               <div className="mt-1 text-xs text-gray-500">{formatParticipationWindow(service)}</div>
                                           </div>

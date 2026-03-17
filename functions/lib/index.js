@@ -1683,6 +1683,11 @@ exports.completeSelfSignup = (0, https_1.onRequest)({ invoker: 'public' }, async
         }
         const existingPerson = await findExistingPersonByEmail(email);
         const personRef = existingPerson?.ref || db.collection('people').doc(decoded.uid);
+        // Never downgrade an existing non-entrepreneur role. Read first, then decide.
+        const existingPersonDoc = await personRef.get();
+        const existingRole = existingPersonDoc.data()?.system_role;
+        const isExistingElevatedRole = existingRole && existingRole !== 'entrepreneur';
+        const resolvedRole = isExistingElevatedRole ? existingRole : 'entrepreneur';
         await personRef.set({
             id: personRef.id,
             auth_uid: decoded.uid,
@@ -1690,7 +1695,7 @@ exports.completeSelfSignup = (0, https_1.onRequest)({ invoker: 'public' }, async
             last_name: lastName,
             email,
             role: '',
-            system_role: 'entrepreneur',
+            system_role: resolvedRole,
             primary_organization_id: '',
             ecosystem_id: ecosystemId,
             status: 'active',
@@ -1698,19 +1703,25 @@ exports.completeSelfSignup = (0, https_1.onRequest)({ invoker: 'public' }, async
             created_at: now,
             signup_note: req.body?.note || null,
         }, { merge: true });
+        // Never overwrite an existing active membership with a different role.
         const membershipRef = db.collection('person_memberships').doc(`${personRef.id}_${ecosystemId}_none`);
+        const existingMembership = await membershipRef.get();
+        const existingMembershipRole = existingMembership.data()?.system_role;
+        const isExistingElevatedMembership = existingMembershipRole && existingMembershipRole !== 'entrepreneur';
+        const resolvedMembershipRole = isExistingElevatedMembership ? existingMembershipRole : 'entrepreneur';
         await membershipRef.set({
             id: membershipRef.id,
             person_id: personRef.id,
             ecosystem_id: ecosystemId,
             organization_id: '',
-            system_role: 'entrepreneur',
+            system_role: resolvedMembershipRole,
             status: 'active',
             joined_at: now,
         }, { merge: true });
         await logAudit('self_signup_completed', decoded.uid, {
             ecosystem_id: ecosystemId,
-            role: 'entrepreneur',
+            role: resolvedMembershipRole,
+            role_preserved: isExistingElevatedMembership ?? false,
         });
         res.json({ ok: true, person_id: personRef.id, ecosystem_id: ecosystemId });
     }

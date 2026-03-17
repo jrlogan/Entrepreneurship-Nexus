@@ -52,6 +52,41 @@ export const ENUMS = {
     { "id": "eso_coach", "label": "ESO Coach / Mentor" },
     { "id": "entrepreneur", "label": "Entrepreneur / Client" }
   ],
+  "SupportNeed": [
+    { "id": "business_coaching", "label": "Business Concept & Strategy" },
+    { "id": "product_development", "label": "Product & Technology" },
+    { "id": "manufacturing", "label": "Manufacturing & Production" },
+    { "id": "legal", "label": "Formation & Legal" },
+    { "id": "funding", "label": "Capital & Fundraising" },
+    { "id": "sales", "label": "Sales" },
+    { "id": "marketing", "label": "Marketing & Branding" },
+    { "id": "hiring", "label": "Talent & Hiring" },
+    { "id": "workspace", "label": "Workspace & Facilities" },
+    { "id": "networking", "label": "Networking & Connections" },
+    { "id": "other", "label": "Other" }
+  ],
+  "VentureStage": [
+    { "id": "idea", "label": "Idea Stage" },
+    { "id": "prototype", "label": "Prototype / Concept" },
+    { "id": "early_revenue", "label": "Early Revenue" },
+    { "id": "sustaining", "label": "Sustaining / Growth" },
+    { "id": "multi_person", "label": "Multi-Person Team" },
+    { "id": "established", "label": "Established Business" },
+    { "id": "unknown", "label": "Unknown / Not Specified" }
+  ],
+  "InteractionVisibility": [
+    { "id": "network_shared", "label": "Network Shared (Partners can see)" },
+    { "id": "eso_private", "label": "Private (My organization only)" }
+  ],
+  "ServiceParticipationType": [
+    { "id": "program", "label": "Program (Cohort / Curriculum)" },
+    { "id": "application", "label": "Application / Competitive" },
+    { "id": "membership", "label": "Membership" },
+    { "id": "residency", "label": "Residency / Incubation" },
+    { "id": "rental", "label": "Rental / Space Use" },
+    { "id": "event", "label": "Event / Workshop" },
+    { "id": "service", "label": "Direct Service / Advising" }
+  ],
   "InteractionType": [
     { "id": "meeting", "label": "Meeting (In-Person/Virtual)" },
     { "id": "email", "label": "Email Correspondence" },
