@@ -169,7 +169,13 @@ service cloud.firestore {
 
     match /authorized_sender_domains/{domainId} {
       allow read: if isAuthenticated();
-      allow write: if isNetworkAdmin();
+      allow write: if isNetworkAdmin() || isEsoOperator();
+    }
+
+    match /organization_aliases/{aliasId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
     }
 
     match /inbound_messages/{messageId} {
@@ -192,6 +198,12 @@ service cloud.firestore {
       allow read: if isPlatformAdmin();
       allow update: if isPlatformAdmin();
       allow delete: if false;
+    }
+
+    // Partner API lookup index — written exclusively by Cloud Functions (Admin SDK).
+    // No client-side access needed; deny all to prevent enumeration.
+    match /external_ref_index/{indexId} {
+      allow read, write: if false;
     }
 
     match /{document=**} {

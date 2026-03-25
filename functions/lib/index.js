@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -3159,3 +3159,11 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
     await db.collection('organizations').doc(org_id).update({ description, description_auto_generated: true });
     res.json({ ok: true, description });
 });
+// ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
+var partnerApi_1 = require("./partnerApi");
+Object.defineProperty(exports, "partnerUpsertPerson", { enumerable: true, get: function () { return partnerApi_1.partnerUpsertPerson; } });
+Object.defineProperty(exports, "partnerUpsertOrganization", { enumerable: true, get: function () { return partnerApi_1.partnerUpsertOrganization; } });
+Object.defineProperty(exports, "partnerGetPerson", { enumerable: true, get: function () { return partnerApi_1.partnerGetPerson; } });
+Object.defineProperty(exports, "partnerRegisterWebhook", { enumerable: true, get: function () { return partnerApi_1.partnerRegisterWebhook; } });
+Object.defineProperty(exports, "onInteractionCreatedDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onInteractionCreatedDeliverWebhooks; } });
+Object.defineProperty(exports, "onReferralWrittenDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onReferralWrittenDeliverWebhooks; } });

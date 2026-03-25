@@ -3688,3 +3688,13 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
   await db.collection('organizations').doc(org_id).update({ description, description_auto_generated: true });
   res.json({ ok: true, description });
 });
+
+// ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
+export {
+  partnerUpsertPerson,
+  partnerUpsertOrganization,
+  partnerGetPerson,
+  partnerRegisterWebhook,
+  onInteractionCreatedDeliverWebhooks,
+  onReferralWrittenDeliverWebhooks,
+} from './partnerApi';
