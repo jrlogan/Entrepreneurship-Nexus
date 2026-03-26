@@ -1,5 +1,6 @@
 
 import { Organization, PipelineDefinition, Initiative, MetricLog, Person, Interaction, Referral, Ecosystem, Service } from '../domain/types';
+import { GrantOpportunity, MonitoredGrantSource, GrantDraft } from '../domain/grants/types';
 import { ConsentPolicy, ConsentEvent } from '../domain/consent/types';
 
 // Re-export broken out mocks
@@ -469,7 +470,8 @@ export const NEXUS_ADMIN_ORG: Organization = {
 export const BIOGEN: Organization = {
     id: 'org_biogen_006',
     name: 'BioGen Ventures',
-    description: 'Life sciences venture capital.',
+    description: 'Life sciences venture capital and foundation focused on regional innovation.',
+    url: 'https://biogen.com/ventures',
     tax_status: 'for_profit',
     version: 1,
     roles: ['funder'],
@@ -480,13 +482,16 @@ export const BIOGEN: Organization = {
     managed_by_ids: [],
     operational_visibility: 'open',
     authorized_eso_ids: [],
-    ecosystem_ids: ['eco_new_haven']
+    ecosystem_ids: ['eco_new_haven'],
+    tags: ['Life Sciences', 'High Growth', 'Equity'],
+    description_auto_generated: true
 };
 
 export const ELM_CAPITAL: Organization = {
     id: 'org_elm_cap_007',
     name: 'Elm City Capital',
-    description: 'Angel group.',
+    description: 'Angel group focused on early-stage New Haven startups.',
+    url: 'https://elmcitycapital.com',
     tax_status: 'for_profit',
     version: 1,
     roles: ['funder'],
@@ -497,7 +502,27 @@ export const ELM_CAPITAL: Organization = {
     managed_by_ids: [],
     operational_visibility: 'open',
     authorized_eso_ids: [],
-    ecosystem_ids: ['eco_new_haven']
+    ecosystem_ids: ['eco_new_haven'],
+    tags: ['Seed', 'Angel', 'New Haven']
+};
+
+export const COMMUNITY_FOUNDATION: Organization = {
+    id: 'org_comm_found_008',
+    name: 'The Community Foundation for Greater New Haven',
+    description: 'Supporting nonprofits and community initiatives in the New Haven region.',
+    url: 'https://cfgnh.org',
+    tax_status: 'non_profit',
+    version: 1,
+    roles: ['funder'],
+    org_type: 'nonprofit',
+    owner_characteristics: [],
+    classification: { industry_tags: ['Foundation', 'Philanthropy'], naics_code: '813211' },
+    external_refs: [],
+    managed_by_ids: [],
+    operational_visibility: 'open',
+    authorized_eso_ids: [],
+    ecosystem_ids: ['eco_new_haven'],
+    tags: ['Non-profit', 'Social Impact', 'Local']
 };
 
 // Export ALL organizations for the directory
@@ -509,12 +534,12 @@ export const ALL_ORGANIZATIONS = [
     GREENTECH_SOLUTIONS, 
     GREENTECH_INC, // Added Duplicate
     HAVEN_COFFEE, 
-    STEALTH_STARTUP, 
-    NEXUS_ADMIN_ORG, 
-    BIOGEN, 
-    ELM_CAPITAL
+    STEALTH_STARTUP,
+    NEXUS_ADMIN_ORG,
+    BIOGEN,
+    ELM_CAPITAL,
+    COMMUNITY_FOUNDATION
 ];
-
 
 // --- People Data ---
 export const MOCK_PEOPLE: Person[] = [
@@ -700,7 +725,269 @@ export const MOCK_CONSENT_POLICIES: ConsentPolicy[] = [
 
 export const MOCK_CONSENT_EVENTS: ConsentEvent[] = [];
 
+export const MOCK_MONITORED_SOURCES: MonitoredGrantSource[] = [
+  {
+    id: 'source_001',
+    name: 'Grants.gov Search (Hardware)',
+    url: 'https://www.grants.gov/web/grants/search-grants.html?keywords=hardware',
+    type: 'website',
+    status: 'active',
+    last_checked_at: '2026-03-24T08:00:00Z',
+    frequency: 'daily',
+  },
+  {
+    id: 'source_002',
+    name: 'CT Economic Development Newsletter',
+    url: 'https://portal.ct.gov/DECD',
+    type: 'newsletter',
+    status: 'active',
+    last_checked_at: '2026-03-20T10:00:00Z',
+    frequency: 'weekly',
+  },
+  {
+    id: 'source_003',
+    name: 'Foundation Center - Regional Funders',
+    url: 'https://foundationcenter.org',
+    type: 'aggregator',
+    status: 'inactive',
+    frequency: 'monthly',
+  }
+];
+
+export const MOCK_GRANT_DRAFTS: GrantDraft[] = [
+  {
+    id: 'draft_001',
+    title: 'NSF Regional Innovation Hub Proposal',
+    opportunity_id: 'grant_003',
+    strategy_angle: 'Focus on hardware prototyping for urban manufacturing and sustainable tech.',
+    lead_org_id: 'org_nexus_admin',
+    status: 'drafting',
+    pdf_source_url: 'https://new.nsf.gov/solicitation/24-521.pdf',
+    questions: [
+      { id: 'q_1', order: 1, section_label: 'Project Summary', question_text: 'Describe the regional innovation ecosystem and how the proposed hub will address gaps.', char_limit: 4000 },
+      { id: 'q_2', order: 2, section_label: 'Impact', question_text: 'What are the measurable outcomes for local small business manufacturing?', char_limit: 2000 },
+    ],
+    answers: [
+      { question_id: 'q_1', text: 'The New Haven innovation cluster currently lacks a shared prototyping facility for advanced composites...', last_revised: '2026-03-24T15:00:00Z', revised_by: 'person_admin_000' },
+      { question_id: 'q_2', text: '', last_revised: '2026-03-24T15:05:00Z', revised_by: 'person_admin_000' },
+    ],
+    ecosystem_id: 'eco_new_haven',
+    created_at: '2026-03-20T10:00:00Z',
+    updated_at: '2026-03-24T15:05:00Z',
+    created_by: 'person_admin_000',
+  }
+];
+
+export const MOCK_GRANTS: GrantOpportunity[] = [
+  {
+    id: 'grant_001',
+    funder_id: 'org_comm_found_008',
+    funder_name: 'The Community Foundation for Greater New Haven',
+    title: 'Regional Economic Growth Initiative 2026',
+    summary: 'Funding for programs that drive measurable economic growth in the Greater New Haven area through workforce development and entrepreneur support.',
+    deadline: '2026-06-15',
+    award_amount: { min: 25000, max: 100000, currency: 'USD' },
+    application_url: 'https://cfgnh.org/',
+    target_audience: 'eso',
+    scale: 'local',
+    tags: ['Workforce', 'Economic Development', 'New Haven'],
+    visibility: 'network_shared',
+    eligibility: {
+      geography_focus: ['New Haven'],
+      eligible_org_roles: ['eso'],
+      eligible_tax_statuses: ['non_profit'],
+    },
+    source_evidence: [
+      {
+        source_name: 'Community Foundation Newsletter',
+        source_type: 'newsletter',
+        source_url: 'https://cfgnh.org/',
+        discovered_at: '2026-03-20T10:00:00Z',
+        last_verified_at: '2026-03-22T09:30:00Z',
+        confidence: 'high',
+      },
+    ],
+    status: 'qualified',
+    elevation_level: 1,
+    relevance_score: 92,
+    interested_eso_ids: ['org_makehaven'],
+    pursuing_eso_ids: [],
+    workflow_queue: 'identification',
+    ecosystem_id: 'eco_new_haven',
+    created_at: '2026-03-20T10:00:00Z',
+    updated_at: '2026-03-20T10:00:00Z'
+  },
+  {
+    id: 'grant_002',
+    funder_id: 'org_biogen_006',
+    funder_name: 'BioGen Ventures',
+    title: 'STEM Innovation Grant',
+    summary: 'Supporting education and infrastructure for STEM-related startups and community makerspaces.',
+    deadline: '2026-05-01',
+    award_amount: { min: 10000, max: 50000, currency: 'USD' },
+    application_url: 'https://www.biogen.com/',
+    target_audience: 'eso',
+    scale: 'regional',
+    tags: ['STEM', 'Education', 'Makerspace'],
+    visibility: 'trusted_network',
+    source_evidence: [
+      {
+        source_name: 'BioGen Ventures Website',
+        source_type: 'website',
+        source_url: 'https://www.biogen.com/',
+        discovered_at: '2026-03-22T09:00:00Z',
+        confidence: 'medium',
+      },
+    ],
+    status: 'new',
+    elevation_level: 0,
+    relevance_score: 78,
+    interested_eso_ids: [],
+    pursuing_eso_ids: [],
+    workflow_queue: 'identification',
+    ecosystem_id: 'eco_new_haven',
+    created_at: '2026-03-22T09:00:00Z',
+    updated_at: '2026-03-22T09:00:00Z'
+  },
+  {
+    id: 'grant_003',
+    funder_id: 'org_nsf_national',
+    funder_name: 'National Science Foundation (NSF)',
+    title: 'Regional Innovation Engines: Phase II',
+    summary: 'A multi-million dollar opportunity to establish regional hubs for technology transfer and manufacturing innovation.',
+    deadline: '2026-09-30',
+    award_amount: { min: 1000000, max: 5000000, currency: 'USD' },
+    application_url: 'https://new.nsf.gov/',
+    target_audience: 'eso',
+    scale: 'national',
+    tags: ['Technology', 'Manufacturing', 'National'],
+    visibility: 'trusted_network',
+    eligibility: {
+      geography_focus: ['United States'],
+      eligible_org_roles: ['eso', 'funder'],
+      requires_fiscal_sponsor: true,
+      min_budget: 1000000,
+      notes: 'Requires a lead applicant capable of fiscal administration and network reporting.',
+    },
+    source_evidence: [
+      {
+        source_name: 'NSF Solicitation Feed',
+        source_type: 'aggregator',
+        source_url: 'https://new.nsf.gov/',
+        discovered_at: '2026-03-15T08:00:00Z',
+        last_verified_at: '2026-03-24T14:00:00Z',
+        confidence: 'high',
+      },
+    ],
+    status: 'pursuing',
+    elevation_level: 2,
+    relevance_score: 98,
+    interested_eso_ids: ['org_makehaven', 'org_ct_innovations', 'org_nexus_admin'],
+    pursuing_eso_ids: ['org_makehaven'],
+    workflow_queue: 'drafting',
+    partnership_blueprint: {
+      lead_org_id: 'org_nexus_admin',
+      partner_org_ids: ['org_makehaven', 'org_ct_innovations'],
+      rationale: 'This federal grant requires both state-level oversight (CT Innovations) and local delivery/facilities (MakeHaven). Nexus Admin should act as the fiscal lead.',
+      suggested_roles: {
+        'org_makehaven': 'Facility provider and prototype support lead.',
+        'org_ct_innovations': 'State matching fund coordinator and regulatory advisor.',
+        'org_nexus_admin': 'Program management and fiscal oversight.'
+      }
+    },
+    ecosystem_id: 'eco_new_haven',
+    created_at: '2026-03-15T08:00:00Z',
+    updated_at: '2026-03-24T14:00:00Z'
+  },
+  {
+    id: 'grant_004',
+    funder_id: 'org_sba_national',
+    funder_name: 'Small Business Administration (SBA)',
+    title: 'Growth Accelerator Fund Competition',
+    summary: 'Prizes to build the ecosystem of support for high-tech, small business startups.',
+    deadline: '2025-02-15',
+    award_amount: { min: 50000, max: 200000, currency: 'USD' },
+    application_url: 'https://www.sbir.gov/accelerators',
+    target_audience: 'eso',
+    scale: 'national',
+    tags: ['SBA', 'Accelerator', 'Tech'],
+    visibility: 'network_shared',
+    status: 'awarded',
+    elevation_level: 3,
+    relevance_score: 100,
+    interested_eso_ids: ['org_makehaven'],
+    pursuing_eso_ids: ['org_makehaven'],
+    workflow_queue: 'results',
+    actual_award_amount: 50000,
+    submission_date: '2025-02-10',
+    final_submission_url: 'https://nexus.org/vault/sba-grant-2025.pdf',
+    ecosystem_id: 'eco_new_haven',
+    created_at: '2025-01-01T09:00:00Z',
+    updated_at: '2025-03-15T10:00:00Z'
+  },
+  {
+    id: 'grant_005',
+    funder_id: 'org_ct_innovations',
+    funder_name: 'Connecticut Innovations',
+    title: 'Venture Fuel Grant Program',
+    summary: 'Direct equity-free grants for CT-based technology startups to accelerate product development.',
+    deadline: '2026-07-01',
+    award_amount: { min: 5000, max: 25000, currency: 'USD' },
+    application_url: 'https://ctinnovations.com/venture-fuel',
+    target_audience: 'entrepreneur',
+    scale: 'regional',
+    tags: ['Startup', 'Tech', 'CT'],
+    visibility: 'network_shared',
+    status: 'new',
+    elevation_level: 1,
+    relevance_score: 85,
+    interested_eso_ids: [],
+    pursuing_eso_ids: [],
+    workflow_queue: 'identification',
+    ecosystem_id: 'eco_new_haven',
+    created_at: '2026-03-25T10:00:00Z',
+    updated_at: '2026-03-25T10:00:00Z'
+  }
+];
+
 // --- Re-added Mock Data for Application Logic ---
+
+// --- Initiatives ---
+
+export const ESO_INITIATIVE_FORGE: Initiative = {
+  id: 'init_eso_forge',
+  organization_id: 'org_makehaven',
+  pipeline_id: 'pipeline_forge_hardware',
+  name: 'Manufacturing Readiness Program',
+  description: 'A shared program providing prototyping facilities and manufacturing technical assistance to hardware startups.',
+  current_stage_index: 0,
+  status: 'active',
+  ecosystem_id: 'eco_new_haven',
+  stage_history: [{ stage_index: 0, stage_id: 's_forge_1', entered_at: '2023-01-01' }],
+  checklists: [],
+  grant_research_context: {
+    funding_keywords: ['Manufacturing', 'Prototyping', 'Hardware', 'STEM'],
+    min_grant_amount: 50000,
+    is_open_for_collaboration: true
+  }
+};
+
+export const ESO_INITIATIVE_BIO: Initiative = {
+  id: 'init_eso_bio',
+  organization_id: 'org_ct_innovations',
+  name: 'BioTech Acceleration Hub',
+  description: 'State-wide initiative to support life sciences commercialization.',
+  current_stage_index: 0,
+  status: 'active',
+  ecosystem_id: 'eco_new_haven',
+  stage_history: [],
+  checklists: [],
+  grant_research_context: {
+    funding_keywords: ['BioTech', 'Life Sciences', 'Health Innovation'],
+    min_grant_amount: 250000,
+    is_open_for_collaboration: true
+  }
+};
 
 export const INITIATIVE_A: Initiative = {
   id: 'init_winch_v1',
@@ -812,6 +1099,16 @@ export const INITIATIVE_H: Initiative = {
 };
 
 export const INITIATIVE_STEALTH_1 = INITIATIVE_F;
+
+export const ALL_INITIATIVES = [
+    INITIATIVE_A,
+    INITIATIVE_B,
+    INITIATIVE_C,
+    INITIATIVE_D,
+    INITIATIVE_E,
+    ESO_INITIATIVE_FORGE,
+    ESO_INITIATIVE_BIO
+];
 
 // Metrics
 export const METRIC_LOGS: MetricLog[] = [

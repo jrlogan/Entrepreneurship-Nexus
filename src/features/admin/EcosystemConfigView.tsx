@@ -64,6 +64,7 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
         metrics_manager: activeEco.settings.feature_flags?.metrics_manager ?? false,
         inbound_intake: activeEco.settings.feature_flags?.inbound_intake ?? false,
         notify_entrepreneurs: activeEco.settings.feature_flags?.notify_entrepreneurs ?? false,
+        grant_lab: activeEco.settings.feature_flags?.grant_lab ?? false,
     });
 
     // --- Add Ecosystem modal ---
@@ -104,6 +105,7 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             metrics_manager: activeEco.settings.feature_flags?.metrics_manager ?? false,
             inbound_intake: activeEco.settings.feature_flags?.inbound_intake ?? false,
             notify_entrepreneurs: activeEco.settings.feature_flags?.notify_entrepreneurs ?? false,
+            grant_lab: activeEco.settings.feature_flags?.grant_lab ?? false,
         });
 
         // Overlay with saved data — localStorage first (instant, all envs), then Firestore if available
@@ -460,6 +462,7 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
                     {([
                         { key: 'notify_entrepreneurs', label: 'Notify Entrepreneurs', description: 'Send email notifications to entrepreneurs for referral decisions.' },
                         { key: 'inbound_intake', label: 'Inbound Intake', description: 'Enable inbound email processing for activity capture.' },
+                        { key: 'grant_lab', label: 'Grant Lab', description: 'Enable collaborative grant research, automated matching, and joint drafting.' },
                         { key: 'interactions', label: 'Interactions', description: 'Track and manage interactions between parties.' },
                         { key: 'dashboard', label: 'Dashboard', description: 'Show the activity dashboard.' },
                         { key: 'reports', label: 'Reports', description: 'Enable reporting features.' },

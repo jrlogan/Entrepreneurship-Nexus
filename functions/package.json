@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --require tsx/cjs --test src/emailParsing.test.ts",
-    "test:integration": "node --require tsx/cjs --test src/inboundFlow.test.ts"
+    "test:integration": "node --require tsx/cjs --test src/inboundFlow.test.ts",
+    "test:partner": "node --require tsx/cjs --test src/partnerApi.test.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -37,6 +37,7 @@ function computeNav(role: SystemRole, flags: FeatureFlags, isMvpMode = true) {
   const canAccessDataStandards = isPlatformAdmin || (isPrivileged && flags.data_standards === true);
   const canAccessMetricsManager = isPlatformAdmin || (isSuper && flags.metrics_manager === true);
   const canAccessInboundIntake = isPlatformAdmin || (role === 'ecosystem_manager' && flags.inbound_intake === true);
+  const canAccessGrantLab = isPlatformAdmin || flags.grant_lab === true;
 
   return {
     showMvpEsoNav,
@@ -52,6 +53,7 @@ function computeNav(role: SystemRole, flags: FeatureFlags, isMvpMode = true) {
     canAccessDataStandards,
     canAccessMetricsManager,
     canAccessInboundIntake,
+    canAccessGrantLab,
   };
 }
 
@@ -148,6 +150,14 @@ describe('feature flag gating for eso_admin', () => {
 
   it('cannot access inbound_intake (requires ecosystem_manager or platform_admin)', () => {
     expect(computeNav('eso_admin', { inbound_intake: true }).canAccessInboundIntake).toBe(false);
+  });
+
+  it('cannot access grant_lab without flag', () => {
+    expect(computeNav('eso_admin', {}).canAccessGrantLab).toBe(false);
+  });
+
+  it('can access grant_lab with flag', () => {
+    expect(computeNav('eso_admin', { grant_lab: true }).canAccessGrantLab).toBe(true);
   });
 });
 

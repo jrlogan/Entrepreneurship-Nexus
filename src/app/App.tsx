@@ -70,6 +70,7 @@ import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
 import { VentureScoutView } from '../features/scout/VentureScoutView';
 import { TodosView } from '../features/todos/TodosView';
+import { GrantsView } from '../features/grants/GrantsView';
 
 // App Shell
 import { AppShell } from './AppShell';
@@ -87,7 +88,7 @@ const APP_VIEWS = new Set<ViewMode>([
   'dashboard', 'directory', 'detail', 'pipelines', 'initiatives', 'reports', 'contacts', 'person_detail',
   'my_clients', 'interactions', 'referrals', 'my_ventures', 'user_management', 'api_console', 'data_quality',
   'journey', 'ecosystem_config', 'scout', 'todos', 'my_org', 'my_projects', 'data_standards',
-  'metrics_manager', 'my_metrics_tasks', 'inbound_intake',
+  'metrics_manager', 'my_metrics_tasks', 'inbound_intake', 'grants',
 ]);
 
 type RouteState = {
@@ -343,8 +344,14 @@ const App = () => {
   }, [repos, viewerContext, currentEcosystemId, dataVersion]);
 
   useEffect(() => {
-    repos.pipelines.getPipelines(currentEcosystemId).then(setPipelines);
-  }, [repos, currentEcosystemId, dataVersion]);
+    if (shouldRequireAuth && !viewerContext) {
+      return;
+    }
+
+    repos.pipelines.getPipelines(currentEcosystemId).then(setPipelines).catch((error) => {
+      console.error('Failed to load pipelines', error);
+    });
+  }, [repos, currentEcosystemId, dataVersion, shouldRequireAuth, viewerContext]);
 
   useEffect(() => {
     if (viewerContext) {
@@ -353,8 +360,14 @@ const App = () => {
   }, [repos, viewerContext, dataVersion]);
 
   useEffect(() => {
-    repos.services.getAll(currentEcosystemId).then(setServices);
-  }, [repos, currentEcosystemId, dataVersion]);
+    if (shouldRequireAuth && !viewerContext) {
+      return;
+    }
+
+    repos.services.getAll(currentEcosystemId).then(setServices).catch((error) => {
+      console.error('Failed to load services', error);
+    });
+  }, [repos, currentEcosystemId, dataVersion, shouldRequireAuth, viewerContext]);
   
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(initialRoute.orgId || null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(initialRoute.personId || null);
@@ -484,6 +497,7 @@ const App = () => {
   const canAccessDataStandards = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_standards === true);
   const canAccessMetricsManager = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.metrics_manager === true);
   const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
+  const canAccessGrantLab = isPlatformAdmin || featureFlags.grant_lab === true;
   const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
@@ -500,6 +514,7 @@ const App = () => {
       (view === 'data_standards' && !canAccessDataStandards) ||
       (view === 'metrics_manager' && !canAccessMetricsManager) ||
       (view === 'inbound_intake' && !canAccessInboundIntake) ||
+      (view === 'grants' && !canAccessGrantLab) ||
       (view === 'platform_admin' && !canAccessPlatformAdmin);
 
     if (viewFeatureBlocked) {
@@ -510,6 +525,7 @@ const App = () => {
     canAccessDashboard,
     canAccessDataQuality,
     canAccessDataStandards,
+    canAccessGrantLab,
     canAccessInboundIntake,
     canAccessInteractions,
     canAccessInitiatives,
@@ -634,6 +650,11 @@ const App = () => {
            {view === 'todos' && (
                canAccessTasksAdvice ? (
                <TodosView />
+               ) : null
+           )}
+           {view === 'grants' && (
+               canAccessGrantLab ? (
+               <GrantsView onLinkToInitiative={(organizationId) => navigateToOrg(organizationId, 'initiatives')} />
                ) : null
            )}
            {view === 'referrals' && (

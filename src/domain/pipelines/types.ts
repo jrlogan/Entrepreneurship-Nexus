@@ -1,5 +1,5 @@
-
 import type { ChecklistProgress } from '../ecosystems/types';
+import type { GrantResearchContext } from '../grants/types';
 
 export interface PipelineStage {
   id: string; // Added ID for history tracking
@@ -24,6 +24,24 @@ export interface StageHistoryLog {
   exited_at?: string; // ISO Date (null if current)
 }
 
+export type InitiativeEntityType =
+  | 'eso_program'
+  | 'business_program'
+  | 'product_line'
+  | 'project'
+  | 'grant_program';
+
+export type InitiativeCollaborationVisibility = 'private' | 'trusted_partners' | 'network_shared';
+
+export interface InitiativeProfile {
+  entity_type: InitiativeEntityType;
+  normalized_focus_areas: string[];
+  beneficiary_tags?: string[];
+  geography_tags?: string[];
+  collaboration_visibility?: InitiativeCollaborationVisibility;
+  collaboration_modes?: string[];
+}
+
 export interface Initiative {
   id: string;
   organization_id: string;
@@ -41,7 +59,13 @@ export interface Initiative {
 
   // Longitudinal Tracking
   stage_history: StageHistoryLog[];
-  
+
   // Configurable Ecosystem Checklists
   checklists: ChecklistProgress[];
+
+  // Cross-org matching metadata for collaboration and reporting.
+  initiative_profile?: InitiativeProfile;
+
+  // New: Grant Matching Context
+  grant_research_context?: GrantResearchContext;
 }

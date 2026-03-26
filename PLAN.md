@@ -133,6 +133,30 @@
       - Reassign referrals (`subject_person_id`, `referring_person_id`), interactions, and affiliations to winner
       - Archive loser record (`status: 'archived'`)
       - See org merge in `DataQualityView.tsx:handleMergeConfirm` as reference pattern                                                                                                                                                      
+
+  ### Phase 6: Collaborative Grant Research (NEW)
+  **Goal:** Transform grant discovery into a network collaboration catalyst.
+  Reference: `docs/COLLABORATIVE_GRANT_RESEARCH.md`
+
+  - [ ] **6A: Shared Funder Registry**
+    - Show AI-enriched funder profiles in Directory
+    - Collaborative notes on funders
+
+  - [ ] **6B: Opportunity Discovery Feed**
+    - Ingest grants via Postmark webhook
+    - Shared research pool for the network
+
+  - [ ] **6C: Initiative-Driven Matchmaking**
+    - AI Advisor scores grants against ESO active Initiatives
+    - "Flag Interest" to signal readiness to partner
+
+  - [ ] **6D: Collaborative Elevation & Blueprints**
+    - AI generates Partnership Blueprints for national grants
+    - Propose lead applicant and complementary roles
+
+  - [ ] **6E: Shared Grant Pipeline**
+    - Track collective applications across multiple ESOs
+    - Cross-agency tasks and milestones
                                                                                                                                                                                          
 
   ### Phase 4+: Taxonomy & Classification — E3 Survey Insights

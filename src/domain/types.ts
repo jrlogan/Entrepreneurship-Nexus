@@ -17,3 +17,4 @@ export * from './inbound/types';
 export * from './auth/session';
 export * from './auth/accountRequests';
 export * from './auth/invites';
+export * from './grants/types';

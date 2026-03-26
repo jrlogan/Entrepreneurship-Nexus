@@ -174,15 +174,19 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                 <div className="flex flex-wrap items-center gap-3">
                     {/* Scope pills — same pattern as People view */}
                     <div className="inline-flex rounded-md shadow-sm" role="group">
-                        <button type="button" onClick={() => setScopeFilter('all')}
-                            className={`px-4 py-2 text-sm font-medium border border-gray-200 rounded-l-lg hover:bg-gray-100 ${scopeFilter === 'all' ? 'bg-gray-100 text-indigo-700 z-10 ring-2 ring-indigo-500' : 'bg-white text-gray-900'}`}>
+                        <button type="button" onClick={() => { setScopeFilter('all'); setTypeFilter('all'); }}
+                            className={`px-4 py-2 text-sm font-medium border border-gray-200 rounded-l-lg hover:bg-gray-100 ${scopeFilter === 'all' && typeFilter === 'all' ? 'bg-gray-100 text-indigo-700 z-10 ring-2 ring-indigo-500' : 'bg-white text-gray-900'}`}>
                             All
                         </button>
-                        <button type="button" onClick={() => setScopeFilter('my_clients')}
+                        <button type="button" onClick={() => { setScopeFilter('my_clients'); setTypeFilter('all'); }}
                             className={`px-4 py-2 text-sm font-medium border-t border-b border-gray-200 hover:bg-gray-100 ${scopeFilter === 'my_clients' ? 'bg-gray-100 text-indigo-700 z-10 ring-2 ring-indigo-500' : 'bg-white text-gray-900'}`}>
                             Our Clients {clientCount > 0 && <span className="ml-1 text-xs opacity-60">({clientCount})</span>}
                         </button>
-                        <button type="button" onClick={() => setScopeFilter('consented')}
+                        <button type="button" onClick={() => { setScopeFilter('all'); setTypeFilter('funder'); }}
+                            className={`px-4 py-2 text-sm font-medium border border-gray-200 hover:bg-gray-100 ${typeFilter === 'funder' ? 'bg-gray-100 text-indigo-700 z-10 ring-2 ring-indigo-500' : 'bg-white text-gray-900'}`}>
+                            Funders
+                        </button>
+                        <button type="button" onClick={() => { setScopeFilter('consented'); setTypeFilter('all'); }}
                             className={`px-4 py-2 text-sm font-medium border border-gray-200 rounded-r-lg hover:bg-gray-100 ${scopeFilter === 'consented' ? 'bg-gray-100 text-indigo-700 z-10 ring-2 ring-indigo-500' : 'bg-white text-gray-900'}`}>
                             Consented {consentedCount > 0 && <span className="ml-1 text-xs opacity-60">({consentedCount})</span>}
                         </button>

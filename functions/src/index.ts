@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import * as admin from 'firebase-admin';
-import { onRequest } from 'firebase-functions/v2/https';
+import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import {
   extractEmails,
   extractNameFromSubject,
@@ -1463,6 +1463,115 @@ const createReferralFromInboundMessage = async (args: {
   return { referralId: referralRef.id, personId: person.id, organizationId: organization?.id || null };
 };
 
+const processGrantOpportunity = async (args: {
+  message: any;
+  messageRef: any;
+  ecosystemId: string | null;
+  approvedBy?: string;
+}) => {
+  const { message, messageRef, ecosystemId, approvedBy } = args;
+  const now = new Date().toISOString();
+
+  // Call Gemini to parse the email for grant details
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
+
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
+  
+  const prompt = `You are a grant intake assistant. Extract grant opportunity details from the following email.
+Return a JSON object with: funder_name, title, summary (2-3 sentences), deadline (ISO date or null), 
+min_amount (number or null), max_amount (number or null), and tags (array of strings).
+
+Subject: ${message.subject}
+Body: ${message.text_body}`;
+
+  // Try working models from Grant-Researcher first
+  const modelNames = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-pro'];
+  let lastError: any = null;
+  let aiResult: any = null;
+  let grantData: any = {};
+
+  for (const modelName of modelNames) {
+    try {
+      console.log(`[GrantLab] Attempting extraction with model: ${modelName}`);
+      const model = genAI.getGenerativeModel({ model: modelName });
+      aiResult = await model.generateContent(prompt);
+      if (aiResult) break;
+    } catch (e: any) {
+      console.warn(`[GrantLab] Model ${modelName} failed: ${e.message}`);
+      lastError = e;
+    }
+  }
+
+  if (!aiResult) {
+    console.error('All Gemini models failed', lastError);
+    // Fallback to basic info if AI fails
+    grantData = {
+      funder_name: 'Unknown Funder',
+      title: message.subject || 'New Grant Opportunity',
+      summary: 'AI extraction failed. Please review the email body manually.',
+      tags: ['triage'],
+    };
+  } else {
+    try {
+      const aiText = aiResult.response.text();
+      const jsonStr = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+      grantData = JSON.parse(jsonStr);
+    } catch (e) {
+      console.error('Failed to parse AI response', e);
+      grantData = {
+        funder_name: 'Unknown Funder',
+        title: message.subject || 'New Grant Opportunity',
+        summary: 'AI response parsing failed.',
+        tags: ['triage'],
+      };
+    }
+  }
+
+  const grantId = `grant_${Math.random().toString(36).substr(2, 9)}`;
+  const grantRef = db.collection('grants').doc(grantId);
+  
+  await grantRef.set({
+    id: grantId,
+    funder_id: 'pending_resolve',
+    funder_name: grantData.funder_name,
+    title: grantData.title,
+    summary: grantData.summary,
+    deadline: grantData.deadline,
+    award_amount: {
+      min: grantData.min_amount || 0,
+      max: grantData.max_amount || 0,
+      currency: 'USD'
+    },
+    scale: 'regional',
+    tags: grantData.tags || [],
+    status: 'new',
+    elevation_level: 0,
+    interested_eso_ids: [],
+    pursuing_eso_ids: [],
+    workflow_queue: 'identification',
+    ecosystem_id: ecosystemId,
+    created_at: now,
+    updated_at: now,
+    source_evidence: [{
+      source_name: 'Email Intake',
+      source_type: 'email_webhook',
+      discovered_at: now,
+      confidence: 'medium'
+    }]
+  });
+
+  await messageRef.update({
+    review_status: 'approved',
+    approved_at: now,
+    approved_by: approvedBy || 'system',
+    grant_id: grantId
+  });
+
+  return { grantOpportunityId: grantId };
+};
+
 const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
   const routeAddress = normalize(payload.route_address || payload.to_emails?.[0] || '');
   const routeMatch = await db.collection('inbound_routes').where('route_address', '==', routeAddress).limit(1).get();
@@ -1583,7 +1692,27 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
   };
   await parseResultRef.set(parseResultData);
 
-  // 3. Auto-approve if sender is trusted, all required fields resolved, and no ambiguity.
+  // 3. Activity-specific routing
+  const activityType = route?.activity_type || 'introduction';
+
+  if (activityType === 'grant') {
+    const grantResult = await processGrantOpportunity({
+      message: { ...inboundMessageRef, id: inboundMessageRef.id, ...payload, ecosystem_id: resolvedEcosystemId, received_at: now },
+      messageRef: inboundMessageRef,
+      ecosystemId: resolvedEcosystemId,
+      approvedBy: 'system',
+    });
+    return {
+      ok: true,
+      inbound_message_id: inboundMessageRef.id,
+      parse_result_id: parseResultRef.id,
+      review_required: false,
+      auto_approved: true,
+      grant_opportunity_id: grantResult.grantOpportunityId,
+    };
+  }
+
+  // 4. Auto-approve if sender is trusted, all required fields resolved, and no ambiguity.
   //    TODO: Add more sophisticated routing logic when ESOs operate in multiple ecosystems.
   const canAutoApprove =
     needsReviewReasons.length === 0 &&
@@ -3552,7 +3681,7 @@ export const generateEsoProfile = onRequest({ invoker: 'public', timeoutSeconds:
 
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
   // Fetch and strip a URL to plain text
   const fetchPageText = async (url: string): Promise<{ text: string; status: number | null; error?: string }> => {
@@ -3698,3 +3827,117 @@ export {
   onInteractionCreatedDeliverWebhooks,
   onReferralWrittenDeliverWebhooks,
 } from './partnerApi';
+
+// ─── Grant Lab — AI Analysis ────────────────────────────────────────────────
+export const extractGrantData = onCall({ timeoutSeconds: 120 }, async (request) => {
+  const { auth } = request;
+  if (!auth) {
+    throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+  }
+
+  const { url, mode = 'discovery' } = request.data as { url: string; mode?: 'discovery' | 'drafting' };
+  console.log(`[GrantLab] Processing URL: ${url} (Mode: ${mode})`);
+  
+  if (!url) {
+    throw new HttpsError('invalid-argument', 'URL is required');
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) { 
+    console.error('[GrantLab] GEMINI_API_KEY not configured in functions environment.');
+    throw new HttpsError('failed-precondition', 'GEMINI_API_KEY not configured');
+  }
+
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  // 1. Fetch Page Text
+  const fetchPage = async (targetUrl: string) => {
+    try {
+      console.log(`[GrantLab] Fetching page: ${targetUrl}`);
+      const resp = await fetch(targetUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 NexusGrantBot/1.0' }
+      });
+      if (!resp.ok) {
+        console.error(`[GrantLab] Fetch failed with status: ${resp.status}`);
+        return null;
+      }
+      const html = await resp.text();
+      console.log(`[GrantLab] Fetch successful, HTML length: ${html.length}`);
+      return html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 15000);
+    } catch (err: any) { 
+      console.error(`[GrantLab] Fetch error: ${err.message}`);
+      return null; 
+    }
+  };
+
+  const pageText = await fetchPage(url);
+  if (!pageText) { 
+    console.error(`[GrantLab] Could not extract text from URL: ${url}`);
+    throw new HttpsError('internal', 'Could not fetch content from the provided URL');
+  }
+
+  // 2. Prepare Prompts
+  const discoveryPrompt = `You are a specialized grant research assistant. Analyze the following webpage text and extract specific, individual grant opportunities (RFPs, funding calls).
+Do NOT return general funder profiles. Only return active or upcoming specific grant programs. If multiple grants are listed, extract all of them.
+
+Return a JSON object with an 'opportunities' array. Each item in 'opportunities' should include:
+- funder_name (the name of the foundation or agency)
+- title (the specific name of the grant program)
+- summary (2-3 sentences describing the purpose and eligible projects)
+- target_audience (either 'eso' if for support organizations or 'entrepreneur' if for founders/startups directly)
+- deadline (ISO date like YYYY-MM-DD or null if rolling/not found)
+- min_amount (number or null)
+- max_amount (number or null)
+- tags (array of 5 keywords)
+
+Text: ${pageText}`;
+
+  const draftingPrompt = `Extract the specific application questions from the following grant announcement or RFP text. 
+Return a JSON object with a 'questions' array. Each question should have: 
+id (e.g. q1, q2), question_text, char_limit (number or null), and section_label (string or null).
+
+Text: ${pageText}`;
+
+  const activePrompt = mode === 'drafting' ? draftingPrompt : discoveryPrompt;
+
+  // 3. Try Gemini with Fallbacks (matching working models in Grant-Researcher)
+  const modelNames = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-pro'];
+  let aiResult: any = null;
+  let lastError: any = null;
+
+  for (const modelName of modelNames) {
+    try {
+      console.log(`[GrantLab] Attempting extraction with model: ${modelName}`);
+      const model = genAI.getGenerativeModel({ model: modelName });
+      aiResult = await model.generateContent(activePrompt);
+      if (aiResult) break;
+    } catch (e: any) {
+      console.warn(`[GrantLab] Model ${modelName} failed: ${e.message}`);
+      lastError = e;
+    }
+  }
+
+  if (!aiResult) {
+    console.error('[GrantLab] All Gemini models failed', lastError);
+    throw new HttpsError('internal', `AI Processing failed: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  // 4. Parse & Return
+  try {
+    const text = aiResult.response.text();
+    console.log(`[GrantLab] Gemini response received: ${text.slice(0, 100)}...`);
+    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const data = JSON.parse(jsonStr);
+    return { ok: true, data };
+  } catch (e: any) {
+    console.error(`[GrantLab] Response parsing failed: ${e?.message}`);
+    throw new HttpsError('internal', `Response parsing failed: ${e?.message}`);
+  }
+});

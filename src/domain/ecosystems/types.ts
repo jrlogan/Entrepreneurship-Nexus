@@ -43,6 +43,7 @@ export interface Ecosystem {
       metrics_manager?: boolean;
       inbound_intake?: boolean;
       notify_entrepreneurs?: boolean;
+      grant_lab?: boolean;
     };
   };
   // Configurable checklists available to all initiatives in this ecosystem

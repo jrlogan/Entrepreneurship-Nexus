@@ -156,6 +156,24 @@ service cloud.firestore {
       allow write: if isPlatformAdmin() || isEsoOperator();
     }
 
+    match /grants/{grantId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
+    match /monitored_grant_sources/{sourceId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
+    match /grant_drafts/{draftId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
     match /participations/{participationId} {
       allow read: if isAuthenticated();
       allow create, update: if isPlatformAdmin() || isEsoOperator();
@@ -211,4 +229,3 @@ service cloud.firestore {
     }
   }
 }
-

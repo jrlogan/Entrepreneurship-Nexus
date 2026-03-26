@@ -28,16 +28,20 @@
   },
   "emulators": {
     "auth": {
-      "port": 59099
+      "port": 59099,
+      "host": "0.0.0.0"
     },
     "firestore": {
-      "port": 58080
+      "port": 58080,
+      "host": "0.0.0.0"
     },
     "functions": {
-      "port": 55001
+      "port": 55001,
+      "host": "0.0.0.0"
     },
     "storage": {
-      "port": 59199
+      "port": 59199,
+      "host": "0.0.0.0"
     },
     "ui": {
       "enabled": true,

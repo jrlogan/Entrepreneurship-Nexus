@@ -1,4 +1,4 @@
-export type InboundActivityType = 'introduction' | 'referral' | 'followup' | 'outcome';
+export type InboundActivityType = 'introduction' | 'referral' | 'followup' | 'outcome' | 'grant';
 export type InboundParseStatus = 'pending' | 'parsed' | 'failed';
 export type InboundReviewStatus = 'unreviewed' | 'needs_review' | 'approved' | 'rejected';
 export type IntroContactPermission = 'on_file' | 'newly_confirmed' | 'not_confirmed' | 'unknown';

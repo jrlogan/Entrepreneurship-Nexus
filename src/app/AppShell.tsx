@@ -106,6 +106,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const canAccessDataStandards = isPlatformAdmin || (isPrivileged && featureFlags.data_standards === true);
   const canAccessMetricsManager = isPlatformAdmin || (isSuper && featureFlags.metrics_manager === true);
   const canAccessInboundIntake = isPlatformAdmin || ((currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true);
+  const canAccessGrantLab = isPlatformAdmin || featureFlags.grant_lab === true;
 
   const iconClass = "w-5 h-5";
   const isDemoMode = CONFIG.IS_DEMO_MODE;
@@ -296,15 +297,27 @@ export const AppShell: React.FC<AppShellProps> = ({
                     iconColor={theme.itemIcon} 
                     hoverClass={theme.itemHover}
                     />
-                 <SidebarItem 
-                   active={view === 'referrals'} 
-                   onClick={() => handleNav('referrals')} 
-                   label="Referrals" 
-                   icon={<IconShare className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
+                 <SidebarItem
+                   active={view === 'referrals'}
+                   onClick={() => handleNav('referrals')}
+                   label="Referrals"
+                   icon={<IconShare className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
                  />
+                 {canAccessGrantLab && (
+                   <SidebarItem
+                     active={view === 'grants'}
+                     onClick={() => handleNav('grants')}
+                     label="Grant Lab"
+                     icon={<IconBook className={iconClass} />}
+                     textColor={theme.itemText}
+                     iconColor={theme.itemIcon}
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+
                  {!showMvpEsoNav && (
                    <>
                      {(canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives || canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout) && (
