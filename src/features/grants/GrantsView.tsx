@@ -871,12 +871,3 @@ const enrichGrantOpportunity = (
     relevance_score: score
   };
 };
-ore,
-      interest_count: interestCount,
-      eligible_match_count: eligibleCount,
-      collaboration_ready_match_count: readyCount,
-      reasons
-    },
-    relevance_score: score
-  };
-};
