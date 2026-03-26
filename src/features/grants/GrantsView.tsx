@@ -440,6 +440,15 @@ export const GrantsView = ({ onLinkToInitiative }: GrantsViewProps) => {
   );
 };
 
+const AudienceToggle = ({ active, onClick, label }: { active: boolean, onClick: () => void, label: string }) => (
+  <button
+    onClick={onClick}
+    className={`px-3 py-1 text-sm font-medium rounded-full transition-all ${active ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'}`}
+  >
+    {label}
+  </button>
+);
+
 const TabButton = ({ active, onClick, icon, label, count }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, count?: number }) => (
   <button 
     onClick={onClick}
