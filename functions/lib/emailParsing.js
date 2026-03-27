@@ -1,6 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.extractClientEmail = exports.extractReferralNote = exports.parseFooter = exports.extractNameFromSubject = exports.extractEmails = exports.stripOutlookWrapper = void 0;
+exports.extractClientEmail = exports.extractReferralNote = exports.parseFooter = exports.extractNameFromSubject = exports.extractEmails = exports.stripOutlookWrapper = exports.nameFromEmailLocal = void 0;
+/**
+ * Converts an email local part into a human-readable name:
+ *   "horst"      → "Horst"
+ *   "john.smith" → "John Smith"
+ *   "jane_doe"   → "Jane Doe"
+ */
+const nameFromEmailLocal = (local) => local
+    .replace(/[._-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+    .trim();
+exports.nameFromEmailLocal = nameFromEmailLocal;
 /**
  * Strips Outlook's hyperlink wrapper formats from a string value:
  *   [text<mailto:url>]  → text
@@ -55,12 +69,19 @@ const parseFooter = (text) => {
             }
             continue;
         }
-        const checkboxMatch = line.match(/^- \[x\]\s+(.*)$/i);
+        // Match checked checkboxes in two formats:
+        //   Markdown list:  "- [x] value" or "- [ x ] value"
+        //   Bare bracket:   "[x] value" or "[ x ] value" or "[x ] value"
+        // Spaces around the x are allowed (typos like "[ s]" are intentionally ignored).
+        const checkboxMatch = line.match(/^(?:- )?\[\s*[xX]\s*\]\s+(.*)/);
         if (checkboxMatch && currentSection) {
             const [, option] = checkboxMatch;
             const existing = result[currentSection];
             if (Array.isArray(existing)) {
-                existing.push((0, exports.stripOutlookWrapper)(option.trim()));
+                // Strip Outlook wrappers, then strip any inline label/comment after the ID value.
+                // Supports template annotations like "prototype — Pilot / Testing" or "idea (Concept)"
+                const cleaned = (0, exports.stripOutlookWrapper)(option.trim()).replace(/\s+[-—(].*$/, '').trim();
+                existing.push(cleaned);
             }
         }
     }

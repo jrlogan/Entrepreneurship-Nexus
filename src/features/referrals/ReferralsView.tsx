@@ -7,7 +7,7 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Referral, Person } from '../../domain/types';
 import { CreateReferralModal } from './CreateReferralModal';
 import { callHttpFunction } from '../../services/httpFunctionClient';
-import { queryCollection } from '../../services/firestoreClient';
+import { queryCollection, whereEquals } from '../../services/firestoreClient';
 import type { InboundRoute } from '../../domain/inbound/types';
 
 export const ReferralsView = ({
@@ -66,9 +66,51 @@ export const ReferralsView = ({
     const [intType, setIntType] = useState('call');
     const [intNotes, setIntNotes] = useState('');
 
+    // Account/invite status for the selected referral's subject person
+    const [subjectAccountStatus, setSubjectAccountStatus] = useState<'loading' | 'has_account' | 'invited' | 'not_invited' | null>(null);
+    const [isSendingAccountInvite, setIsSendingAccountInvite] = useState(false);
+
     useEffect(() => {
         queryCollection<InboundRoute>('inbound_routes').then(setInboundRoutes).catch(() => {});
     }, []);
+
+    useEffect(() => {
+        if (!selectedReferral?.subject_person_id) {
+            setSubjectAccountStatus(null);
+            return;
+        }
+        const subjectPerson = people.find((p) => p.id === selectedReferral.subject_person_id);
+        if (!subjectPerson) { setSubjectAccountStatus(null); return; }
+        if ((subjectPerson as any).auth_uid) { setSubjectAccountStatus('has_account'); return; }
+        // Check for a pending access invite
+        setSubjectAccountStatus('loading');
+        queryCollection<{ status: string; email: string }>(
+            'invites',
+            [whereEquals('email', subjectPerson.email), whereEquals('status', 'pending')]
+        ).then((results) => {
+            setSubjectAccountStatus(results.length > 0 ? 'invited' : 'not_invited');
+        }).catch(() => setSubjectAccountStatus('not_invited'));
+    }, [selectedReferral?.subject_person_id, people]);
+
+    const handleSendAccountInvite = async () => {
+        if (!selectedReferral?.subject_person_id) return;
+        const subjectPerson = people.find((p) => p.id === selectedReferral.subject_person_id);
+        if (!subjectPerson?.email) return;
+        setIsSendingAccountInvite(true);
+        try {
+            await callHttpFunction('createInvite', {
+                email: subjectPerson.email,
+                invited_role: 'entrepreneur',
+                organization_id: subjectPerson.organization_id || '',
+            });
+            setSubjectAccountStatus('invited');
+        } catch (err: any) {
+            setFeedbackTone('error');
+            setFeedbackMessage(err?.message || 'Failed to send invite.');
+        } finally {
+            setIsSendingAccountInvite(false);
+        }
+    };
 
     const enums = loadEnums();
     const defaultFollowUpDate = () => {
@@ -927,8 +969,35 @@ I'd love to learn more about what you're working on and how we can help. [Add yo
                                  <div><span className="font-bold text-gray-500">From:</span> {organizations.find(o => o.id === selectedReferral.referring_org_id)?.name}</div>
                                  <div><span className="font-bold text-gray-500">To:</span> {organizations.find(o => o.id === selectedReferral.receiving_org_id)?.name}</div>
                              </div>
-                             <div className="mb-2">
-                                 <span className="font-bold text-gray-500">Subject:</span> {people.find(p => p.id === selectedReferral.subject_person_id)?.first_name} {people.find(p => p.id === selectedReferral.subject_person_id)?.last_name}
+                             <div className="mb-2 flex flex-wrap items-center gap-3">
+                                 <div>
+                                     <span className="font-bold text-gray-500">Subject:</span>{' '}
+                                     {people.find(p => p.id === selectedReferral.subject_person_id)?.first_name}{' '}
+                                     {people.find(p => p.id === selectedReferral.subject_person_id)?.last_name}
+                                 </div>
+                                 {subjectAccountStatus === 'has_account' && (
+                                     <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                                         ✓ Has platform account
+                                     </span>
+                                 )}
+                                 {subjectAccountStatus === 'invited' && (
+                                     <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                                         ✉ Invite pending
+                                     </span>
+                                 )}
+                                 {subjectAccountStatus === 'not_invited' && (
+                                     <button
+                                         type="button"
+                                         onClick={() => void handleSendAccountInvite()}
+                                         disabled={isSendingAccountInvite}
+                                         className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 hover:bg-indigo-100 hover:text-indigo-800 disabled:opacity-50"
+                                     >
+                                         {isSendingAccountInvite ? 'Sending…' : '+ Send account invite'}
+                                     </button>
+                                 )}
+                                 {subjectAccountStatus === 'loading' && (
+                                     <span className="text-xs text-gray-400">checking…</span>
+                                 )}
                              </div>
                              <div className="mb-2">
                                  <span className="font-bold text-gray-500">Case Type:</span> {getReferralTypeLabel(selectedReferral)}

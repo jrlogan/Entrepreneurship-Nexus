@@ -114,7 +114,15 @@ export const InboundIntakeView = () => {
     );
   }
 
+  const REVIEW_REASON_LABELS: Record<string, string> = {
+    missing_client_email: 'No entrepreneur email found',
+    unknown_sender_domain: 'Sender domain not recognized',
+    unknown_receiving_org: 'Receiving organization not matched',
+    multiple_cc_entrepreneurs: 'Multiple CC recipients — ambiguous entrepreneur',
+  };
+
   const parseResultByMessageId = new Map<string, InboundParseResult>(parseResults.map((result) => [result.inbound_message_id, result]));
+  const pendingReviewCount = scopedMessages.filter((m) => m.review_status === 'needs_review').length;
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
   // Platform admins see all messages including unrouted ones (ecosystem_id: null); others see only their ecosystem.
   const scopedMessages = canViewRawIntake
@@ -135,6 +143,7 @@ export const InboundIntakeView = () => {
 
   const [newRoute, setNewRoute] = useState({ route_address: '', activity_type: 'introduction' as InboundActivityType });
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [templateCopied, setTemplateCopied] = useState(false);
 
   const handleCreateRoute = async () => {
     if (!newRoute.route_address.trim()) return;
@@ -178,7 +187,13 @@ export const InboundIntakeView = () => {
   };
 
   const addAuthorizedDomain = async () => {
-    if (!newDomain.trim()) return;
+    const trimmed = newDomain.trim().toLowerCase();
+    if (!trimmed) return;
+    const duplicate = scopedAuthorizedDomains.find((d) => d.domain === trimmed);
+    if (duplicate) {
+      setError(`Domain "${trimmed}" is already configured for this ecosystem.`);
+      return;
+    }
     setIsSavingDomain(true);
     setError(null);
     try {
@@ -452,6 +467,103 @@ export const InboundIntakeView = () => {
         </Card>
       </div>
 
+      <Card title="Introduction Email Template">
+        {(() => {
+          const introRoute = scopedRoutes.find((r) => r.activity_type === 'introduction' && r.is_active);
+          const bccAddress = introRoute?.route_address || '[your-intake-address@inbound.postmarkapp.com]';
+          const template = [
+            `To: [Receiving ESO contact email]`,
+            `CC: [Entrepreneur's email]`,
+            `BCC: ${bccAddress}`,
+            `Subject: Introduction: [Entrepreneur First & Last Name]`,
+            ``,
+            `Hi [Receiving ESO name],`,
+            ``,
+            `I'd like to introduce you to [Entrepreneur name]. [1-2 sentences about them and why you're making this connection.]`,
+            ``,
+            `[Entrepreneur name], meet the team at [Receiving ESO]. They [1 sentence about what the ESO offers].`,
+            ``,
+            `I'll let you both take it from here.`,
+            ``,
+            `Best,`,
+            `[Your name]`,
+            ``,
+            `--- NETWORK REFERRAL DATA ---`,
+            `client_name: [Full Name]`,
+            `client_venture: [Business / Venture Name]`,
+            `receiving_org: [Receiving ESO Name]`,
+            ``,
+            `incorporation_status:`,
+            `[ ] not_incorporated — Not yet incorporated`,
+            `[ ] incorporated — Incorporated`,
+            `[ ] unknown — Unknown`,
+            ``,
+            `venture_stage:`,
+            `[ ] idea — Concept / Pre-Launch`,
+            `[ ] prototype — Pilot / Testing`,
+            `[ ] early_revenue — Early Revenue`,
+            `[ ] sustaining — Sustaining · Solo & Self-Sufficient`,
+            `[ ] multi_person — Growing · Adding Team & Scale`,
+            `[ ] established — Established`,
+            ``,
+            `support_needs:`,
+            `[ ] funding`,
+            `[ ] legal`,
+            `[ ] business_coaching`,
+            `[ ] product_development`,
+            `[ ] manufacturing`,
+            `[ ] marketing`,
+            `[ ] sales`,
+            `[ ] hiring`,
+            `[ ] workspace`,
+            `[ ] networking`,
+            `[ ] other`,
+            ``,
+            `intro_contact_permission:`,
+            `[ ] on_file — I have permission on file`,
+            `[ ] newly_confirmed — Entrepreneur confirmed just now`,
+            `[ ] not_confirmed — Not yet confirmed`,
+            `--- END NETWORK REFERRAL DATA ---`,
+          ].join('\n');
+
+          return (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Use this template when making a BCC introduction. The structured footer lets the system automatically capture the entrepreneur's profile — you only need to fill in what you know.
+                Fields already captured automatically: <strong>your organization</strong> (from your email domain) and <strong>entrepreneur email</strong> (from the CC field).
+              </p>
+              <div className="relative">
+                <pre className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs leading-relaxed text-gray-800 font-mono whitespace-pre">
+                  {template}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(template).then(() => {
+                      setTemplateCopied(true);
+                      setTimeout(() => setTemplateCopied(false), 2500);
+                    });
+                  }}
+                  className="absolute right-3 top-3 rounded bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm border border-gray-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-colors"
+                >
+                  {templateCopied ? '✓ Copied!' : 'Copy template'}
+                </button>
+              </div>
+              {introRoute && (
+                <p className="text-xs text-gray-500">
+                  BCC address shown above is your active intake route. Always BCC this address — never put it in To or CC.
+                </p>
+              )}
+              {!introRoute && (
+                <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2 border border-amber-200">
+                  No active introduction route found for this ecosystem. Configure an Inbound Route above to get your BCC address.
+                </p>
+              )}
+            </div>
+          );
+        })()}
+      </Card>
+
       <Card title="ESO Integration Activity">
         {visibleEsoOrganizations.length === 0 ? (
           <p className="text-sm text-gray-500">No ESO organizations found in this ecosystem.</p>
@@ -681,7 +793,16 @@ export const InboundIntakeView = () => {
       )}
 
       {canViewRawIntake && (
-      <Card title="Inbound Messages">
+      <Card title={
+        <span className="flex items-center gap-2">
+          Inbound Messages
+          {pendingReviewCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+              {pendingReviewCount} pending review
+            </span>
+          )}
+        </span>
+      }>
         {scopedMessages.length === 0 ? (
           <p className="text-sm text-gray-500">No inbound messages found.</p>
         ) : (
@@ -689,8 +810,22 @@ export const InboundIntakeView = () => {
             {scopedMessages
               .map((message) => {
                 const parseResult = parseResultByMessageId.get(message.id);
+                const needsReview = message.review_status === 'needs_review';
+                const reviewReasons: string[] = parseResult?.needs_review_reasons || [];
                 return (
-                  <div key={message.id} className="rounded-lg border border-gray-200 bg-white p-4">
+                  <div
+                    key={message.id}
+                    className={`rounded-lg border p-4 ${needsReview ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}
+                  >
+                    {needsReview && reviewReasons.length > 0 && (
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        {reviewReasons.map((reason) => (
+                          <span key={reason} className="inline-flex items-center rounded-full bg-amber-200 px-2.5 py-1 text-xs font-medium text-amber-900">
+                            ⚠ {REVIEW_REASON_LABELS[reason] || reason}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <div className="text-base font-semibold text-gray-900">{message.subject || '(No subject)'}</div>
@@ -702,19 +837,19 @@ export const InboundIntakeView = () => {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {message.review_status === 'needs_review' && (
+                        {needsReview && (
                           <button
                             onClick={() => handleOpenReview(message)}
-                            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+                            className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
                           >
-                            Review
+                            Review &amp; Approve
                           </button>
                         )}
                         <Badge color="indigo">{message.activity_type}</Badge>
                         <Badge color={message.parse_status === 'parsed' ? 'green' : message.parse_status === 'failed' ? 'red' : 'yellow'}>
                           {message.parse_status}
                         </Badge>
-                        <Badge color={message.review_status === 'approved' ? 'green' : message.review_status === 'rejected' ? 'red' : 'gray'}>
+                        <Badge color={message.review_status === 'approved' ? 'green' : message.review_status === 'rejected' ? 'red' : 'yellow'}>
                           {message.review_status}
                         </Badge>
                       </div>
@@ -734,12 +869,21 @@ export const InboundIntakeView = () => {
                       <div>
                         <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Parse Result</div>
                         {parseResult ? (
-                          <div className="mt-1 rounded bg-gray-50 p-3 text-sm text-gray-700">
-                            <div>Candidate person email: <span className="font-mono">{parseResult.candidate_person_email || 'n/a'}</span></div>
-                            <div>Candidate person name: {parseResult.candidate_person_name || 'n/a'}</div>
-                            <div>Candidate venture: {parseResult.candidate_venture_name || 'n/a'}</div>
-                            <div>Confidence: {parseResult.confidence}</div>
-                            <div>Review reasons: {parseResult.needs_review_reasons.length > 0 ? parseResult.needs_review_reasons.join(', ') : 'none'}</div>
+                          <div className="mt-1 rounded bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
+                            <div>Person: <span className="font-medium">{parseResult.candidate_person_name || '—'}</span> · <span className="font-mono text-xs">{parseResult.candidate_person_email || 'no email'}</span></div>
+                            {parseResult.candidate_venture_name && (
+                              <div>Venture: <span className="font-medium">{parseResult.candidate_venture_name}</span></div>
+                            )}
+                            {(parseResult as any).incorporation_status && (
+                              <div>Incorporation: <span className="font-medium">{(parseResult as any).incorporation_status}</span></div>
+                            )}
+                            {((parseResult as any).venture_stages?.length > 0 || parseResult.venture_stage) && (
+                              <div>Stage: <span className="font-medium">{((parseResult as any).venture_stages?.join(', ') || parseResult.venture_stage)}</span></div>
+                            )}
+                            {parseResult.support_needs?.length > 0 && (
+                              <div>Needs: <span className="font-medium">{parseResult.support_needs.join(', ')}</span></div>
+                            )}
+                            <div className="text-xs text-gray-500">Confidence: {Math.round((parseResult.confidence || 0) * 100)}%</div>
                           </div>
                         ) : (
                           <div className="mt-1 rounded bg-gray-50 p-3 text-sm text-gray-500">No parse result found.</div>

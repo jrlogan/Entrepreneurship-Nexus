@@ -1,5 +1,5 @@
 
-import type { SupportNeed } from '../inbound/types';
+import type { SupportNeed, VentureStage } from '../inbound/types';
 
 export type OrganizationRole = 'eso' | 'funder' | 'resource';
 export type OrganizationType =
@@ -129,6 +129,11 @@ export interface Organization {
 
   // AI-generated profile content
   description_auto_generated?: boolean; // true = AI-generated, can be regenerated; false/absent = manual, leave alone
+
+  // Venture maturity — last known stage, updated whenever a new referral or assessment provides one.
+  // Uses shared ecosystem vocabulary (VentureStage) so ESOs can compare across their client portfolio.
+  venture_stage?: VentureStage;
+  venture_stage_updated_at?: string;
 
   // ESO Service Catalog
   support_offerings?: SupportNeed[];

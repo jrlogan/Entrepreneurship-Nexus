@@ -4,6 +4,7 @@ import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import {
   extractEmails,
   extractNameFromSubject,
+  nameFromEmailLocal,
   parseFooter,
   extractReferralNote,
   extractClientEmail,
@@ -494,10 +495,13 @@ const splitName = (fullName?: string) => {
 
 const resolveReceivingOrganization = async (receivingOrgName?: string, toEmails: string[] = []) => {
   if (receivingOrgName) {
+    // Exact name match first
     const byName = await db.collection('organizations').where('name', '==', receivingOrgName).limit(1).get();
-    if (!byName.empty) {
-      return byName.docs[0];
-    }
+    if (!byName.empty) return byName.docs[0];
+
+    // Case-insensitive fallback: search by lowercase name field if stored
+    const byNameLower = await db.collection('organizations').where('name_lower', '==', receivingOrgName.toLowerCase()).limit(1).get();
+    if (!byNameLower.empty) return byNameLower.docs[0];
   }
 
   const domains = toEmails
@@ -505,19 +509,160 @@ const resolveReceivingOrganization = async (receivingOrgName?: string, toEmails:
     .filter((value): value is string => Boolean(value));
 
   for (const domain of domains) {
-    const byDomain = await db.collection('organization_aliases').where('domain', '==', domain).limit(1).get();
-    if (!byDomain.empty) {
-      const orgId = byDomain.docs[0].get('organization_id');
+    // Check organization_aliases first (explicit domain mappings)
+    const byAlias = await db.collection('organization_aliases').where('domain', '==', domain).limit(1).get();
+    if (!byAlias.empty) {
+      const orgId = byAlias.docs[0].get('organization_id');
       if (orgId) {
         const organization = await db.collection('organizations').doc(orgId).get();
-        if (organization.exists) {
-          return organization;
-        }
+        if (organization.exists) return organization;
+      }
+    }
+
+    // Also check authorized_sender_domains — ESOs often receive on their own domain
+    const bySenderDomain = await db.collection('authorized_sender_domains').where('domain', '==', domain).limit(1).get();
+    if (!bySenderDomain.empty) {
+      const orgId = bySenderDomain.docs[0].get('organization_id');
+      if (orgId) {
+        const organization = await db.collection('organizations').doc(orgId).get();
+        if (organization.exists) return organization;
       }
     }
   }
 
   return null;
+};
+
+/**
+ * Minimal HTML → plain text conversion for footer parsing fallback.
+ * Only used when text_body is absent (HTML-only emails).
+ */
+const stripHtmlForParsing = (html: string): string =>
+  html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const COMMON_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
+  'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me',
+  'comcast.net', 'verizon.net', 'att.net', 'cox.net', 'earthlink.net',
+  'live.com', 'msn.com', 'ymail.com', 'mail.com', 'inbox.com',
+  'zoho.com', 'fastmail.com', 'hey.com', 'pm.me',
+]);
+
+const isCommonEmailDomain = (domain: string): boolean =>
+  COMMON_EMAIL_DOMAINS.has(domain.toLowerCase());
+
+/**
+ * Fetches a website's homepage and extracts basic metadata:
+ * og:title > <title>, og:description > meta[description].
+ * Returns null on any error (network, timeout, parse).
+ */
+const fetchWebsiteMetadata = async (domain: string): Promise<{ name?: string; description?: string } | null> => {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(`https://${domain}`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Entrepreneurship-Nexus-Bot/1.0' },
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return null;
+    const html = await response.text();
+    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1];
+    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
+    const ogDesc = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1]
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i)?.[1];
+    const metaDesc = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i)?.[1];
+    // Strip common page title separators: "Company | Tagline" → "Company"
+    const rawTitle = (ogTitle || titleTag)?.trim();
+    const name = rawTitle ? rawTitle.replace(/\s+[|–—]\s+.*$/, '').trim().slice(0, 100) : undefined;
+    const description = (ogDesc || metaDesc)?.trim().slice(0, 500);
+    return (name || description) ? { name, description } : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Creates a draft organization from an email domain.
+ * Skips common consumer domains (gmail, yahoo, etc.).
+ * Attempts to pull name/description from the domain's website.
+ */
+// Ordered from least to most advanced — used to pick the "highest" when multiple stages are checked.
+const VENTURE_STAGE_ORDER = ['idea', 'prototype', 'early_revenue', 'sustaining', 'multi_person', 'established'];
+
+const highestVentureStage = (stages: string[]): string | undefined => {
+  let best = -1;
+  for (const s of stages) {
+    const idx = VENTURE_STAGE_ORDER.indexOf(s);
+    if (idx > best) best = idx;
+  }
+  return best >= 0 ? VENTURE_STAGE_ORDER[best] : undefined;
+};
+
+const upsertDraftOrganizationFromDomain = async (domain: string, ecosystemId?: string) => {
+  if (isCommonEmailDomain(domain)) return null;
+
+  // Check if any org already claims this domain
+  const [byAlias, bySenderDomain] = await Promise.all([
+    db.collection('organization_aliases').where('domain', '==', domain).limit(1).get(),
+    db.collection('authorized_sender_domains').where('domain', '==', domain).limit(1).get(),
+  ]);
+  if (!byAlias.empty) {
+    const orgId = byAlias.docs[0].get('organization_id');
+    if (orgId) {
+      const org = await db.collection('organizations').doc(orgId).get();
+      if (org.exists) return { doc: org, created: false };
+    }
+  }
+  if (!bySenderDomain.empty) {
+    const orgId = bySenderDomain.docs[0].get('organization_id');
+    if (orgId) {
+      const org = await db.collection('organizations').doc(orgId).get();
+      if (org.exists) return { doc: org, created: false };
+    }
+  }
+
+  const meta = await fetchWebsiteMetadata(domain);
+  const orgName = meta?.name || domain;
+
+  // Check if an org with this name already exists
+  const byName = await db.collection('organizations').where('name', '==', orgName).limit(1).get();
+  if (!byName.empty) return { doc: byName.docs[0], created: false };
+
+  const docRef = db.collection('organizations').doc();
+  const now = new Date().toISOString();
+  await docRef.set({
+    id: docRef.id,
+    name: orgName,
+    description: meta?.description || `Draft organization created from inbound email (domain: ${domain}).`,
+    website: `https://${domain}`,
+    tax_status: 'other',
+    roles: ['startup'],
+    managed_by_ids: [],
+    operational_visibility: 'restricted',
+    authorized_eso_ids: [],
+    ecosystem_ids: ecosystemId ? [ecosystemId] : [],
+    version: 1,
+    status: 'draft',
+    created_at: now,
+    updated_at: now,
+  });
+  return { doc: await docRef.get(), created: true };
 };
 
 const upsertDraftOrganization = async (ventureName?: string, ecosystemId?: string) => {
@@ -1358,26 +1503,50 @@ const createReferralFromInboundMessage = async (args: {
   if (subjectOrgId) {
     const snap = await db.collection('organizations').doc(subjectOrgId).get();
     if (snap.exists) organization = snap;
-  } else {
-    const organizationResult = await upsertDraftOrganization(ventureName ?? undefined, ecosystemId ?? undefined);
+  } else if (ventureName) {
+    const organizationResult = await upsertDraftOrganization(ventureName, ecosystemId ?? undefined);
     organization = organizationResult?.doc || null;
     autoLinkOrganization = !!organizationResult?.created;
+  } else {
+    // No venture name — try to create a draft org from the person's email domain
+    const personDomain = personEmail.split('@')[1]?.toLowerCase();
+    if (personDomain) {
+      const domainOrgResult = await upsertDraftOrganizationFromDomain(personDomain, ecosystemId ?? undefined);
+      organization = domainOrgResult?.doc || null;
+      autoLinkOrganization = !!domainOrgResult?.created;
+    }
+  }
+
+  // Update venture_stage on the org — "last known" semantics.
+  // Pick the most advanced stage when the referrer selected multiple.
+  const incomingStages: string[] = parseResult.venture_stages || (parseResult.venture_stage ? [parseResult.venture_stage] : []);
+  const incomingStage = highestVentureStage(incomingStages);
+  if (organization && incomingStage) {
+    await db.collection('organizations').doc(organization.id).update({
+      venture_stage: incomingStage,
+      venture_stage_updated_at: now,
+    });
   }
 
   const person = await upsertDraftPerson(personEmail, personName ?? undefined, organization?.id, ecosystemId ?? undefined, {
     autoLinkOrganization,
   });
 
-  // Resolve referring person from sender email (primary or secondary) if they're already in the system
+  // Resolve referring person from sender email, then fall back to footer referrer_email.
+  // The footer field is useful when an email is forwarded and the actual referrer differs from the sender.
   const senderEmail = normalize(message.from_email);
+  const referrerEmailToTry = parseResult.candidate_referrer_email || null;
   let referringPersonId: string | null = null;
-  if (senderEmail) {
-    const [senderPrimary, senderSecondary] = await Promise.all([
-      db.collection('people').where('email', '==', senderEmail).limit(1).get(),
-      db.collection('people').where('secondary_emails', 'array-contains', senderEmail).limit(1).get(),
+  for (const emailToCheck of [senderEmail, referrerEmailToTry].filter(Boolean) as string[]) {
+    const [primary, secondary] = await Promise.all([
+      db.collection('people').where('email', '==', emailToCheck).limit(1).get(),
+      db.collection('people').where('secondary_emails', 'array-contains', emailToCheck).limit(1).get(),
     ]);
-    const senderSnap = !senderPrimary.empty ? senderPrimary : senderSecondary;
-    if (!senderSnap.empty) referringPersonId = senderSnap.docs[0].id;
+    const snap = !primary.empty ? primary : (!secondary.empty ? secondary : null);
+    if (snap && !snap.empty) {
+      referringPersonId = snap.docs[0].id;
+      break;
+    }
   }
 
   const referralNote = extractReferralNote(message.text_body);
@@ -1395,6 +1564,10 @@ const createReferralFromInboundMessage = async (args: {
     notes: referralNote,
     intro_email_sent: true,
     source: 'bcc_intake',
+    // Entrepreneur profile fields from the footer — surfaced in referral views
+    support_needs: parseResult.support_needs || [],
+    venture_stages: parseResult.venture_stages || (parseResult.venture_stage ? [parseResult.venture_stage] : []),
+    incorporation_status: parseResult.incorporation_status || null,
     created_at: now,
   });
 
@@ -1610,24 +1783,35 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     }
   }
 
-  const footer = parseFooter(payload.text_body);
+  // Parse footer from text body; fall back to stripping HTML if text is absent.
+  const textForParsing = payload.text_body || stripHtmlForParsing(payload.html_body || '');
+  const footer = parseFooter(textForParsing);
 
   const footerEmail = typeof footer?.client_email === 'string' ? normalize(footer.client_email) : undefined;
   const { clientEmail, additionalCcEmails: ccEmails } = extractClientEmail({
     footerEmail,
     ccEmails: payload.cc_emails || [],
-    textBody: payload.text_body,
+    textBody: textForParsing,
     senderEmail,
     routeAddress,
   });
-  const clientName = typeof footer?.client_name === 'string' ? footer.client_name : extractNameFromSubject(payload.subject);
+  // Name priority: footer > subject extraction > formatted local part of email
+  // e.g. "horst@..." → "Horst", "john.smith@..." → "John Smith"
+  const clientName = typeof footer?.client_name === 'string'
+    ? footer.client_name
+    : (extractNameFromSubject(payload.subject) || (clientEmail ? nameFromEmailLocal(clientEmail.split('@')[0]) : undefined));
   const ventureName = typeof footer?.client_venture === 'string' ? footer.client_venture : undefined;
   const receivingOrgName = typeof footer?.receiving_org === 'string' ? footer.receiving_org : undefined;
   const introContactPermission = (Array.isArray(footer?.intro_contact_permission) && footer?.intro_contact_permission[0]
     ? footer?.intro_contact_permission[0]
     : 'unknown') as IntroContactPermission;
   const supportNeeds = Array.isArray(footer?.support_needs) ? footer.support_needs : [];
-  const ventureStage = Array.isArray(footer?.venture_stage) ? footer.venture_stage[0] : undefined;
+  // Store all selected stages (referrers often check multiple)
+  const ventureStages = Array.isArray(footer?.venture_stage) ? footer.venture_stage : [];
+  const ventureStage = ventureStages[0] || undefined;
+  const incorporationStatus = Array.isArray(footer?.incorporation_status) ? footer.incorporation_status[0] : undefined;
+  // referrer_email: use as fallback to find referring person if sender isn't recognized
+  const footerReferrerEmail = typeof footer?.referrer_email === 'string' ? normalize(footer.referrer_email) : undefined;
 
   const referringOrgId = senderDomainInfo.match?.allow_sender_affiliation === false
     ? null
@@ -1683,9 +1867,12 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     candidate_venture_name: ventureName || null,
     candidate_receiving_org_id: receivingOrganization?.id || null,
     candidate_referring_org_id: referringOrgId,
+    candidate_referrer_email: footerReferrerEmail || null,
     intro_contact_permission: introContactPermission,
     venture_stage: ventureStage || null,
+    venture_stages: ventureStages,
     support_needs: supportNeeds,
+    incorporation_status: incorporationStatus || null,
     confidence: (clientEmail && receivingOrganization) ? 0.85 : 0.45,
     needs_review_reasons: needsReviewReasons,
     parsed_at: now,

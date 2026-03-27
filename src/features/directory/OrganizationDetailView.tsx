@@ -726,6 +726,21 @@ export const OrganizationDetailView = ({
                    <div className="space-y-6">
                       <Card title="Classification">
                          <div className="space-y-4">
+                            {(org as any).venture_stage && (
+                               <div>
+                                  <span className="block text-xs font-bold text-gray-500 uppercase mb-1">Venture Stage</span>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                     <span className="inline-flex items-center rounded-full bg-violet-100 px-3 py-1 text-sm font-medium text-violet-800">
+                                        {ENUMS.VentureStage?.find(s => s.id === (org as any).venture_stage)?.label ?? (org as any).venture_stage}
+                                     </span>
+                                     {(org as any).venture_stage_updated_at && (
+                                        <span className="text-xs text-gray-400">
+                                           as of {new Date((org as any).venture_stage_updated_at).toLocaleDateString()}
+                                        </span>
+                                     )}
+                                  </div>
+                               </div>
+                            )}
                             {org.roles.includes('eso') && (
                                <div>
                                   <span className="block text-xs font-bold text-gray-500 uppercase mb-1">Support Offerings</span>

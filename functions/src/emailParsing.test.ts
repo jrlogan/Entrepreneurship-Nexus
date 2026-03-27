@@ -162,6 +162,61 @@ describe('parseFooter', () => {
     assert.deepEqual(result['support_needs'], ['funding']);
   });
 
+  it('parses bare bracket checkboxes: [x], [ x], [x ], [ x ]', () => {
+    const text = [
+      '--- NETWORK REFERRAL DATA ---',
+      'venture_stage:',
+      '[] idea',
+      '[ ] prototype',
+      '[x ] early_revenue',
+      '[ x] scaling',
+      '[ x ] established',
+      '[ s] unknown',   // typo — NOT checked, should be ignored
+      '--- END NETWORK REFERRAL DATA ---',
+    ].join('\n');
+    const result = parseFooter(text);
+    assert.ok(result);
+    // Only properly-checked variants should appear
+    assert.deepEqual(result['venture_stage'], ['early_revenue', 'scaling', 'established']);
+  });
+
+  it('parses the real-world Horst footer format', () => {
+    const text = [
+      '--- NETWORK REFERRAL DATA ---',
+      'client_name: Horst',
+      'client_email: horst@reverttech.com',
+      'referrer_email: casey@climatehaven.tech',
+      'receiving_org: MakeHaven',
+      '',
+      'incorporation_status:',
+      '[] not_incorporated',
+      '[ x] incorporated',
+      '[ ] unknown',
+      '',
+      'venture_stage:',
+      '[ ] idea',
+      '[x ] prototype',
+      '[x ] early_revenue',
+      '[ ] scaling',
+      '',
+      'support_needs:',
+      '[ ] funding',
+      '[ x] legal',
+      '[x ] manufacturing',
+      '[x ] hiring',
+      '[ s] networking',
+      '--- END NETWORK REFERRAL DATA ---',
+    ].join('\n');
+    const result = parseFooter(text);
+    assert.ok(result);
+    assert.equal(result['client_name'], 'Horst');
+    assert.equal(result['client_email'], 'horst@reverttech.com');
+    assert.equal(result['receiving_org'], 'MakeHaven');
+    assert.deepEqual(result['incorporation_status'], ['incorporated']);
+    assert.deepEqual(result['venture_stage'], ['prototype', 'early_revenue']);
+    assert.deepEqual(result['support_needs'], ['legal', 'manufacturing', 'hiring']);
+  });
+
   it('handles Windows line endings (CRLF)', () => {
     const text = '--- NETWORK REFERRAL DATA ---\r\nclient_name: Test\r\n--- END NETWORK REFERRAL DATA ---';
     const result = parseFooter(text);

@@ -66,12 +66,12 @@ export const ENUMS = {
     { "id": "other", "label": "Other" }
   ],
   "VentureStage": [
-    { "id": "idea", "label": "Idea Stage" },
-    { "id": "prototype", "label": "Prototype / Concept" },
+    { "id": "idea", "label": "Concept / Pre-Launch" },
+    { "id": "prototype", "label": "Pilot / Testing" },
     { "id": "early_revenue", "label": "Early Revenue" },
-    { "id": "sustaining", "label": "Sustaining / Growth" },
-    { "id": "multi_person", "label": "Multi-Person Team" },
-    { "id": "established", "label": "Established Business" },
+    { "id": "sustaining", "label": "Sustaining · Solo & Self-Sufficient" },
+    { "id": "multi_person", "label": "Growing · Adding Team & Scale" },
+    { "id": "established", "label": "Established" },
     { "id": "unknown", "label": "Unknown / Not Specified" }
   ],
   "InteractionVisibility": [
