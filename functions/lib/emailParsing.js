@@ -1,6 +1,25 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.extractClientEmail = exports.extractReferralNote = exports.parseFooter = exports.extractNameFromSubject = exports.extractEmails = void 0;
+exports.extractClientEmail = exports.extractReferralNote = exports.parseFooter = exports.extractNameFromSubject = exports.extractEmails = exports.stripOutlookWrapper = void 0;
+/**
+ * Strips Outlook's hyperlink wrapper formats from a string value:
+ *   [text<mailto:url>]  → text
+ *   [text<https://url>] → text
+ *   [text]              → text
+ * Falls back to extracting a bare email if the result still looks malformed.
+ */
+const stripOutlookWrapper = (value) => {
+    // [display<mailto:target>] or [display<https://target>]
+    const angleMatch = value.match(/^\[([^\]<]+)<[^>]+>\]$/);
+    if (angleMatch)
+        return angleMatch[1].trim();
+    // [plain text]
+    const bracketMatch = value.match(/^\[([^\]]+)\]$/);
+    if (bracketMatch)
+        return bracketMatch[1].trim();
+    return value;
+};
+exports.stripOutlookWrapper = stripOutlookWrapper;
 const extractEmails = (text) => {
     if (!text)
         return [];
@@ -27,7 +46,7 @@ const parseFooter = (text) => {
             const [, key, rawValue] = keyValueMatch;
             const normalizedKey = key.toLowerCase();
             if (rawValue) {
-                result[normalizedKey] = rawValue;
+                result[normalizedKey] = (0, exports.stripOutlookWrapper)(rawValue);
                 currentSection = normalizedKey;
             }
             else {
@@ -41,7 +60,7 @@ const parseFooter = (text) => {
             const [, option] = checkboxMatch;
             const existing = result[currentSection];
             if (Array.isArray(existing)) {
-                existing.push(option.trim());
+                existing.push((0, exports.stripOutlookWrapper)(option.trim()));
             }
         }
     }

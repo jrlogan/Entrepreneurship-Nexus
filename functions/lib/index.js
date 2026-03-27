@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.extractGrantData = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.extractGrantData = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -2005,7 +2005,9 @@ exports.createInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
         ecosystem_id: ecosystemId,
     });
     const inviteUrl = `${getAppBaseUrl()}?invite=${token}`;
-    await db.collection('notice_queue').add({
+    const noticeRef = db.collection('notice_queue').doc();
+    const noticePayload = {
+        id: noticeRef.id,
         type: 'access_invite',
         status: 'queued',
         to_email: email,
@@ -2018,7 +2020,27 @@ exports.createInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
             ecosystem_id: ecosystemId,
             note,
         },
-    });
+    };
+    await noticeRef.set(noticePayload);
+    // Try to send immediately so the invitee gets the email right away.
+    // If Postmark is not configured, the notice stays queued for manual processing.
+    try {
+        const sendResult = await sendPostmarkEmail(noticePayload);
+        await noticeRef.set({
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            provider: 'postmark',
+            provider_message_id: sendResult?.MessageID || null,
+        }, { merge: true });
+    }
+    catch (sendErr) {
+        await noticeRef.set({
+            status: 'failed',
+            failed_at: new Date().toISOString(),
+            last_error: sendErr?.message || 'Postmark send failed',
+        }, { merge: true });
+        // Don't fail the invite creation — the notice is queued and can be retried via sendQueuedNotices.
+    }
     res.json({ ok: true, invite_id: inviteRef.id, invite_url: inviteUrl });
 });
 exports.listInvites = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
@@ -2242,7 +2264,9 @@ exports.resendInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
         token_last4: nextToken.slice(-4),
     }, { merge: true });
     const inviteUrl = `${getAppBaseUrl()}?invite=${nextToken}`;
-    await db.collection('notice_queue').add({
+    const resendNoticeRef = db.collection('notice_queue').doc();
+    const resendNoticePayload = {
+        id: resendNoticeRef.id,
         type: 'access_invite',
         status: 'queued',
         to_email: invite.email,
@@ -2255,7 +2279,24 @@ exports.resendInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
             ecosystem_id: invite.ecosystem_id,
             note: invite.note || '',
         },
-    });
+    };
+    await resendNoticeRef.set(resendNoticePayload);
+    try {
+        const sendResult = await sendPostmarkEmail(resendNoticePayload);
+        await resendNoticeRef.set({
+            status: 'sent',
+            sent_at: new Date().toISOString(),
+            provider: 'postmark',
+            provider_message_id: sendResult?.MessageID || null,
+        }, { merge: true });
+    }
+    catch (sendErr) {
+        await resendNoticeRef.set({
+            status: 'failed',
+            failed_at: new Date().toISOString(),
+            last_error: sendErr?.message || 'Postmark send failed',
+        }, { merge: true });
+    }
     await logAudit('invite_resent', manager.uid, { invite_id: invite.id });
     res.json({ ok: true, invite_url: inviteUrl });
 });
@@ -2291,6 +2332,94 @@ exports.revokeInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
         updated_at: now,
     }, { merge: true });
     await logAudit('invite_revoked', manager.uid, { invite_id: invite.id });
+    res.json({ ok: true });
+});
+// ---------------------------------------------------------------------------
+// updatePersonRole — update a person's role, memberships, and Firebase claims
+// ---------------------------------------------------------------------------
+exports.updatePersonRole = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    let decoded;
+    try {
+        decoded = await admin.auth().verifyIdToken(token);
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid authentication token' });
+        return;
+    }
+    const callerMemberships = await getActiveMembershipsForPerson(decoded.uid);
+    const isPlatformAdmin = callerMemberships.some((m) => m.system_role === 'platform_admin');
+    const isEcosystemManager = callerMemberships.some((m) => m.system_role === 'ecosystem_manager');
+    if (!isPlatformAdmin && !isEcosystemManager) {
+        res.status(403).json({ error: 'Insufficient permissions to update user roles' });
+        return;
+    }
+    const personId = req.body?.person_id || '';
+    const newRole = req.body?.system_role || '';
+    const organizationId = req.body?.organization_id || '';
+    if (!personId || !newRole) {
+        res.status(400).json({ error: 'person_id and system_role are required' });
+        return;
+    }
+    const validRoles = ['platform_admin', 'ecosystem_manager', 'eso_admin', 'eso_staff', 'eso_coach', 'entrepreneur'];
+    if (!validRoles.includes(newRole)) {
+        res.status(400).json({ error: 'Invalid system_role value' });
+        return;
+    }
+    if (newRole === 'platform_admin' && !isPlatformAdmin) {
+        res.status(403).json({ error: 'Only platform admins can grant the platform_admin role' });
+        return;
+    }
+    const personRef = db.collection('people').doc(personId);
+    const personDoc = await personRef.get();
+    if (!personDoc.exists) {
+        res.status(404).json({ error: 'Person not found' });
+        return;
+    }
+    const now = new Date().toISOString();
+    // 1. Update the people record
+    const peopleUpdate = { system_role: newRole, updated_at: now };
+    if (organizationId) {
+        peopleUpdate.primary_organization_id = organizationId;
+    }
+    await personRef.set(peopleUpdate, { merge: true });
+    // 2. Update all active person_memberships for this person
+    const membershipsSnap = await db.collection('person_memberships')
+        .where('person_id', '==', personId)
+        .where('status', '==', 'active')
+        .get();
+    await Promise.all(membershipsSnap.docs.map((doc) => {
+        const memberUpdate = { system_role: newRole, updated_at: now };
+        if (organizationId)
+            memberUpdate.organization_id = organizationId;
+        return doc.ref.set(memberUpdate, { merge: true });
+    }));
+    // 3. Update Firebase Auth custom claims so the token reflects the new role immediately
+    const authUid = personDoc.get('auth_uid') || personId;
+    const ecosystemId = membershipsSnap.docs[0]?.get('ecosystem_id') || personDoc.get('ecosystem_id') || '';
+    const resolvedOrgId = organizationId || membershipsSnap.docs[0]?.get('organization_id') || personDoc.get('primary_organization_id') || '';
+    await admin.auth().setCustomUserClaims(authUid, {
+        nexus_role: newRole,
+        nexus_org_id: resolvedOrgId,
+        nexus_ecosystem_id: ecosystemId,
+    }).catch(() => undefined);
+    await logAudit('person_role_updated', decoded.uid, {
+        person_id: personId,
+        new_role: newRole,
+        organization_id: resolvedOrgId,
+        ecosystem_id: ecosystemId,
+    });
     res.json({ ok: true });
 });
 exports.approveAccountRequest = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {

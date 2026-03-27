@@ -6,7 +6,30 @@ import {
   parseFooter,
   extractReferralNote,
   extractClientEmail,
+  stripOutlookWrapper,
 } from './emailParsing';
+
+// ---------------------------------------------------------------------------
+// stripOutlookWrapper
+// ---------------------------------------------------------------------------
+describe('stripOutlookWrapper', () => {
+  it('strips [email<mailto:email>] format', () => {
+    assert.equal(stripOutlookWrapper('[squirt.first@yo.com<mailto:squirt.first@yo.com>]'), 'squirt.first@yo.com');
+  });
+
+  it('strips [text<https://url>] format', () => {
+    assert.equal(stripOutlookWrapper('[ClimateHaven<https://climatehaven.org>]'), 'ClimateHaven');
+  });
+
+  it('strips plain [text] bracket wrapping', () => {
+    assert.equal(stripOutlookWrapper('[ClimateHaven]'), 'ClimateHaven');
+  });
+
+  it('returns value unchanged when no brackets', () => {
+    assert.equal(stripOutlookWrapper('squirt.first@yo.com'), 'squirt.first@yo.com');
+    assert.equal(stripOutlookWrapper('ClimateHaven'), 'ClimateHaven');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // extractEmails
@@ -110,6 +133,33 @@ describe('parseFooter', () => {
     const result = parseFooter(text);
     assert.ok(result);
     assert.equal(result['client_name'], 'Test');
+  });
+
+  it('strips Outlook [value<mailto:>] wrapper from footer fields', () => {
+    const text = [
+      '--- NETWORK REFERRAL DATA ---',
+      'client_name: [Squirt First<mailto:squirt.first@yo.com>]',
+      'client_email: [squirt.first@yo.com<mailto:squirt.first@yo.com>]',
+      'receiving_org: [ClimateHaven<https://climatehaven.org>]',
+      '--- END NETWORK REFERRAL DATA ---',
+    ].join('\n');
+    const result = parseFooter(text);
+    assert.ok(result);
+    assert.equal(result['client_name'], 'Squirt First');
+    assert.equal(result['client_email'], 'squirt.first@yo.com');
+    assert.equal(result['receiving_org'], 'ClimateHaven');
+  });
+
+  it('strips Outlook wrappers from checkbox list items', () => {
+    const text = [
+      '--- NETWORK REFERRAL DATA ---',
+      'support_needs:',
+      '- [x] [funding<mailto:funding>]',
+      '--- END NETWORK REFERRAL DATA ---',
+    ].join('\n');
+    const result = parseFooter(text);
+    assert.ok(result);
+    assert.deepEqual(result['support_needs'], ['funding']);
   });
 
   it('handles Windows line endings (CRLF)', () => {

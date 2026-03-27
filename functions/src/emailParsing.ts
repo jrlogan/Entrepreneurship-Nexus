@@ -1,5 +1,22 @@
 export type IntroContactPermission = 'on_file' | 'newly_confirmed' | 'not_confirmed' | 'unknown';
 
+/**
+ * Strips Outlook's hyperlink wrapper formats from a string value:
+ *   [text<mailto:url>]  → text
+ *   [text<https://url>] → text
+ *   [text]              → text
+ * Falls back to extracting a bare email if the result still looks malformed.
+ */
+export const stripOutlookWrapper = (value: string): string => {
+  // [display<mailto:target>] or [display<https://target>]
+  const angleMatch = value.match(/^\[([^\]<]+)<[^>]+>\]$/);
+  if (angleMatch) return angleMatch[1].trim();
+  // [plain text]
+  const bracketMatch = value.match(/^\[([^\]]+)\]$/);
+  if (bracketMatch) return bracketMatch[1].trim();
+  return value;
+};
+
 export const extractEmails = (text?: string): string[] => {
   if (!text) return [];
   const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
@@ -26,7 +43,7 @@ export const parseFooter = (text?: string): Record<string, string | string[]> | 
       const [, key, rawValue] = keyValueMatch;
       const normalizedKey = key.toLowerCase();
       if (rawValue) {
-        result[normalizedKey] = rawValue;
+        result[normalizedKey] = stripOutlookWrapper(rawValue);
         currentSection = normalizedKey;
       } else {
         currentSection = normalizedKey;
@@ -40,7 +57,7 @@ export const parseFooter = (text?: string): Record<string, string | string[]> | 
       const [, option] = checkboxMatch;
       const existing = result[currentSection];
       if (Array.isArray(existing)) {
-        existing.push(option.trim());
+        existing.push(stripOutlookWrapper(option.trim()));
       }
     }
   }

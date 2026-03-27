@@ -7,6 +7,24 @@ const node_test_1 = require("node:test");
 const strict_1 = __importDefault(require("node:assert/strict"));
 const emailParsing_1 = require("./emailParsing");
 // ---------------------------------------------------------------------------
+// stripOutlookWrapper
+// ---------------------------------------------------------------------------
+(0, node_test_1.describe)('stripOutlookWrapper', () => {
+    (0, node_test_1.it)('strips [email<mailto:email>] format', () => {
+        strict_1.default.equal((0, emailParsing_1.stripOutlookWrapper)('[squirt.first@yo.com<mailto:squirt.first@yo.com>]'), 'squirt.first@yo.com');
+    });
+    (0, node_test_1.it)('strips [text<https://url>] format', () => {
+        strict_1.default.equal((0, emailParsing_1.stripOutlookWrapper)('[ClimateHaven<https://climatehaven.org>]'), 'ClimateHaven');
+    });
+    (0, node_test_1.it)('strips plain [text] bracket wrapping', () => {
+        strict_1.default.equal((0, emailParsing_1.stripOutlookWrapper)('[ClimateHaven]'), 'ClimateHaven');
+    });
+    (0, node_test_1.it)('returns value unchanged when no brackets', () => {
+        strict_1.default.equal((0, emailParsing_1.stripOutlookWrapper)('squirt.first@yo.com'), 'squirt.first@yo.com');
+        strict_1.default.equal((0, emailParsing_1.stripOutlookWrapper)('ClimateHaven'), 'ClimateHaven');
+    });
+});
+// ---------------------------------------------------------------------------
 // extractEmails
 // ---------------------------------------------------------------------------
 (0, node_test_1.describe)('extractEmails', () => {
@@ -95,6 +113,31 @@ venture_stage:
         const result = (0, emailParsing_1.parseFooter)(text);
         strict_1.default.ok(result);
         strict_1.default.equal(result['client_name'], 'Test');
+    });
+    (0, node_test_1.it)('strips Outlook [value<mailto:>] wrapper from footer fields', () => {
+        const text = [
+            '--- NETWORK REFERRAL DATA ---',
+            'client_name: [Squirt First<mailto:squirt.first@yo.com>]',
+            'client_email: [squirt.first@yo.com<mailto:squirt.first@yo.com>]',
+            'receiving_org: [ClimateHaven<https://climatehaven.org>]',
+            '--- END NETWORK REFERRAL DATA ---',
+        ].join('\n');
+        const result = (0, emailParsing_1.parseFooter)(text);
+        strict_1.default.ok(result);
+        strict_1.default.equal(result['client_name'], 'Squirt First');
+        strict_1.default.equal(result['client_email'], 'squirt.first@yo.com');
+        strict_1.default.equal(result['receiving_org'], 'ClimateHaven');
+    });
+    (0, node_test_1.it)('strips Outlook wrappers from checkbox list items', () => {
+        const text = [
+            '--- NETWORK REFERRAL DATA ---',
+            'support_needs:',
+            '- [x] [funding<mailto:funding>]',
+            '--- END NETWORK REFERRAL DATA ---',
+        ].join('\n');
+        const result = (0, emailParsing_1.parseFooter)(text);
+        strict_1.default.ok(result);
+        strict_1.default.deepEqual(result['support_needs'], ['funding']);
     });
     (0, node_test_1.it)('handles Windows line endings (CRLF)', () => {
         const text = '--- NETWORK REFERRAL DATA ---\r\nclient_name: Test\r\n--- END NETWORK REFERRAL DATA ---';
