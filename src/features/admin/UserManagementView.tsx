@@ -31,6 +31,8 @@ type InviteFormState = {
 const EditUserModal = ({ person, organizations, allowedRoles, canEditRole, canEditOrganization, isOpen, onClose, onSave }: EditUserModalProps) => {
   const enums = loadEnums();
   const [formData, setFormData] = useState<Partial<Person>>({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (person) {
@@ -41,13 +43,21 @@ const EditUserModal = ({ person, organizations, allowedRoles, canEditRole, canEd
         organization_id: person.organization_id,
         system_role: person.system_role,
       });
+      setSaveError(null);
     }
   }, [person, isOpen]);
 
-  const handleSave = () => {
-    if (person?.id) {
-      onSave(person.id, formData);
+  const handleSave = async () => {
+    if (!person?.id) return;
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(person.id, formData);
       onClose();
+    } catch (err: any) {
+      setSaveError(err?.message || 'Unable to save changes. Check your permissions and try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -56,27 +66,28 @@ const EditUserModal = ({ person, organizations, allowedRoles, canEditRole, canEd
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Edit User: ${person.first_name} ${person.last_name}`}>
+    <Modal isOpen={isOpen} onClose={isSaving ? () => {} : onClose} title={`Edit User: ${person.first_name} ${person.last_name}`}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={FORM_LABEL_CLASS}>First Name</label>
-            <input className={FORM_INPUT_CLASS} value={formData.first_name || ''} onChange={(event) => setFormData({ ...formData, first_name: event.target.value })} />
+            <input className={FORM_INPUT_CLASS} value={formData.first_name || ''} disabled={isSaving} onChange={(event) => setFormData({ ...formData, first_name: event.target.value })} />
           </div>
           <div>
             <label className={FORM_LABEL_CLASS}>Last Name</label>
-            <input className={FORM_INPUT_CLASS} value={formData.last_name || ''} onChange={(event) => setFormData({ ...formData, last_name: event.target.value })} />
+            <input className={FORM_INPUT_CLASS} value={formData.last_name || ''} disabled={isSaving} onChange={(event) => setFormData({ ...formData, last_name: event.target.value })} />
           </div>
         </div>
 
         <div>
           <label className={FORM_LABEL_CLASS}>Email</label>
-          <input className={FORM_INPUT_CLASS} value={formData.email || ''} onChange={(event) => setFormData({ ...formData, email: event.target.value })} />
+          <input className={FORM_INPUT_CLASS} value={formData.email || ''} disabled={isSaving} onChange={(event) => setFormData({ ...formData, email: event.target.value })} />
         </div>
 
         <div>
           <label className={FORM_LABEL_CLASS}>Organization</label>
-          <select className={FORM_SELECT_CLASS} value={formData.organization_id || ''} onChange={(event) => setFormData({ ...formData, organization_id: event.target.value })} disabled={!canEditOrganization}>
+          <select className={FORM_SELECT_CLASS} value={formData.organization_id || ''} onChange={(event) => setFormData({ ...formData, organization_id: event.target.value })} disabled={!canEditOrganization || isSaving}>
+            <option value="">No organization</option>
             {organizations.map((organization) => (
               <option key={organization.id} value={organization.id}>{organization.name}</option>
             ))}
@@ -85,16 +96,23 @@ const EditUserModal = ({ person, organizations, allowedRoles, canEditRole, canEd
 
         <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
           <label className={FORM_LABEL_CLASS}>System Role (Permissions)</label>
-          <select className={FORM_SELECT_CLASS} value={formData.system_role || ''} onChange={(event) => setFormData({ ...formData, system_role: event.target.value as SystemRole })} disabled={!canEditRole}>
+          <select className={FORM_SELECT_CLASS} value={formData.system_role || ''} onChange={(event) => setFormData({ ...formData, system_role: event.target.value as SystemRole })} disabled={!canEditRole || isSaving}>
             {enums.SystemRole.filter((role) => allowedRoles.includes(role.id as SystemRole)).map((role) => (
               <option key={role.id} value={role.id}>{role.label}</option>
             ))}
           </select>
+          <p className="mt-2 text-xs text-gray-500">Changing this role updates the person's memberships and access tokens immediately.</p>
         </div>
 
+        {saveError && (
+          <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{saveError}</div>
+        )}
+
         <div className="flex justify-end gap-2 pt-4">
-          <button onClick={onClose} className="rounded border px-4 py-2 text-sm hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700">Save Changes</button>
+          <button onClick={onClose} disabled={isSaving} className="rounded border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={() => void handleSave()} disabled={isSaving} className="rounded bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50">
+            {isSaving ? 'Saving…' : 'Save Changes'}
+          </button>
         </div>
       </div>
     </Modal>
@@ -259,32 +277,25 @@ export const UserManagementView = ({
     void loadInvites();
   }, [isPlatformAdmin, canManageInvites]);
 
-  const [editSaveError, setEditSaveError] = useState<string | null>(null);
-
   const handleSaveUser = async (id: string, updates: Partial<Person>) => {
-    setEditSaveError(null);
-    try {
-      // If the role changed, use the backend function to update people, memberships, and Firebase claims.
-      if (updates.system_role) {
-        await callHttpFunction('updatePersonRole', {
-          person_id: id,
-          system_role: updates.system_role,
-          organization_id: updates.organization_id || '',
-        });
-        // Also save non-role fields (name, email) via the repo if present.
-        const { system_role, organization_id, ...nonRoleUpdates } = updates;
-        void organization_id;
-        void system_role;
-        if (Object.keys(nonRoleUpdates).length > 0) {
-          await repos.people.update(id, nonRoleUpdates);
-        }
-      } else {
-        await repos.people.update(id, updates);
+    // If the role changed, use the backend function to update people, memberships, and Firebase claims.
+    if (updates.system_role) {
+      await callHttpFunction('updatePersonRole', {
+        person_id: id,
+        system_role: updates.system_role,
+        organization_id: updates.organization_id || '',
+      });
+      // Also save non-role fields (name, email) via the repo if present.
+      const { system_role, organization_id, ...nonRoleUpdates } = updates;
+      void organization_id;
+      void system_role;
+      if (Object.keys(nonRoleUpdates).length > 0) {
+        await repos.people.update(id, nonRoleUpdates);
       }
-      onRefresh?.();
-    } catch (err: any) {
-      setEditSaveError(err?.message || 'Unable to save changes.');
+    } else {
+      await repos.people.update(id, updates);
     }
+    onRefresh?.();
   };
 
   const handleApproveRequest = async (request: AccountRequest) => {
@@ -586,12 +597,9 @@ export const UserManagementView = ({
         </table>
       </div>
 
-      {editSaveError && (
-        <div className="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{editSaveError}</div>
-      )}
       <EditUserModal
         isOpen={!!editingUser}
-        onClose={() => { setEditingUser(null); setEditSaveError(null); }}
+        onClose={() => setEditingUser(null)}
         person={editingUser}
         organizations={editableOrganizations}
         allowedRoles={editableRoles}
