@@ -36,6 +36,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
   ecosystems,
 }) => {
   const [inviteSummary, setInviteSummary] = useState<InviteSummary | null>(null);
+  const [isLoadingInvite, setIsLoadingInvite] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -78,6 +79,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     }
 
     let cancelled = false;
+    setIsLoadingInvite(true);
     const loadInvite = async () => {
       try {
         const summary = await callHttpFunction<{ token: string }, InviteSummary>('getInviteSummary', { token: inviteToken });
@@ -86,8 +88,11 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
         }
       } catch (err: any) {
         if (!cancelled) {
-          setError(err?.message || 'Unable to load invite.');
+          // Don't block the page — show a soft warning
+          console.warn('Could not load invite summary:', err?.message);
         }
+      } finally {
+        if (!cancelled) setIsLoadingInvite(false);
       }
     };
 
@@ -280,9 +285,19 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
           <div className="rounded-3xl border border-white/10 bg-white shadow-2xl shadow-black/30">
             <FirebaseAuthPanel />
             <div className="space-y-4 px-6 py-6 text-sm text-slate-700">
-              {inviteSummary && (
+              {inviteToken && (
                 <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-indigo-900">
-                  Invitation detected for <strong>{inviteSummary.email}</strong> as <strong>{inviteSummary.invited_role}</strong>.
+                  {isLoadingInvite ? (
+                    <span>Loading your invitation&hellip;</span>
+                  ) : inviteSummary ? (
+                    <>
+                      You have been invited to join as <strong>{inviteSummary.invited_role}</strong>
+                      {inviteSummary.email ? <> for <strong>{inviteSummary.email}</strong></> : ''}.
+                      {' '}Create an account below or sign in with the invited email to accept.
+                    </>
+                  ) : (
+                    <span>Invite link detected. Sign in or create an account below to accept.</span>
+                  )}
                 </div>
               )}
 
@@ -358,7 +373,14 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                 </>
               )}
 
-              {status === 'needs_profile' && (
+              {status === 'needs_profile' && isSubmitting && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-indigo-900">
+                  <div className="font-medium">Setting up your account&hellip;</div>
+                  <div className="mt-1 text-sm">Please wait while we configure your workspace.</div>
+                </div>
+              )}
+
+              {status === 'needs_profile' && !isSubmitting && (
                 <>
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
                     <div className="font-medium">Almost there — just a couple more details.</div>

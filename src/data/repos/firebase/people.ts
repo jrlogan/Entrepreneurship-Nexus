@@ -162,8 +162,17 @@ export class FirebasePeopleRepo {
       if (secondaryConflict) throw new Error(`One of these emails is already a secondary email on another account.`);
     }
 
-    // Strip undefined values — Firestore rejects them
-    const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
-    await updateDocument('people', id, clean as any);
+    // Map domain field names to Firestore field names
+    const mapped: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === undefined) continue;
+      // organization_id in the domain model maps to primary_organization_id in Firestore
+      if (key === 'organization_id') {
+        mapped['primary_organization_id'] = value;
+      } else {
+        mapped[key] = value;
+      }
+    }
+    await updateDocument('people', id, mapped as any);
   }
 }

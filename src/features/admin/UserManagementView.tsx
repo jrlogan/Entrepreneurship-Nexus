@@ -17,7 +17,7 @@ interface EditUserModalProps {
   canEditOrganization: boolean;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (id: string, updates: Partial<Person>) => void;
+  onSave: (id: string, updates: Partial<Person>) => void | Promise<void>;
 }
 
 type InviteFormState = {
@@ -259,9 +259,32 @@ export const UserManagementView = ({
     void loadInvites();
   }, [isPlatformAdmin, canManageInvites]);
 
-  const handleSaveUser = (id: string, updates: Partial<Person>) => {
-    repos.people.update(id, updates);
-    onRefresh?.();
+  const [editSaveError, setEditSaveError] = useState<string | null>(null);
+
+  const handleSaveUser = async (id: string, updates: Partial<Person>) => {
+    setEditSaveError(null);
+    try {
+      // If the role changed, use the backend function to update people, memberships, and Firebase claims.
+      if (updates.system_role) {
+        await callHttpFunction('updatePersonRole', {
+          person_id: id,
+          system_role: updates.system_role,
+          organization_id: updates.organization_id || '',
+        });
+        // Also save non-role fields (name, email) via the repo if present.
+        const { system_role, organization_id, ...nonRoleUpdates } = updates;
+        void organization_id;
+        void system_role;
+        if (Object.keys(nonRoleUpdates).length > 0) {
+          await repos.people.update(id, nonRoleUpdates);
+        }
+      } else {
+        await repos.people.update(id, updates);
+      }
+      onRefresh?.();
+    } catch (err: any) {
+      setEditSaveError(err?.message || 'Unable to save changes.');
+    }
   };
 
   const handleApproveRequest = async (request: AccountRequest) => {
@@ -563,9 +586,12 @@ export const UserManagementView = ({
         </table>
       </div>
 
+      {editSaveError && (
+        <div className="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{editSaveError}</div>
+      )}
       <EditUserModal
         isOpen={!!editingUser}
-        onClose={() => setEditingUser(null)}
+        onClose={() => { setEditingUser(null); setEditSaveError(null); }}
         person={editingUser}
         organizations={editableOrganizations}
         allowedRoles={editableRoles}
