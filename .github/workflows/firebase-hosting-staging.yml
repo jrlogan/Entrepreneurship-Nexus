@@ -34,6 +34,7 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - run: echo "FUNCTIONS_BASE_URL=${{ secrets.FUNCTIONS_BASE_URL }}" >> functions/.env.staging
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.extractGrantData = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.extractGrantData = exports.referralEmailAction = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -85,6 +85,7 @@ const requireLocalOnlyEnvironment = (res) => {
     return false;
 };
 const getAppBaseUrl = () => getRequiredEnv('APP_BASE_URL') || 'http://localhost:3000';
+const getFunctionsBaseUrl = () => getRequiredEnv('FUNCTIONS_BASE_URL') || 'http://localhost:5001';
 const parseCsvEnv = (key) => {
     const value = process.env[key];
     if (!value) {
@@ -631,6 +632,21 @@ const getReferralManageUrl = (ecosystemId) => {
     }
     return `${baseUrl}?view=referrals&eco=${encodeURIComponent(ecosystemId)}`;
 };
+const generateReferralActionToken = async (referralId, action, ecosystemId) => {
+    const token = (0, crypto_1.randomBytes)(32).toString('hex');
+    const now = new Date();
+    const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    await db.collection('referral_action_tokens').doc(token).set({
+        referral_id: referralId,
+        action,
+        ecosystem_id: ecosystemId,
+        created_at: now.toISOString(),
+        expires_at: expires.toISOString(),
+        used_at: null,
+    });
+    return token;
+};
+const getReferralActionUrl = (token) => `${getFunctionsBaseUrl()}/referralEmailAction?token=${token}`;
 const getInboundIntakeUrl = (ecosystemId) => {
     const baseUrl = getAppBaseUrl();
     if (!ecosystemId) {
@@ -847,6 +863,7 @@ const emailWrap = (content, ecosystemName) => {
 const ctaButton = (label, url) => `<p style="margin:24px 0 0;">
     <a href="${url}" style="display:inline-block;background:#1a1a2e;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:15px;font-weight:bold;">${label}</a>
   </p>`;
+const secondaryButton = (label, url) => `<a href="${url}" style="display:inline-block;background:#ffffff;color:#1a1a2e;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:14px;font-weight:bold;border:2px solid #1a1a2e;margin-right:8px;">${label}</a>`;
 const emailP = (text) => `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1a1a2e;">${text}</p>`;
 const emailH2 = (text) => `<h2 style="margin:0 0 20px;font-size:20px;font-weight:bold;color:#1a1a2e;">${text}</h2>`;
 const detailBox = (rows) => `
@@ -928,6 +945,10 @@ const renderNoticeContent = (notice) => {
         const ventureStage = notice.payload?.venture_stage || null;
         const referralNotes = notice.payload?.referral_notes || '';
         const manageUrl = notice.payload?.manage_url || getReferralManageUrl(notice.payload?.ecosystem_id);
+        const acceptToken = notice.payload?.accept_token || null;
+        const completeToken = notice.payload?.complete_token || null;
+        const acceptUrl = acceptToken ? getReferralActionUrl(acceptToken) : null;
+        const completeUrl = completeToken ? getReferralActionUrl(completeToken) : null;
         const detailRows = [
             ['Referred by', referringOrgName],
         ];
@@ -947,6 +968,8 @@ const renderNoticeContent = (notice) => {
             ventureStage ? `Venture stage: ${ventureStage}` : '',
             '',
             'This referral has been logged in Entrepreneurship Nexus. You can sign in to review it, assign it to a team member, and update its status.',
+            acceptUrl ? `Accept this referral directly: ${acceptUrl}` : '',
+            completeUrl ? `Mark as complete directly: ${completeUrl}` : '',
             '',
             `Open referral: ${manageUrl}`,
             '',
@@ -966,6 +989,13 @@ const renderNoticeContent = (notice) => {
                 ].join('') : '',
                 emailP('This referral is tracked in Entrepreneurship Nexus. Sign in to assign it to a team member, review the full profile, and update the status as your work progresses.'),
                 ctaButton('Review Referral', manageUrl),
+                (acceptUrl || completeUrl) ? `
+          <p style="margin:16px 0 0;">
+            ${acceptUrl ? secondaryButton('Accept Referral', acceptUrl) : ''}
+            ${completeUrl ? secondaryButton('Mark as Complete', completeUrl) : ''}
+          </p>
+          <p style="margin:8px 0 0;font-size:12px;color:#9ca3af;">These one-click buttons work for 7 days and can only be used once.</p>
+        ` : '',
                 emailP('<span style="font-size:13px;color:#6b7280;">Don\'t have an account? Your organization administrator can invite you, or contact us to get set up.</span>'),
             ].join('')),
         };
@@ -1327,6 +1357,10 @@ const createReferralFromInboundMessage = async (args) => {
         });
     }
     if (receivingOrgIntakeEmail) {
+        const [acceptToken, completeToken] = await Promise.all([
+            generateReferralActionToken(referralRef.id, 'accept', ecosystemId || null),
+            generateReferralActionToken(referralRef.id, 'complete', ecosystemId || null),
+        ]);
         await enqueueTypedNotice('referral_new_intake', receivingOrgIntakeEmail, {
             inbound_message_id: message.id,
             referral_id: referralRef.id,
@@ -1340,6 +1374,8 @@ const createReferralFromInboundMessage = async (args) => {
             ecosystem_id: ecosystemId || null,
             ecosystem_name: ecosystemName,
             manage_url: getReferralManageUrl(ecosystemId || null),
+            accept_token: acceptToken,
+            complete_token: completeToken,
         }, {
             dedupeKey: `${referralRef.id}:new-intake:${receivingOrgIntakeEmail}`,
         });
@@ -3593,6 +3629,90 @@ Object.defineProperty(exports, "partnerGetPerson", { enumerable: true, get: func
 Object.defineProperty(exports, "partnerRegisterWebhook", { enumerable: true, get: function () { return partnerApi_1.partnerRegisterWebhook; } });
 Object.defineProperty(exports, "onInteractionCreatedDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onInteractionCreatedDeliverWebhooks; } });
 Object.defineProperty(exports, "onReferralWrittenDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onReferralWrittenDeliverWebhooks; } });
+// ─── Referral one-click email actions ───────────────────────────────────────
+const actionConfirmHtml = (title, body, manageUrl) => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title} — Entrepreneurship Nexus</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 10px; padding: 40px 48px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    h1 { font-size: 22px; color: #1a1a2e; margin: 0 0 12px; }
+    p { font-size: 15px; color: #374151; line-height: 1.6; margin: 0 0 24px; }
+    a { display: inline-block; background: #1a1a2e; color: #fff; text-decoration: none; padding: 10px 24px; border-radius: 6px; font-size: 14px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    <p>${body}</p>
+    <a href="${manageUrl}">Open Referral Workspace</a>
+  </div>
+</body>
+</html>`;
+exports.referralEmailAction = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    setCors(res);
+    if (req.method !== 'GET') {
+        res.status(405).send('Method not allowed');
+        return;
+    }
+    const token = req.query?.token;
+    if (!token || typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) {
+        res.status(400).send(actionConfirmHtml('Invalid link', 'This action link is not valid. Please open the referral workspace to take action.', getReferralManageUrl(null)));
+        return;
+    }
+    const tokenDoc = await db.collection('referral_action_tokens').doc(token).get();
+    if (!tokenDoc.exists) {
+        res.status(404).send(actionConfirmHtml('Link not found', 'This action link was not found or has already expired.', getReferralManageUrl(null)));
+        return;
+    }
+    const tokenData = tokenDoc.data();
+    const manageUrl = getReferralManageUrl(tokenData.ecosystem_id || null);
+    if (tokenData.used_at) {
+        res.status(200).send(actionConfirmHtml('Already actioned', 'This link has already been used. The referral status has been updated.', manageUrl));
+        return;
+    }
+    if (isExpired(tokenData.expires_at)) {
+        res.status(410).send(actionConfirmHtml('Link expired', 'This action link has expired (links are valid for 7 days). Please sign in to update the referral status.', manageUrl));
+        return;
+    }
+    const referralId = tokenData.referral_id;
+    const action = tokenData.action;
+    const referralDoc = await db.collection('referrals').doc(referralId).get();
+    if (!referralDoc.exists) {
+        res.status(404).send(actionConfirmHtml('Referral not found', 'The referral associated with this link could not be found.', manageUrl));
+        return;
+    }
+    const now = new Date().toISOString();
+    const currentStatus = referralDoc.get('status') || 'pending';
+    if (action === 'accept') {
+        if (currentStatus === 'accepted' || currentStatus === 'completed') {
+            await tokenDoc.ref.update({ used_at: now });
+            res.status(200).send(actionConfirmHtml('Already accepted', 'This referral has already been accepted. You can open the workspace to add notes or mark it complete.', manageUrl));
+            return;
+        }
+        await referralDoc.ref.update({ status: 'accepted', accepted_at: now });
+        await tokenDoc.ref.update({ used_at: now });
+        await logAudit('referral_email_accepted', 'email_action', { referral_id: referralId, token_prefix: token.slice(0, 8) });
+        res.status(200).send(actionConfirmHtml('Referral accepted', 'You\'ve accepted this referral. The referring organization will be notified. Open the workspace to add notes or assign it to a team member.', manageUrl));
+        return;
+    }
+    if (action === 'complete') {
+        if (currentStatus === 'completed') {
+            await tokenDoc.ref.update({ used_at: now });
+            res.status(200).send(actionConfirmHtml('Already completed', 'This referral has already been marked as complete.', manageUrl));
+            return;
+        }
+        await referralDoc.ref.update({ status: 'completed', closed_at: now, outcome: 'completed_via_email' });
+        await tokenDoc.ref.update({ used_at: now });
+        await logAudit('referral_email_completed', 'email_action', { referral_id: referralId, token_prefix: token.slice(0, 8) });
+        res.status(200).send(actionConfirmHtml('Referral marked complete', 'This referral has been marked as complete. You can open the workspace to add outcome details or notes.', manageUrl));
+        return;
+    }
+    res.status(400).send(actionConfirmHtml('Unknown action', 'This action link is not recognized.', manageUrl));
+});
 // ─── Grant Lab — AI Analysis ────────────────────────────────────────────────
 exports.extractGrantData = (0, https_1.onCall)({ timeoutSeconds: 120 }, async (request) => {
     const { auth } = request;
