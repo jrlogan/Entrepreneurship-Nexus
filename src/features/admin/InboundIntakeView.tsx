@@ -122,12 +122,12 @@ export const InboundIntakeView = () => {
   };
 
   const parseResultByMessageId = new Map<string, InboundParseResult>(parseResults.map((result) => [result.inbound_message_id, result]));
-  const pendingReviewCount = scopedMessages.filter((m) => m.review_status === 'needs_review').length;
   const scopedRoutes = routes.filter((route) => route.ecosystem_id === viewer.ecosystemId);
   // Platform admins see all messages including unrouted ones (ecosystem_id: null); others see only their ecosystem.
   const scopedMessages = canViewRawIntake
     ? messages.slice().sort((a, b) => b.received_at.localeCompare(a.received_at))
     : messages.filter((message) => message.ecosystem_id === viewer.ecosystemId);
+  const pendingReviewCount = scopedMessages.filter((m) => m.review_status === 'needs_review').length;
   const scopedAuthorizedDomains = authorizedDomains
     .filter((domain) => domain.ecosystem_id === viewer.ecosystemId)
     .sort((a, b) => a.domain.localeCompare(b.domain));
