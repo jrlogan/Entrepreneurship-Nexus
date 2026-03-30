@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, Modal, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, InfoBanner } from '../../shared/ui/Components';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
@@ -131,16 +131,7 @@ export const InboundIntakeView = () => {
   const scopedAuthorizedDomains = authorizedDomains
     .filter((domain) => domain.ecosystem_id === viewer.ecosystemId)
     .sort((a, b) => a.domain.localeCompare(b.domain));
-  const authorizedSenderDomains = Array.from(new Set([
-    ...scopedRoutes.flatMap((route) => route.allowed_sender_domains || []),
-    ...scopedAuthorizedDomains.map((domain) => domain.domain),
-  ])).sort();
-  const activeIntegrationOrganizations = useMemo(() => visibleEsoOrganizations.filter((organization) => {
-    const activeKeys = (organization.api_keys || []).filter((key) => key.status === 'active').length;
-    const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active').length;
-    return activeKeys > 0 || activeWebhooks > 0;
-  }), [visibleEsoOrganizations]);
-
+  const [tab, setTab] = useState<'log' | 'setup'>(canViewRawIntake ? 'log' : 'setup');
   const [newRoute, setNewRoute] = useState({ route_address: '', activity_type: 'introduction' as InboundActivityType });
   const [isSavingRoute, setIsSavingRoute] = useState(false);
   const [templateCopied, setTemplateCopied] = useState(false);
@@ -243,8 +234,7 @@ export const InboundIntakeView = () => {
     referring_org_id: '',
   });
   const [isApproving, setIsApproving] = useState(false);
-  const [isRejecting, setIsRejecting] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
+  const [ignoringMessageId, setIgnoringMessageId] = useState<string | null>(null);
   const [confirmDeleteDomainId, setConfirmDeleteDomainId] = useState<string | null>(null);
 
   const handleOpenReview = (message: InboundMessage) => {
@@ -262,8 +252,6 @@ export const InboundIntakeView = () => {
       receiving_org_id: result?.candidate_receiving_org_id || '',
       referring_org_id: result?.candidate_referring_org_id || '',
     });
-    setIsRejecting(false);
-    setRejectReason('');
     setError(null);
   };
 
@@ -285,21 +273,17 @@ export const InboundIntakeView = () => {
     }
   };
 
-  const rejectMessage = async () => {
-    if (!selectedMessage) return;
-    setIsApproving(true);
+  const ignoreMessage = async (messageId: string) => {
+    setIgnoringMessageId(messageId);
     setError(null);
     try {
-      await callHttpFunction('rejectInboundMessage', {
-        inbound_message_id: selectedMessage.id,
-        reason: rejectReason,
-      });
+      await callHttpFunction('rejectInboundMessage', { inbound_message_id: messageId });
       setSelectedMessage(null);
       await loadData();
     } catch (err: any) {
-      setError(err?.message || 'Unable to reject message.');
+      setError(err?.message || 'Unable to ignore message.');
     } finally {
-      setIsApproving(false);
+      setIgnoringMessageId(null);
     }
   };
 
@@ -311,11 +295,10 @@ export const InboundIntakeView = () => {
 
   return (
     <div className="space-y-6">
-      {/* ... previous header and summary cards ... */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Inbound Intake</h2>
         <div className="flex items-center gap-3">
-          {canViewRawIntake && (
+          {canViewRawIntake && tab === 'log' && (
             <button
               onClick={() => void sendQueuedNotices()}
               className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
@@ -334,16 +317,33 @@ export const InboundIntakeView = () => {
         </div>
       </div>
 
-      <InfoBanner title="MVP Intake Pipeline">
-        <p>This view shows the local BCC-intake workflow. Ecosystem managers get a scoped overview of inbound routes, authorized sender domains, and ESO integration activity. Platform admins also see raw inbound messages, parse results, and queued notices.</p>
-        <p>When Firebase is enabled, this reads directly from Firestore emulator collections. Otherwise it falls back to the in-memory repo.</p>
-      </InfoBanner>
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          onClick={() => setTab('log')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === 'log' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          Email Log
+          {pendingReviewCount > 0 && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+              {pendingReviewCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setTab('setup')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === 'setup' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          Setup
+        </button>
+      </div>
 
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
+
+      {tab === 'setup' && <div className="space-y-6">
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card title="Pipeline Summary">
@@ -354,12 +354,9 @@ export const InboundIntakeView = () => {
             </div>
             <div className="flex items-center justify-between">
               <span>Authorized Domains</span>
-              <Badge color="purple">{authorizedSenderDomains.length}</Badge>
+              <Badge color="purple">{scopedAuthorizedDomains.length}</Badge>
             </div>
-            <div className="flex items-center justify-between">
-              <span>ESO Integrations Active</span>
-              <Badge color="green">{activeIntegrationOrganizations.length}</Badge>
-            </div>
+
             {canViewRawIntake && (
               <>
                 <div className="flex items-center justify-between">
@@ -378,7 +375,7 @@ export const InboundIntakeView = () => {
           </div>
         </Card>
 
-        <Card title="Inbound Routes & Authorized Domains" className="xl:col-span-2">
+        <Card title="Inbound Routes" className="xl:col-span-2">
           {canManageAuthorizedDomains && (
             <div className="mb-4 flex flex-wrap items-end gap-2 rounded-md border border-dashed border-indigo-300 bg-indigo-50/50 p-3">
               <div className="flex-1 min-w-[200px]">
@@ -430,38 +427,6 @@ export const InboundIntakeView = () => {
                     </div>
                   </div>
                 ))}
-                {scopedAuthorizedDomains.length > 0 && (
-                  <div className="rounded-md border border-dashed border-indigo-200 bg-indigo-50/40 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Approved domain registry</div>
-                    <div className="mt-2 space-y-2">
-                      {scopedAuthorizedDomains.map((domainRecord) => {
-                        const org = visibleEsoOrganizations.find((organization) => organization.id === domainRecord.organization_id);
-                        return (
-                          <div key={domainRecord.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                            <div className="font-medium text-gray-900">{domainRecord.domain}</div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge color="indigo">{org?.name || domainRecord.organization_id}</Badge>
-                              <Badge color={
-                                domainRecord.access_policy === 'invite_only'
-                                  ? 'yellow'
-                                  : domainRecord.access_policy === 'request_access'
-                                    ? 'purple'
-                                    : domainRecord.access_policy === 'blocked'
-                                      ? 'red'
-                                      : 'green'
-                              }>
-                                {domainRecord.access_policy || 'approved'}
-                              </Badge>
-                              {domainRecord.allow_sender_affiliation !== false && <Badge color="green">sender affiliation</Badge>}
-                              {domainRecord.allow_auto_acknowledgement !== false && <Badge color="purple">sender receipt</Badge>}
-                              {domainRecord.allow_invite_prompt !== false && <Badge color="gray">claim prompt</Badge>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
             </div>
           )}
         </Card>
@@ -471,23 +436,13 @@ export const InboundIntakeView = () => {
         {(() => {
           const introRoute = scopedRoutes.find((r) => r.activity_type === 'introduction' && r.is_active);
           const bccAddress = introRoute?.route_address || '[your-intake-address@inbound.postmarkapp.com]';
-          const template = [
+          const headers = [
             `To: [Receiving ESO contact email]`,
             `CC: [Entrepreneur's email]`,
             `BCC: ${bccAddress}`,
             `Subject: Introduction: [Entrepreneur First & Last Name]`,
-            ``,
-            `Hi [Receiving ESO name],`,
-            ``,
-            `I'd like to introduce you to [Entrepreneur name]. [1-2 sentences about them and why you're making this connection.]`,
-            ``,
-            `[Entrepreneur name], meet the team at [Receiving ESO]. They [1 sentence about what the ESO offers].`,
-            ``,
-            `I'll let you both take it from here.`,
-            ``,
-            `Best,`,
-            `[Your name]`,
-            ``,
+          ].join('\n');
+          const footer = [
             `--- NETWORK REFERRAL DATA ---`,
             `client_name: [Full Name]`,
             `client_venture: [Business / Venture Name]`,
@@ -525,35 +480,49 @@ export const InboundIntakeView = () => {
             `[ ] not_confirmed — Not yet confirmed`,
             `--- END NETWORK REFERRAL DATA ---`,
           ].join('\n');
+          const fullTemplate = `${headers}\n\n[Write your introduction in your own words]\n\n${footer}`;
 
           return (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Use this template when making a BCC introduction. The structured footer lets the system automatically capture the entrepreneur's profile — you only need to fill in what you know.
-                Fields already captured automatically: <strong>your organization</strong> (from your email domain) and <strong>entrepreneur email</strong> (from the CC field).
+                Write the introduction however feels natural — the system reads the <strong>email headers</strong> and the <strong>structured data block</strong> at the bottom. The body is just for the people on the email.
               </p>
-              <div className="relative">
-                <pre className="overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs leading-relaxed text-gray-800 font-mono whitespace-pre">
-                  {template}
-                </pre>
+
+              <div className="space-y-1">
+                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Headers — read by the system</div>
+                <pre className="overflow-x-auto rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs leading-relaxed text-gray-800 font-mono whitespace-pre">{headers}</pre>
+                <p className="text-xs text-gray-500">Your organization is identified from your sending domain. The entrepreneur's email is captured from the CC field.</p>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Body — write whatever you want</div>
+                <div className="rounded-lg border border-dashed border-gray-300 bg-white px-4 py-3 text-sm text-gray-400 italic">
+                  Your introduction message goes here. No specific format required.
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Structured data block — read by the system</div>
+                <pre className="overflow-x-auto rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs leading-relaxed text-gray-800 font-mono whitespace-pre">{footer}</pre>
+                <p className="text-xs text-gray-500">Paste this block at the bottom and fill in what you know. Everything is optional except <code className="font-mono">client_name</code> and <code className="font-mono">receiving_org</code>.</p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <span className="text-xs text-gray-500">Copy the full template to your clipboard to get started</span>
                 <button
                   type="button"
                   onClick={() => {
-                    void navigator.clipboard.writeText(template).then(() => {
+                    void navigator.clipboard.writeText(fullTemplate).then(() => {
                       setTemplateCopied(true);
                       setTimeout(() => setTemplateCopied(false), 2500);
                     });
                   }}
-                  className="absolute right-3 top-3 rounded bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm border border-gray-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-colors"
+                  className="rounded bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm border border-gray-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-colors"
                 >
                   {templateCopied ? '✓ Copied!' : 'Copy template'}
                 </button>
               </div>
-              {introRoute && (
-                <p className="text-xs text-gray-500">
-                  BCC address shown above is your active intake route. Always BCC this address — never put it in To or CC.
-                </p>
-              )}
+
               {!introRoute && (
                 <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2 border border-amber-200">
                   No active introduction route found for this ecosystem. Configure an Inbound Route above to get your BCC address.
@@ -562,40 +531,6 @@ export const InboundIntakeView = () => {
             </div>
           );
         })()}
-      </Card>
-
-      <Card title="ESO Integration Activity">
-        {visibleEsoOrganizations.length === 0 ? (
-          <p className="text-sm text-gray-500">No ESO organizations found in this ecosystem.</p>
-        ) : (
-          <div className="space-y-3">
-            {visibleEsoOrganizations.map((organization) => {
-              const activeKeys = (organization.api_keys || []).filter((key) => key.status === 'active');
-              const activeWebhooks = (organization.webhooks || []).filter((hook) => hook.status === 'active');
-              const organizationDomain = organization.email?.split('@')[1];
-              return (
-                <div key={organization.id} className="rounded-md border border-gray-200 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-gray-900">{organization.name}</div>
-                    <Badge color={activeKeys.length > 0 || activeWebhooks.length > 0 ? 'green' : 'gray'}>
-                      {activeKeys.length > 0 || activeWebhooks.length > 0 ? 'integrating' : 'not configured'}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 grid gap-2 text-sm text-gray-600 md:grid-cols-3">
-                    <div>{activeKeys.length} active API key{activeKeys.length === 1 ? '' : 's'}</div>
-                    <div>{activeWebhooks.length} active webhook{activeWebhooks.length === 1 ? '' : 's'}</div>
-                    <div>{organizationDomain ? 1 : 0} known org domain</div>
-                  </div>
-                  {organizationDomain && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Badge color="indigo">{organizationDomain}</Badge>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </Card>
 
       <Card title="Authorized Sender Domain Policies">
@@ -761,6 +696,10 @@ export const InboundIntakeView = () => {
         )}
       </Card>
 
+      </div>}
+
+      {tab === 'log' && <div className="space-y-6">
+
       {canViewRawIntake && (
       <Card title="Queued Notices">
         {noticeQueue.length === 0 ? (
@@ -776,14 +715,9 @@ export const InboundIntakeView = () => {
                     <div className="text-sm font-semibold text-gray-900">{notice.to_email}</div>
                     <Badge color={notice.status === 'queued' ? 'yellow' : notice.status === 'failed' ? 'red' : 'green'}>{notice.status}</Badge>
                   </div>
-                  <div className="mt-1 text-xs text-gray-500">{notice.type} · {notice.created_at}</div>
+                  <div className="mt-1 text-xs text-gray-500">{notice.type} · {new Date(notice.created_at).toLocaleString()}</div>
                   {(notice as any).last_error && (
                     <div className="mt-2 text-xs text-red-600">{(notice as any).last_error}</div>
-                  )}
-                  {notice.payload && (
-                    <pre className="mt-2 overflow-x-auto rounded bg-gray-50 p-2 text-xs text-gray-600">
-{JSON.stringify(notice.payload, null, 2)}
-                    </pre>
                   )}
                 </div>
               ))}
@@ -833,25 +767,36 @@ export const InboundIntakeView = () => {
                           From <span className="font-mono">{message.from_email}</span>
                         </div>
                         <div className="mt-1 text-xs text-gray-500">
-                          Route <span className="font-mono">{message.route_address}</span> · {message.received_at}
+                          Route <span className="font-mono">{message.route_address}</span> · {new Date(message.received_at).toLocaleString()}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {needsReview && (
-                          <button
-                            onClick={() => handleOpenReview(message)}
-                            className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
-                          >
-                            Review &amp; Approve
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleOpenReview(message)}
+                              className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
+                            >
+                              Review
+                            </button>
+                            <button
+                              onClick={() => void ignoreMessage(message.id)}
+                              disabled={ignoringMessageId === message.id}
+                              className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50"
+                            >
+                              {ignoringMessageId === message.id ? 'Ignoring…' : 'Ignore'}
+                            </button>
+                          </>
                         )}
                         <Badge color="indigo">{message.activity_type}</Badge>
                         <Badge color={message.parse_status === 'parsed' ? 'green' : message.parse_status === 'failed' ? 'red' : 'yellow'}>
                           {message.parse_status}
                         </Badge>
-                        <Badge color={message.review_status === 'approved' ? 'green' : message.review_status === 'rejected' ? 'red' : 'yellow'}>
-                          {message.review_status}
-                        </Badge>
+                        {!needsReview && (
+                          <Badge color={message.review_status === 'approved' ? 'green' : 'red'}>
+                            {message.review_status}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     {(message as any).rejection_reason && (
@@ -902,7 +847,7 @@ export const InboundIntakeView = () => {
         <Modal
           isOpen={!!selectedMessage}
           onClose={() => setSelectedMessage(null)}
-          title="Review Inbound Introduction"
+          title="Review Message"
           wide
         >
           <div className="space-y-4">
@@ -987,40 +932,13 @@ export const InboundIntakeView = () => {
               </div>
             </div>
 
-            {isRejecting ? (
-              <div className="space-y-3 pt-4 border-t border-gray-100">
-                <label className={FORM_LABEL_CLASS}>Reason for rejection</label>
-                <textarea
-                  className={`${FORM_INPUT_CLASS} min-h-[80px]`}
-                  placeholder="Optional: describe why this introduction is being rejected"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                />
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => setIsRejecting(false)}
-                    disabled={isApproving}
-                    className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={() => void rejectMessage()}
-                    disabled={isApproving}
-                    className="rounded bg-red-600 px-6 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {isApproving ? 'Rejecting...' : 'Confirm Rejection'}
-                  </button>
-                </div>
-              </div>
-            ) : (
             <div className="flex justify-between gap-3 pt-4 border-t border-gray-100">
               <button
-                onClick={() => setIsRejecting(true)}
-                disabled={isApproving}
-                className="rounded border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                onClick={() => selectedMessage && void ignoreMessage(selectedMessage.id)}
+                disabled={isApproving || !!ignoringMessageId}
+                className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50"
               >
-                Reject Introduction
+                {ignoringMessageId ? 'Ignoring…' : 'Ignore'}
               </button>
               <div className="flex gap-3">
                 <button
@@ -1034,14 +952,15 @@ export const InboundIntakeView = () => {
                   disabled={isApproving || !reviewData.person_email || !reviewData.receiving_org_id}
                   className="rounded bg-indigo-600 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {isApproving ? 'Approving...' : 'Approve & Create Referral'}
+                  {isApproving ? 'Accepting…' : 'Accept & Create Referral'}
                 </button>
               </div>
             </div>
-            )}
           </div>
         </Modal>
       )}
+
+      </div>}
     </div>
   );
 };
