@@ -4554,7 +4554,7 @@ exports.recordOnboardingAcknowledgment = (0, https_1.onRequest)({ invoker: 'publ
             }, { merge: true });
         };
         if (existing.exists) {
-            await ensureOrgAuditEvent(String((existing.data()?.timestamp) || new Date().toISOString()));
+            await ensureOrgAuditEvent(String(existing.data()?.timestamp || new Date().toISOString()));
             res.json({ ok: true, already_acknowledged: true, acknowledged_at: existing.data()?.timestamp });
             return;
         }

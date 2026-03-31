@@ -190,6 +190,37 @@ service cloud.firestore {
       allow write: if isNetworkAdmin() || isEsoOperator();
     }
 
+    match /consent_policies/{policyId} {
+      allow read: if isAuthenticated();
+      allow create: if isNetworkAdmin() || (
+        hasPersonDoc() &&
+        currentOrgId() != null &&
+        request.resource.data.resource_id == currentOrgId()
+      );
+      allow update: if isNetworkAdmin() || (
+        hasPersonDoc() &&
+        currentOrgId() != null &&
+        resource.data.resource_id == currentOrgId() &&
+        request.resource.data.resource_id == resource.data.resource_id
+      );
+      allow delete: if false;
+    }
+
+    match /consent_events/{eventId} {
+      allow read: if isAuthenticated();
+      allow create: if isNetworkAdmin() || (
+        hasPersonDoc() &&
+        currentOrgId() != null &&
+        request.resource.data.resource_id == currentOrgId()
+      );
+      allow update, delete: if false;
+    }
+
+    match /consent_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     match /organization_aliases/{aliasId} {
       allow read: if isAuthenticated();
       allow create, update: if isPlatformAdmin() || isEsoOperator();

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Organization, Person, Initiative, Interaction, Referral, Service } from '../../domain/types';
+import { Organization, Person, Initiative, Interaction, Referral, Service, Ecosystem } from '../../domain/types';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, CompanyLogo, InfoBanner, Modal, FORM_TEXTAREA_CLASS, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
@@ -32,6 +32,7 @@ interface OrganizationDetailViewProps {
     onSelectPerson?: (id: string) => void;
     onSelectOrganization?: (id: string, tab?: string) => void;
     onNavigateToReferrals?: () => void;
+    currentEcosystem?: Ecosystem;
 }
 
 export const OrganizationDetailView = ({ 
@@ -49,6 +50,7 @@ export const OrganizationDetailView = ({
     onSelectPerson,
     onSelectOrganization,
     onNavigateToReferrals,
+    currentEcosystem,
 }: OrganizationDetailViewProps) => {
     const repos = useRepos();
     const viewer = useViewer();
@@ -118,7 +120,7 @@ export const OrganizationDetailView = ({
     const isOrgOwner = !!viewerOrgMembership && (viewer.role === 'entrepreneur' || isFounderLikeRole(viewerOrgMembership.role));
     const isOwnOrganization = viewer.orgId === org.id || isOrgOwner;
     const isEntrepreneurViewer = viewer.role === 'entrepreneur';
-    const ecosystem = ALL_ECOSYSTEMS.find((candidate) => candidate.id === viewer.ecosystemId);
+    const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find((candidate) => candidate.id === viewer.ecosystemId);
     const featureFlags = ecosystem?.settings?.feature_flags || {};
     const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
     const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;

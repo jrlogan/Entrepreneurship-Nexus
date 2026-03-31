@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Person, Initiative, Organization, Interaction, Referral, PipelineDefinition, Service } from '../../domain/types';
+import { Person, Initiative, Organization, Interaction, Referral, PipelineDefinition, Service, Ecosystem } from '../../domain/types';
 import { ChecklistTemplate } from '../../domain/ecosystems/types';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { Card, Badge, Avatar, CompanyLogo, DemoLink, Modal } from '../../shared/ui/Components';
@@ -24,9 +24,10 @@ interface MyVenturesProps {
     onRefresh?: () => void;
     onSelectOrganization?: (id: string) => void;
     onCreateOrganization?: () => void;
+    currentEcosystem?: Ecosystem;
 }
 
-export const MyVenturesView = ({ person, initiatives, organizations, people, interactions, referrals, services, actingOrgId, onAdvance, onRefresh, onSelectOrganization, onCreateOrganization }: MyVenturesProps) => {
+export const MyVenturesView = ({ person, initiatives, organizations, people, interactions, referrals, services, actingOrgId, onAdvance, onRefresh, onSelectOrganization, onCreateOrganization, currentEcosystem }: MyVenturesProps) => {
     const repos = useRepos();
     const viewer = useViewer();
     
@@ -62,7 +63,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
     };
 
     // Get ecosystem config
-    const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
+    const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
     const featureFlags = ecosystem?.settings?.feature_flags || {};
     const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
     const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;

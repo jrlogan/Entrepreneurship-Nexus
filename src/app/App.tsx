@@ -250,11 +250,15 @@ const App = () => {
 
   useEffect(() => {
     if (!activeUser) {
-      switchActingOrg('');
       return;
     }
 
+    const isPrivilegedRole = ['platform_admin', 'ecosystem_manager'].includes(currentRole);
+
     if (activeOrganizationAffiliations.length === 0) {
+      if (isPrivilegedRole) {
+        return;
+      }
       switchActingOrg('');
       return;
     }
@@ -263,7 +267,6 @@ const App = () => {
     // Privileged roles (platform_admin, ecosystem_manager) can act on behalf of any org in the
     // system — not just their direct affiliations — so trust whatever is stored in localStorage
     // rather than resetting to their primary org on every reload.
-    const isPrivilegedRole = ['platform_admin', 'ecosystem_manager'].includes(currentRole);
     if (!currentActingOrgId || (!isPrivilegedRole && !validOrgIds.has(currentActingOrgId))) {
       // Prefer: primary org → membership org → first affiliation
       const primaryOrgId = activeUser?.organization_id;
@@ -273,7 +276,7 @@ const App = () => {
         ?? activeOrganizationAffiliations[0].organization_id;
       switchActingOrg(fallback);
     }
-  }, [activeOrganizationAffiliations, activeUser, currentActingOrgId, currentMembership, switchActingOrg]);
+  }, [activeOrganizationAffiliations, activeUser, currentActingOrgId, currentMembership, currentRole, switchActingOrg]);
 
   useEffect(() => {
     if (CONFIG.IS_DEMO_MODE || !activeUser) {
@@ -774,7 +777,7 @@ const App = () => {
            )}
            {view === 'initiatives' && (
                canAccessInitiatives ? (
-               <InitiativesView initiatives={initiatives} organizations={organizations} pipelines={pipelines} />
+               <InitiativesView initiatives={initiatives} organizations={organizations} pipelines={pipelines} currentEcosystem={currentEcosystem} />
                ) : null
            )}
            {view === 'pipelines' && (
@@ -872,6 +875,7 @@ const App = () => {
                   onRefresh={refreshData}
                   onSelectOrganization={navigateToOrg}
                   onCreateOrganization={() => setIsAddOrgOpen(true)}
+                  currentEcosystem={currentEcosystem}
                 />
            )}
            {view === 'user_management' && (
@@ -894,6 +898,7 @@ const App = () => {
                 interactions={interactions}
                 referrals={referrals}
                 services={services}
+                currentEcosystem={currentEcosystem}
                 onBack={() => applyRoute({ view: 'directory', ecosystemId: currentEcosystemId }, 'push')}
                 onRefresh={refreshData}
                 initialTab={selectedTab}
@@ -935,6 +940,7 @@ const App = () => {
                 interactions={interactions}
                 referrals={referrals}
                 services={services}
+                currentEcosystem={currentEcosystem}
                 onBack={() => applyRoute({ view: 'my_ventures', ecosystemId: currentEcosystemId }, 'push')}
                 onRefresh={refreshData}
                 initialTab={selectedTab}
@@ -955,7 +961,8 @@ const App = () => {
                       o.id === currentOrgId || 
                       (activeUser.secondary_profile && o.id === activeUser.secondary_profile.organization_id)
                   )} 
-                  pipelines={pipelines} 
+                  pipelines={pipelines}
+                  currentEcosystem={currentEcosystem}
                />
            )}
            

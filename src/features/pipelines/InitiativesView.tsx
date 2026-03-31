@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Initiative, Organization, PipelineDefinition } from '../../domain/types';
+import { Initiative, Organization, PipelineDefinition, Ecosystem } from '../../domain/types';
 import { ChecklistTemplate } from '../../domain/ecosystems/types';
 import { calculatePipelineProgress } from '../../domain/logic';
 import { Card, Badge, InfoBanner } from '../../shared/ui/Components';
@@ -14,16 +14,17 @@ interface InitiativesViewProps {
     organizations: Organization[];
     pipelines: PipelineDefinition[];
     onNavigateToOrg?: (id: string) => void;
+    currentEcosystem?: Ecosystem;
 }
 
-export const InitiativesView = ({ initiatives, organizations, pipelines, onNavigateToOrg }: InitiativesViewProps) => {
+export const InitiativesView = ({ initiatives, organizations, pipelines, onNavigateToOrg, currentEcosystem }: InitiativesViewProps) => {
     const repos = useRepos();
     const viewer = useViewer();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [accessRequestMsg, setAccessRequestMsg] = useState('');
 
     // Get checklists
-    const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
+    const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
     const checklists = ecosystem?.checklist_templates || [];
 
     const handleSaveInitiative = (initData: Partial<Initiative>) => {
