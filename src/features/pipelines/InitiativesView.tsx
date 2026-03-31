@@ -15,9 +15,10 @@ interface InitiativesViewProps {
     pipelines: PipelineDefinition[];
     onNavigateToOrg?: (id: string) => void;
     currentEcosystem?: Ecosystem;
+    onRefresh?: () => void;
 }
 
-export const InitiativesView = ({ initiatives, organizations, pipelines, onNavigateToOrg, currentEcosystem }: InitiativesViewProps) => {
+export const InitiativesView = ({ initiatives, organizations, pipelines, onNavigateToOrg, currentEcosystem, onRefresh }: InitiativesViewProps) => {
     const repos = useRepos();
     const viewer = useViewer();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -27,13 +28,14 @@ export const InitiativesView = ({ initiatives, organizations, pipelines, onNavig
     const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
     const checklists = ecosystem?.checklist_templates || [];
 
-    const handleSaveInitiative = (initData: Partial<Initiative>) => {
-        repos.pipelines.addInitiative({
+    const handleSaveInitiative = async (initData: Partial<Initiative>) => {
+        await repos.pipelines.addInitiative({
             id: `init_${Date.now()}`,
             ecosystem_id: viewer.ecosystemId,
             ...initData
         } as Initiative);
         setIsModalOpen(false);
+        onRefresh?.();
     };
 
     const handleSavePipeline = (p: PipelineDefinition) => {

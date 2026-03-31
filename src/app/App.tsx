@@ -777,7 +777,7 @@ const App = () => {
            )}
            {view === 'initiatives' && (
                canAccessInitiatives ? (
-               <InitiativesView initiatives={initiatives} organizations={organizations} pipelines={pipelines} currentEcosystem={currentEcosystem} />
+               <InitiativesView initiatives={initiatives} organizations={organizations} pipelines={pipelines} currentEcosystem={currentEcosystem} onRefresh={refreshData} />
                ) : null
            )}
            {view === 'pipelines' && (
@@ -963,6 +963,7 @@ const App = () => {
                   )} 
                   pipelines={pipelines}
                   currentEcosystem={currentEcosystem}
+                  onRefresh={refreshData}
                />
            )}
            

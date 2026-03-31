@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Person, Initiative, Organization, Interaction, Referral, PipelineDefinition, Service, Ecosystem } from '../../domain/types';
 import { ChecklistTemplate } from '../../domain/ecosystems/types';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
@@ -68,8 +68,27 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
     const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
     const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
     const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
-    const pipelines = repos.pipelines.getPipelines(viewer.ecosystemId);
+    const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
     const checklists = ecosystem?.checklist_templates || [];
+
+    useEffect(() => {
+        let cancelled = false;
+        repos.pipelines.getPipelines(viewer.ecosystemId)
+            .then((loadedPipelines) => {
+                if (!cancelled) {
+                    setPipelines(loadedPipelines);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setPipelines([]);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [repos, viewer.ecosystemId]);
     const supportSearchTerm = supportSearch.trim().toLowerCase();
 
     // 1. Organizations (My Context)
@@ -246,8 +265,8 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
         onRefresh?.();
     };
 
-    const handleCreateInitiative = (initData: Partial<Initiative>) => {
-        repos.pipelines.addInitiative({
+    const handleCreateInitiative = async (initData: Partial<Initiative>) => {
+        await repos.pipelines.addInitiative({
             id: `init_${Date.now()}`,
             ecosystem_id: viewer.ecosystemId,
             ...initData
