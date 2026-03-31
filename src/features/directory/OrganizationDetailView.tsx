@@ -9,7 +9,9 @@ import { MetricAssignment } from '../../domain/metrics/reporting_types';
 import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
 import { RESTRICTED_INITIATIVE_NAME, REDACTED_TEXT } from '../../domain/access/redaction';
 import { ENUMS } from '../../domain/standards/enums';
-import { EditOrgModal, ManagePersonModal } from './OrgModals';
+import type { ChecklistTemplate } from '../../domain/ecosystems/types';
+import type { PipelineDefinition } from '../../domain/pipelines/types';
+import { EditOrgModal, ManageInitiativeModal, ManagePersonModal } from './OrgModals';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -60,6 +62,8 @@ export const OrganizationDetailView = ({
     const [isUpdatingReferral, setIsUpdatingReferral] = useState<string | null>(null);
     const [showCreateReferral, setShowCreateReferral] = useState(false);
     const [referralJustCreated, setReferralJustCreated] = useState(false);
+    const [showCreateInitiative, setShowCreateInitiative] = useState(false);
+    const [initiativeJustCreated, setInitiativeJustCreated] = useState(false);
     const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
     const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
     const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
@@ -121,6 +125,8 @@ export const OrganizationDetailView = ({
     const isOwnOrganization = viewer.orgId === org.id || isOrgOwner;
     const isEntrepreneurViewer = viewer.role === 'entrepreneur';
     const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find((candidate) => candidate.id === viewer.ecosystemId);
+    const ecosystemPipelines = ecosystem?.pipelines || [];
+    const ecosystemChecklists = ecosystem?.checklist_templates || [];
     const featureFlags = ecosystem?.settings?.feature_flags || {};
     const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
     const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
@@ -492,6 +498,28 @@ export const OrganizationDetailView = ({
         } finally {
             setIsSubmittingSupportRequest(false);
         }
+    };
+
+    const handleCreateInitiative = async (initiative: Partial<Initiative>) => {
+        await repos.pipelines.addInitiative({
+            id: `init_${Date.now()}`,
+            ecosystem_id: viewer.ecosystemId,
+            current_stage_index: 0,
+            stage_history: [],
+            checklists: [],
+            ...initiative,
+        } as Initiative);
+        setShowCreateInitiative(false);
+        setInitiativeJustCreated(true);
+        onRefresh?.();
+    };
+
+    const handleSavePipeline = (pipeline: PipelineDefinition) => {
+        repos.ecosystems.addPipeline(viewer.ecosystemId, pipeline);
+    };
+
+    const handleSaveChecklist = (checklist: ChecklistTemplate) => {
+        repos.ecosystems.addChecklistTemplate(viewer.ecosystemId, checklist);
     };
 
     return (
@@ -1089,6 +1117,24 @@ export const OrganizationDetailView = ({
               )}
               {activeTab === 'initiatives' && (
                   <div className="space-y-4">
+                      {canViewDetails && (
+                          <div className="flex justify-end">
+                              <button
+                                  onClick={() => { setShowCreateInitiative(true); setInitiativeJustCreated(false); }}
+                                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
+                              >
+                                  + New Initiative
+                              </button>
+                          </div>
+                      )}
+                      {initiativeJustCreated && (
+                          <div className="flex items-center justify-between gap-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
+                              <span>Initiative created for {org.name}.</span>
+                              <button onClick={() => setInitiativeJustCreated(false)} className="text-green-600 hover:text-green-800 text-xs">
+                                  Dismiss
+                              </button>
+                          </div>
+                      )}
                       {orgInitiatives.map(init => {
                           if (init.name === RESTRICTED_INITIATIVE_NAME) {
                               return (
@@ -1789,6 +1835,18 @@ export const OrganizationDetailView = ({
                subjectOrg={org}
                organizations={organizations}
                currentOrgId={viewer.orgId}
+           />
+
+           <ManageInitiativeModal
+               isOpen={showCreateInitiative}
+               onClose={() => setShowCreateInitiative(false)}
+               onSave={(initiative) => { void handleCreateInitiative(initiative); }}
+               orgId={org.id}
+               organizations={organizations}
+               pipelines={ecosystemPipelines}
+               checklists={ecosystemChecklists}
+               onSavePipeline={handleSavePipeline}
+               onSaveChecklist={handleSaveChecklist}
            />
 
            <ManagePersonModal
