@@ -229,10 +229,10 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
         setConfirmAction('deny');
     };
 
-    const doGrantAccess = (ref: Referral) => {
+    const doGrantAccess = async (ref: Referral) => {
         if (!myOrg) return;
-        repos.referrals.accept(ref.id, "Access Granted via Portal");
-        repos.consent.grantAccess(myOrg.id, ref.referring_org_id, 'read');
+        await repos.referrals.accept(ref.id, "Access Granted via Portal");
+        await repos.consent.grantAccess(myOrg.id, ref.referring_org_id, 'read', viewer.personId);
         setConfirmingRefId(null);
         setConfirmAction(null);
         onRefresh?.();

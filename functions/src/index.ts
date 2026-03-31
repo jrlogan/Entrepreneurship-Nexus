@@ -5165,17 +5165,47 @@ export const recordOnboardingAcknowledgment = onRequest({ invoker: 'public' }, a
 
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    const { ecosystem_id } = req.body || {};
+    const { ecosystem_id, organization_id } = req.body || {};
     if (!ecosystem_id) { res.status(400).json({ error: 'ecosystem_id required' }); return; }
 
     const personSnap = await db.collection('people').where('auth_uid', '==', decoded.uid).limit(1).get();
     if (personSnap.empty) { res.status(404).json({ error: 'Person record not found' }); return; }
     const personId = personSnap.docs[0].id;
+    const membershipSnap = await db.collection('person_memberships')
+      .where('person_id', '==', personId)
+      .where('ecosystem_id', '==', ecosystem_id)
+      .where('status', '==', 'active')
+      .limit(10)
+      .get();
+    const membershipOrgIds = membershipSnap.docs
+      .map((doc) => String(doc.get('organization_id') || '').trim())
+      .filter(Boolean);
+    const orgId = membershipOrgIds.includes(String(organization_id || '').trim())
+      ? String(organization_id || '').trim()
+      : (membershipOrgIds[0] || String(personSnap.docs[0].get('primary_organization_id') || '').trim());
 
     // Idempotent — deterministic doc ID
     const ackId = `ack_${personId}_${ecosystem_id}`;
     const existing = await db.collection('consent_events').doc(ackId).get();
+    const orgAckId = orgId ? `ack_org_${orgId}_${personId}_${ecosystem_id}` : '';
+    const ensureOrgAuditEvent = async (timestamp: string) => {
+      if (!orgId || !orgAckId) {
+        return;
+      }
+
+      await db.collection('consent_events').doc(orgAckId).set({
+        resource_id: orgId,
+        viewer_id: ecosystem_id,
+        actor_id: personId,
+        action: 'acknowledged',
+        timestamp,
+        reason: 'Onboarding data-sharing acknowledgment',
+        granted_via: null,
+        override_reason: null,
+      }, { merge: true });
+    };
     if (existing.exists) {
+      await ensureOrgAuditEvent(String(existing.data()?.timestamp || new Date().toISOString()));
       res.json({ ok: true, already_acknowledged: true, acknowledged_at: existing.data()?.timestamp });
       return;
     }
@@ -5191,6 +5221,7 @@ export const recordOnboardingAcknowledgment = onRequest({ invoker: 'public' }, a
       granted_via: null,
       override_reason: null,
     });
+    await ensureOrgAuditEvent(now);
 
     res.json({ ok: true, already_acknowledged: false, acknowledged_at: now });
   } catch (err: any) {

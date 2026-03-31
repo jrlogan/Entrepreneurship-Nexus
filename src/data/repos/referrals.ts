@@ -49,7 +49,7 @@ export class ReferralsRepo {
       const referrals = MOCK_REFERRALS.filter(r => r.subject_org_id === orgId || r.referring_org_id === orgId || r.receiving_org_id === orgId);
       const subjectOrg = ALL_ORGANIZATIONS.find(o => o.id === orgId);
 
-      const results = referrals.map(ref => {
+      const results = await Promise.all(referrals.map(async ref => {
           // If I am involved, I see it
           if (ref.referring_org_id === viewer.orgId || ref.receiving_org_id === viewer.orgId) {
               return ref;
@@ -57,7 +57,7 @@ export class ReferralsRepo {
 
           // If I am looking at the subject org, can I see operational details?
           if (subjectOrg) {
-              const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, subjectOrg.id, viewer.ecosystemId);
+              const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, subjectOrg.id, viewer.ecosystemId);
               if (canViewOperationalDetails(viewer, subjectOrg, hasConsent)) {
                   return ref;
               }
@@ -65,9 +65,9 @@ export class ReferralsRepo {
 
           // Otherwise redact
           return redactReferral(ref);
-      });
+      }));
 
-      return Promise.resolve(results);
+      return results;
   }
 
   async add(referral: Referral): Promise<void> {

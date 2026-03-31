@@ -13,6 +13,9 @@ import { EditOrgModal, ManagePersonModal } from './OrgModals';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 import { callHttpFunction } from '../../services/httpFunctionClient';
+import { isFirebaseEnabled } from '../../services/firebaseApp';
+import { FirebaseConsentRepo } from '../../data/repos/firebase/consent';
+import type { ConsentEvent } from '../../domain/consent/types';
 
 interface OrganizationDetailViewProps {
     org: Organization;
@@ -83,6 +86,8 @@ export const OrganizationDetailView = ({
     const [overrideReason, setOverrideReason] = useState('');
     const [overrideStatus, setOverrideStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [overrideError, setOverrideError] = useState('');
+    const [activePolicies, setActivePolicies] = useState(() => repos.consent.getPoliciesForEntity(org.id));
+    const [consentEvents, setConsentEvents] = useState<ConsentEvent[]>(() => repos.consent.getEventsForEntity(org.id));
 
     React.useEffect(() => {
         if (initialTab && initialTab !== activeTab) {
@@ -143,8 +148,6 @@ export const OrganizationDetailView = ({
     });
 
     // Privacy Data
-    const activePolicies = repos.consent.getPoliciesForEntity(org.id);
-    const consentEvents = repos.consent.getEventsForEntity(org.id);
     const visibleEvents = showAllEvents ? consentEvents : consentEvents.slice(0, 10);
     const isManageable = isOwnOrganization || viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
     const isEcosystemManager = viewer.role === 'ecosystem_manager' || viewer.role === 'platform_admin';
@@ -167,8 +170,42 @@ export const OrganizationDetailView = ({
     );
 
     // Access Control Check
-    const hasConsent = repos.consent.hasOperationalAccess(viewer.orgId, org.id);
+    const hasConsent = viewer.orgId === org.id || activePolicies.some((policy) => policy.viewerId === viewer.orgId && policy.isActive);
     const canViewDetails = isOwnOrganization || canViewOperationalDetails(viewer, org, hasConsent);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        setActivePolicies(repos.consent.getPoliciesForEntity(org.id));
+        setConsentEvents(repos.consent.getEventsForEntity(org.id));
+        if (!isFirebaseEnabled()) {
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        const consentRepo = repos.consent instanceof FirebaseConsentRepo ? repos.consent : new FirebaseConsentRepo();
+        void Promise.all([
+            consentRepo.getPoliciesForEntityAsync(org.id),
+            consentRepo.getEventsForEntityAsync(org.id),
+        ])
+            .then(([policies, events]) => {
+                if (!cancelled) {
+                    setActivePolicies(policies);
+                    setConsentEvents(events);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setActivePolicies(repos.consent.getPoliciesForEntity(org.id));
+                    setConsentEvents(repos.consent.getEventsForEntity(org.id));
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [org.id, repos]);
 
     // Restricted View Logic for People
     const isRestricted = !canViewDetails;
@@ -269,29 +306,32 @@ export const OrganizationDetailView = ({
         setConfirmRevokeId(policyId);
     };
 
-    const doRevokeConsent = (policyId: string) => {
+    const doRevokeConsent = async (policyId: string) => {
         const policy = activePolicies.find(p => p.id === policyId);
         if (policy) {
-            policy.isActive = false;
-            repos.consent.logEvent({
-                id: `evt_revoke_${Date.now()}`,
-                timestamp: new Date().toISOString(),
-                actorId: viewer.personId,
-                action: 'revoked',
-                resourceId: org.id,
-                viewerId: policy.viewerId,
-                reason: 'User revoked via Privacy Dashboard'
-            });
+            await repos.consent.revokeAccess(policyId, viewer.personId, org.id, policy.viewerId, 'User revoked via Privacy Dashboard');
             if (onRefresh) onRefresh();
+            const [policies, events] = await Promise.all([
+                repos.consent.getPoliciesForEntityAsync(org.id),
+                repos.consent.getEventsForEntityAsync(org.id),
+            ]);
+            setActivePolicies(policies);
+            setConsentEvents(events);
         }
         setConfirmRevokeId(null);
     };
 
-    const handleGrantConsent = () => {
+    const handleGrantConsent = async () => {
         if (!isManageable || !selectedPartnerOrgId) return;
-        repos.consent.grantAccess(org.id, selectedPartnerOrgId, selectedAccessLevel);
+        await repos.consent.grantAccess(org.id, selectedPartnerOrgId, selectedAccessLevel, viewer.personId);
         setSelectedPartnerOrgId('');
         setSelectedAccessLevel('read');
+        const [policies, events] = await Promise.all([
+            repos.consent.getPoliciesForEntityAsync(org.id),
+            repos.consent.getEventsForEntityAsync(org.id),
+        ]);
+        setActivePolicies(policies);
+        setConsentEvents(events);
         onRefresh?.();
     };
 
@@ -1577,7 +1617,9 @@ export const OrganizationDetailView = ({
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
                                             {visibleEvents.map(evt => {
-                                                const partnerName = organizations.find(o => o.id === evt.viewerId)?.name || 'Unknown';
+                                                const partnerName = evt.action === 'acknowledged'
+                                                    ? (ecosystem?.name || 'Ecosystem onboarding')
+                                                    : (organizations.find(o => o.id === evt.viewerId)?.name || 'Unknown');
                                                 const actorName = people.find(p => p.id === evt.actorId)?.first_name 
                                                     ? `${people.find(p => p.id === evt.actorId)?.first_name} ${people.find(p => p.id === evt.actorId)?.last_name}`
                                                     : (evt.actorId === org.id ? 'Organization Admin' : 'System'); // Fallback logic

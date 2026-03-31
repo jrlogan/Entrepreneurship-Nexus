@@ -22,11 +22,12 @@ import { FirebaseOrganizationsRepo } from './firebase/organizations';
 import { FirebasePipelinesRepo } from './firebase/pipelines';
 import { FirebaseServicesRepo } from './firebase/services';
 import { FirebaseGrantsRepo } from './firebase/grants';
+import { FirebaseConsentRepo } from './firebase/consent';
 import { CONFIG } from '../../app/config';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
 export class AppRepos {
-  public consent = new ConsentRepo();
+  public consent: ConsentRepo;
   public organizations: OrganizationsRepo | FirebaseOrganizationsRepo;
   public people: PeopleRepo | FirebasePeopleRepo;
   public interactions: InteractionsRepo | FirebaseInteractionsRepo;
@@ -35,7 +36,7 @@ export class AppRepos {
   public todos = new TodosRepo();
   public advisor = new AdvisorRepo();
   public ecosystems = new EcosystemsRepo();
-  public metrics = new MetricsRepo(this.consent);
+  public metrics: MetricsRepo;
   public flexibleMetrics = new FlexibleMetricsRepo(); // New Flexible Layer
   public inboundMessages: InboundMessagesRepo | FirebaseInboundMessagesRepo;
   public services: ServicesRepo | FirebaseServicesRepo;
@@ -43,6 +44,8 @@ export class AppRepos {
 
   constructor() {
       const useFirebase = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
+      this.consent = useFirebase ? new FirebaseConsentRepo() : new ConsentRepo();
+      this.metrics = new MetricsRepo(this.consent);
       
       this.organizations = useFirebase ? new FirebaseOrganizationsRepo(this.consent) : new OrganizationsRepo(this.consent);
       this.people = useFirebase ? new FirebasePeopleRepo() : new PeopleRepo();

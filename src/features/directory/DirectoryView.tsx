@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Interaction, Organization } from '../../domain/types';
 import { Card, Badge, CompanyLogo } from '../../shared/ui/Components';
 import { IconEye, IconLock } from '../../shared/ui/Icons';
-import { useViewer, useRepos } from '../../data/AppDataContext';
+import { useViewer } from '../../data/AppDataContext';
 
 // Extend Organization type to include the _access property injected by the repo
 type ExtendedOrganization = Organization & {
@@ -22,7 +22,6 @@ interface DirectoryViewProps {
 
 export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, onRefresh }: DirectoryViewProps) => {
     const viewer = useViewer();
-    const repos = useRepos();
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [scopeFilter, setScopeFilter] = useState<string>('all');
     const [sortBy, setSortBy] = useState<'activity' | 'name'>('activity');
@@ -122,7 +121,7 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
             }
             if (scopeFilter === 'consented') {
                 // Explicit consent given (Private but shared)
-                const hasExplicitConsent = repos.consent.hasOperationalAccess(viewer.orgId, org.id);
+                const hasExplicitConsent = org._access?.level === 'detailed' && org.operational_visibility === 'restricted';
                 // We only care about consent if it's restricted, otherwise it's just 'open'
                 if (!hasExplicitConsent || org.operational_visibility === 'open') return false;
             }
@@ -141,7 +140,7 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
             const rightTime = rightActivity ? new Date(rightActivity).getTime() : 0;
             return rightTime - leftTime || left.name.localeCompare(right.name);
         });
-    }, [organizations, typeFilter, scopeFilter, sortBy, viewer.orgId, repos, activityByOrganizationId]);
+    }, [organizations, typeFilter, scopeFilter, sortBy, viewer.orgId, activityByOrganizationId]);
 
     // Helpers for UI indicators
     const getAccessIndicator = (org: ExtendedOrganization) => {
@@ -163,7 +162,7 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
 
     const clientCount = organizations.filter(o => o.managed_by_ids?.includes(viewer.orgId)).length;
     const consentedCount = organizations.filter(o =>
-        repos.consent.hasOperationalAccess(viewer.orgId, o.id) && o.operational_visibility === 'restricted'
+        o._access?.level === 'detailed' && o.operational_visibility === 'restricted'
     ).length;
 
     return (
@@ -232,7 +231,7 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredOrganizations.map(org => {
                     const isClient = org.managed_by_ids?.includes(viewer.orgId);
-                    const hasExplicitConsent = repos.consent.hasOperationalAccess(viewer.orgId, org.id);
+                    const hasExplicitConsent = org._access?.level === 'detailed';
                     const isPrivate = org.operational_visibility === 'restricted';
                     const lastActivity = activityByOrganizationId.get(org.id);
 

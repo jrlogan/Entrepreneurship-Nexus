@@ -27,7 +27,7 @@ export class FirebasePipelinesRepo {
         const org = await getDocument<any>('organizations', init.organization_id);
         if (!org) continue;
 
-        const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
+        const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
 
         if (canViewOperationalDetails(viewer, org, hasConsent)) {
             results.push(init);

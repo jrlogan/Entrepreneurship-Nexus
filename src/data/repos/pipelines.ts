@@ -42,19 +42,19 @@ export class PipelinesRepo {
     // Filter to current ecosystem scope
     const scopedInitiatives = INITIAL_INITIATIVES.filter(i => i.ecosystem_id === scope);
 
-    const results = scopedInitiatives.map(init => {
+    const results = await Promise.all(scopedInitiatives.map(async init => {
         const org = ALL_ORGANIZATIONS.find(o => o.id === init.organization_id);
         if (!org) return init; // Should not happen
 
-        const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
+        const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
 
         if (canViewOperationalDetails(viewer, org, hasConsent)) {
             return init;
         }
         return redactInitiative(init);
-    });
+    }));
 
-    return Promise.resolve(results);
+    return results;
   }
 
   async addInitiative(initiative: Initiative): Promise<void> {

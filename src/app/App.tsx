@@ -350,11 +350,23 @@ const App = () => {
           // Show onboarding acknowledgment modal for entrepreneurs who haven't seen it yet
           if (matchedUser.system_role === 'entrepreneur' && !CONFIG.IS_DEMO_MODE) {
             try {
-              const ackKey = `nexus_ack_${matchedUser.id}_${matchedUser.memberships?.[0]?.ecosystem_id || 'default'}`;
-              const alreadyAcked = sessionStorage.getItem(ackKey) || localStorage.getItem(ackKey);
-              if (!alreadyAcked) {
-                setShowAcknowledgmentModal(true);
+              const effectiveEcosystemId = matchedUser.memberships?.some((membership) => membership.ecosystem_id === currentEcosystemId)
+                ? currentEcosystemId
+                : (matchedUser.memberships?.[0]?.ecosystem_id || currentEcosystemId || 'default');
+              const ackKey = `nexus_ack_${matchedUser.id}_${effectiveEcosystemId}`;
+              let alreadyAcked = Boolean(sessionStorage.getItem(ackKey) || localStorage.getItem(ackKey));
+              if (!alreadyAcked && isFirebaseEnabled()) {
+                const persistedAck = await getDocument<Record<string, unknown>>('consent_events', `ack_${matchedUser.id}_${effectiveEcosystemId}`);
+                if (persistedAck) {
+                  const acknowledgedAt = typeof persistedAck.timestamp === 'string' ? persistedAck.timestamp : new Date().toISOString();
+                  try {
+                    sessionStorage.setItem(ackKey, acknowledgedAt);
+                    localStorage.setItem(ackKey, acknowledgedAt);
+                  } catch { /* ignore storage errors */ }
+                  alreadyAcked = true;
+                }
               }
+              setShowAcknowledgmentModal(!alreadyAcked);
             } catch { /* ignore storage errors */ }
           }
         }
@@ -371,7 +383,7 @@ const App = () => {
     return () => {
       cancelled = true;
     };
-  }, [pendingInviteToken, repos, session.authUser]);
+  }, [currentEcosystemId, pendingInviteToken, repos, session.authUser]);
 
   useEffect(() => {
     if (shouldRequireAuth && session.authUser && isResolvingAuthPerson) {
@@ -980,9 +992,16 @@ const App = () => {
                 onClick={async () => {
                   setIsSubmittingAck(true);
                   try {
-                    await callHttpFunction('recordOnboardingAcknowledgment', { ecosystem_id: currentEcosystemId });
+                    await callHttpFunction('recordOnboardingAcknowledgment', {
+                      ecosystem_id: currentEcosystemId,
+                      organization_id: currentOrgId || activeUser.organization_id || undefined,
+                    });
                     const ackKey = `nexus_ack_${activeUser.id}_${currentEcosystemId}`;
-                    try { localStorage.setItem(ackKey, new Date().toISOString()); } catch { /* ignore */ }
+                    try {
+                      const now = new Date().toISOString();
+                      sessionStorage.setItem(ackKey, now);
+                      localStorage.setItem(ackKey, now);
+                    } catch { /* ignore */ }
                   } catch { /* non-fatal */ }
                   setIsSubmittingAck(false);
                   setShowAcknowledgmentModal(false);

@@ -98,8 +98,8 @@ export class OrganizationsRepo {
     }
 
     // Map each org to include its access explanation and redact if necessary
-    const results = orgs.map(org => {
-      const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
+    const results = await Promise.all(orgs.map(async org => {
+      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
       const access = explainOrgAccess(viewer, org, hasConsent);
       let safeOrg = org;
       
@@ -113,9 +113,9 @@ export class OrganizationsRepo {
       }
 
       return { ...safeOrg, _access: access };
-    });
+    }));
 
-    return Promise.resolve(results);
+    return results;
   }
 
   // Viewer-Aware Detail Fetch
@@ -123,7 +123,7 @@ export class OrganizationsRepo {
       const org = await this.getById(id); // Internal fetch
       if (!org) return undefined;
 
-      const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
+      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
 
       // Check permissions
       if (canViewOperationalDetails(viewer, org, hasConsent)) {

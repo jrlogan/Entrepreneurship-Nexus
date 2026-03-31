@@ -1,14 +1,22 @@
 import { queryCollection, whereEquals, setDocument, updateDocument } from '../../../services/firestoreClient';
 import type { ConsentPolicy, ConsentEvent, ConsentRequest, ConsentRequestStatus } from '../../../domain/consent/types';
 import type { AccessLevel } from '../../../domain/types';
+import { ConsentRepo } from '../consent';
 
-export class FirebaseConsentRepo {
+export class FirebaseConsentRepo extends ConsentRepo {
+  private policyCache = new Map<string, ConsentPolicy[]>();
+  private eventCache = new Map<string, ConsentEvent[]>();
+  private accessCache = new Map<string, boolean>();
+
+  private getAccessCacheKey(viewerOrgId: string, subjectOrgId: string, ecosystemId?: string) {
+    return `${viewerOrgId}::${subjectOrgId}::${ecosystemId || ''}`;
+  }
 
   hasOperationalAccess(viewerOrgId: string, subjectOrgId: string, _ecosystemId?: string): boolean {
     // Synchronous check not feasible with Firestore — callers should use hasOperationalAccessAsync
     if (!viewerOrgId || !subjectOrgId) return false;
     if (viewerOrgId === subjectOrgId) return true;
-    return false; // Fallback: async check required
+    return this.accessCache.get(this.getAccessCacheKey(viewerOrgId, subjectOrgId, _ecosystemId)) || false;
   }
 
   async hasOperationalAccessAsync(viewerOrgId: string, subjectOrgId: string): Promise<boolean> {
@@ -19,7 +27,9 @@ export class FirebaseConsentRepo {
       whereEquals('viewer_id', viewerOrgId),
       whereEquals('is_active', true),
     ]);
-    return policies.some(p => ['read', 'write', 'admin'].includes(p.accessLevel));
+    const hasAccess = policies.some(p => ['read', 'write', 'admin'].includes(p.accessLevel));
+    this.accessCache.set(this.getAccessCacheKey(viewerOrgId, subjectOrgId), hasAccess);
+    return hasAccess;
   }
 
   async grantAccess(
@@ -62,6 +72,9 @@ export class FirebaseConsentRepo {
       grantedVia: opts?.grantedVia || 'self',
       overrideReason: opts?.overrideReason,
     });
+    this.accessCache.set(this.getAccessCacheKey(viewerId, resourceId), true);
+    await this.getPoliciesForEntityAsync(resourceId);
+    await this.getEventsForEntityAsync(resourceId);
   }
 
   async revokeAccess(policyId: string, actorId: string, resourceId: string, viewerId: string, reason?: string): Promise<void> {
@@ -76,23 +89,41 @@ export class FirebaseConsentRepo {
       viewerId,
       reason: reason || 'Revoked via Privacy Dashboard',
     });
+    this.accessCache.set(this.getAccessCacheKey(viewerId, resourceId), false);
+    await this.getPoliciesForEntityAsync(resourceId);
+    await this.getEventsForEntityAsync(resourceId);
   }
 
-  async getPoliciesForEntity(resourceId: string): Promise<ConsentPolicy[]> {
+  getPoliciesForEntity(resourceId: string): ConsentPolicy[] {
+    return this.policyCache.get(resourceId) || [];
+  }
+
+  async getPoliciesForEntityAsync(resourceId: string): Promise<ConsentPolicy[]> {
     const raw = await queryCollection<Record<string, unknown>>('consent_policies', [
       whereEquals('resource_id', resourceId),
       whereEquals('is_active', true),
     ]);
-    return raw.map(this.normalizePolicy);
+    const policies = raw.map(this.normalizePolicy);
+    this.policyCache.set(resourceId, policies);
+    for (const policy of policies) {
+      this.accessCache.set(this.getAccessCacheKey(policy.viewerId, resourceId), ['read', 'write', 'admin'].includes(policy.accessLevel));
+    }
+    return policies;
   }
 
-  async getEventsForEntity(resourceId: string): Promise<ConsentEvent[]> {
+  getEventsForEntity(resourceId: string): ConsentEvent[] {
+    return this.eventCache.get(resourceId) || [];
+  }
+
+  async getEventsForEntityAsync(resourceId: string): Promise<ConsentEvent[]> {
     const raw = await queryCollection<Record<string, unknown>>('consent_events', [
       whereEquals('resource_id', resourceId),
     ]);
-    return raw
+    const events = raw
       .map(this.normalizeEvent)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    this.eventCache.set(resourceId, events);
+    return events;
   }
 
   async logEvent(event: ConsentEvent): Promise<void> {

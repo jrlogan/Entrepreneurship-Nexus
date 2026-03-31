@@ -56,8 +56,8 @@ export class FirebaseOrganizationsRepo {
       .filter(org => org.status !== 'archived')
       .map(normalizeOrganization);
 
-    return orgs.map(org => {
-      const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
+    return Promise.all(orgs.map(async org => {
+      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
       const access = explainOrgAccess(viewer, org, hasConsent);
       let safeOrg = org;
       
@@ -69,14 +69,14 @@ export class FirebaseOrganizationsRepo {
       }
 
       return { ...safeOrg, _access: access };
-    });
+    }));
   }
 
   async getByIdForViewer(viewer: ViewerContext, id: string): Promise<Organization | undefined> {
       const org = await this.getById(id);
       if (!org) return undefined;
 
-      const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, org.id, viewer.ecosystemId);
+      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
 
       if (canViewOperationalDetails(viewer, org, hasConsent)) {
           if (viewer.orgId === org.id || viewer.role === 'platform_admin') {

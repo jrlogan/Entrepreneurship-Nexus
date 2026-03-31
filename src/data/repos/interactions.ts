@@ -22,8 +22,8 @@ export class InteractionsRepo {
 
     // 2. Redact Content if necessary
     // This enforces the 'note_confidential' rule via canViewInteractionContent
-    const results = visibleMetadata.map(int => this.applySecurity(viewer, int));
-    return Promise.resolve(results);
+    const results = await Promise.all(visibleMetadata.map(int => this.applySecurity(viewer, int)));
+    return results;
   }
 
   // List specifically for an org context (e.g. Org Detail View)
@@ -36,8 +36,8 @@ export class InteractionsRepo {
           i.ecosystem_id === scope
       );
       
-      const results = orgInteractions.map(int => this.applySecurity(viewer, int));
-      return Promise.resolve(results);
+      const results = await Promise.all(orgInteractions.map(int => this.applySecurity(viewer, int)));
+      return results;
   }
 
   // List specifically for an initiative context
@@ -50,8 +50,8 @@ export class InteractionsRepo {
           i.ecosystem_id === scope
       );
       
-      const results = initInteractions.map(int => this.applySecurity(viewer, int));
-      return Promise.resolve(results);
+      const results = await Promise.all(initInteractions.map(int => this.applySecurity(viewer, int)));
+      return results;
   }
 
   async add(interaction: Interaction): Promise<void> {
@@ -60,13 +60,13 @@ export class InteractionsRepo {
   }
 
   // Helper to centralize redaction logic
-  private applySecurity(viewer: ViewerContext, int: Interaction): Interaction {
+  private async applySecurity(viewer: ViewerContext, int: Interaction): Promise<Interaction> {
       const subjectOrg = ALL_ORGANIZATIONS.find(o => o.id === int.organization_id);
       
       // If we can't find the org context, default to safe redaction
       if (!subjectOrg) return redactInteraction(int);
 
-      const hasConsent = this.consentRepo.hasOperationalAccess(viewer.orgId, subjectOrg.id, viewer.ecosystemId);
+      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, subjectOrg.id, viewer.ecosystemId);
 
       if (canViewInteractionContent(viewer, int, subjectOrg, hasConsent)) {
         return int;
