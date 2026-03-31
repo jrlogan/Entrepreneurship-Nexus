@@ -9,6 +9,7 @@ import { InitiativeDetailModal } from './InitiativeDetailModal';
 import { EditOrgModal, ManageInitiativeModal } from '../directory/OrgModals';
 import { getActiveOrganizationAffiliations } from '../../domain/people/affiliations';
 import { ENUMS } from '../../domain/standards/enums';
+import { callHttpFunction } from '../../services/httpFunctionClient';
 
 interface MyVenturesProps {
     person: Person;
@@ -42,6 +43,23 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
     const [isSubmittingSupportRequest, setIsSubmittingSupportRequest] = useState(false);
     const [confirmingRefId, setConfirmingRefId] = useState<string | null>(null);
     const [confirmAction, setConfirmAction] = useState<'grant' | 'deny' | null>(null);
+    const [claimState, setClaimState] = useState<Record<string, 'loading' | 'claimed' | 'pending' | 'already_pending' | string>>({});
+
+    const handleClaimOrg = async (orgId: string) => {
+        setClaimState((prev) => ({ ...prev, [orgId]: 'loading' }));
+        try {
+            const result = await callHttpFunction<{ org_id: string; ecosystem_id: string }, { status: string; org_name: string }>(
+                'claimOrganization',
+                { org_id: orgId, ecosystem_id: viewer.ecosystemId }
+            );
+            setClaimState((prev) => ({ ...prev, [orgId]: result.status }));
+            if (result.status === 'claimed') {
+                onRefresh?.();
+            }
+        } catch (err: any) {
+            setClaimState((prev) => ({ ...prev, [orgId]: err?.message || 'error' }));
+        }
+    };
 
     // Get ecosystem config
     const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
@@ -435,23 +453,61 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                                             We found organizations in this ecosystem that match your email domain <strong>{personEmailDomain}</strong>.
                                         </p>
                                         <div className="mt-3 space-y-2">
-                                            {suggestedOrganizations.map((org) => (
-                                                <div key={org.id} className="flex items-center justify-between rounded border border-indigo-100 bg-white px-3 py-2">
-                                                    <div>
-                                                        <div className="font-medium text-gray-900">{org.name}</div>
-                                                        <div className="text-xs text-gray-500">{org.url || org.email || 'No domain on file'}</div>
+                                            {suggestedOrganizations.map((org) => {
+                                                const otherMembers = people.filter(p => p.organization_id === org.id && p.id !== person.id);
+                                                const isUnclaimed = otherMembers.length === 0;
+                                                const state = claimState[org.id];
+                                                return (
+                                                    <div key={org.id} className="rounded border border-indigo-100 bg-white px-3 py-3">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div>
+                                                                <div className="font-medium text-gray-900">{org.name}</div>
+                                                                <div className="text-xs text-gray-500">{org.url || org.email || 'No domain on file'}</div>
+                                                            </div>
+                                                            {onSelectOrganization && (
+                                                                <button type="button" onClick={() => onSelectOrganization(org.id)} className="shrink-0 text-xs text-gray-400 hover:text-indigo-600 hover:underline">
+                                                                    View profile
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <div className="mt-2">
+                                                            {state === 'claimed' ? (
+                                                                <p className="text-sm text-emerald-700 font-medium">You have been linked to this organization. Reloading…</p>
+                                                            ) : state === 'pending' ? (
+                                                                <p className="text-sm text-amber-700">Request submitted. An administrator will review your affiliation and approve access.</p>
+                                                            ) : state === 'already_pending' ? (
+                                                                <p className="text-sm text-amber-700">You already have a pending request for this organization.</p>
+                                                            ) : state === 'loading' ? (
+                                                                <p className="text-sm text-gray-400">Processing…</p>
+                                                            ) : state ? (
+                                                                <p className="text-sm text-rose-700">{state}</p>
+                                                            ) : isUnclaimed ? (
+                                                                <div className="flex items-center gap-3">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => void handleClaimOrg(org.id)}
+                                                                        className="rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+                                                                    >
+                                                                        Claim this organization
+                                                                    </button>
+                                                                    <span className="text-xs text-gray-500">No other members — you can link directly.</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-3">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => void handleClaimOrg(org.id)}
+                                                                        className="rounded border border-indigo-300 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                                                                    >
+                                                                        Request to join
+                                                                    </button>
+                                                                    <span className="text-xs text-gray-500">{otherMembers.length} member{otherMembers.length !== 1 ? 's' : ''} on record — an admin will confirm your affiliation.</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    {onSelectOrganization && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onSelectOrganization(org.id)}
-                                                            className="text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
-                                                        >
-                                                            Review organization
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 ) : (

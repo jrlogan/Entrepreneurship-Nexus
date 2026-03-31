@@ -9,11 +9,12 @@ interface CreateReferralModalProps {
     onClose: () => void;
     onSave: (referral: Partial<Referral>) => void;
     subjectOrg?: Organization;
+    subjectPersonId?: string; // Pre-select a specific person as the referral subject
     organizations: Organization[];
     currentOrgId: string;
 }
 
-export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organizations, currentOrgId }: CreateReferralModalProps) => {
+export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, subjectPersonId, organizations, currentOrgId }: CreateReferralModalProps) => {
     const repos = useRepos();
     const viewer = useViewer();
     const [receivingOrgId, setReceivingOrgId] = useState('');
@@ -29,12 +30,13 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, organ
         if (isOpen) {
             setReceivingOrgId('');
             setSelectedSubjectId(subjectOrg?.id || '');
-            setSelectedPersonId('');
+            setSelectedPersonId(subjectPersonId || '');
             setContactName('');
             setNotes('');
-            setSendEmail(false);
+            // Default to sending email when a specific person context is provided
+            setSendEmail(!!subjectPersonId);
         }
-    }, [isOpen, subjectOrg]);
+    }, [isOpen, subjectOrg, subjectPersonId]);
 
     // Determine the active subject (either passed in or selected)
     const activeSubjectId = subjectOrg?.id || selectedSubjectId;

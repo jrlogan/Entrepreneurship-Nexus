@@ -49,17 +49,23 @@ export const ContactsView = ({
         });
     }, [people, interactions, organizations, viewer.orgId, filter]);
 
-    const handleSavePerson = (personData: Partial<Person>) => {
-        repos.people.add({
-            id: `person_${Date.now()}`,
-            system_role: 'entrepreneur', // Default role when added from directory
-            ecosystem_id: viewer.ecosystemId,
-            memberships: [],
-            tags: [],
-            ...personData
-        } as Person);
-        setIsAddModalOpen(false);
-        // Usually trigger refresh via parent prop or context update
+    const [addPersonError, setAddPersonError] = useState<string | null>(null);
+
+    const handleSavePerson = async (personData: Partial<Person>) => {
+        setAddPersonError(null);
+        try {
+            await repos.people.add({
+                id: `person_${Date.now()}`,
+                system_role: 'entrepreneur',
+                ecosystem_id: viewer.ecosystemId,
+                memberships: [],
+                tags: [],
+                ...personData
+            } as Person);
+            setIsAddModalOpen(false);
+        } catch (err: any) {
+            setAddPersonError(err?.message || 'Unable to save person. Please try again.');
+        }
     };
 
     // Helper to get interaction stats per person
@@ -193,9 +199,15 @@ export const ContactsView = ({
                 </table>
             </div>
 
-            <ManagePersonModal 
+            {addPersonError && (
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {addPersonError}
+                </div>
+            )}
+
+            <ManagePersonModal
                 isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
+                onClose={() => { setIsAddModalOpen(false); setAddPersonError(null); }}
                 onSave={handleSavePerson}
                 organizations={organizations}
             />

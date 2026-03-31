@@ -77,7 +77,7 @@ await setDocument(projectId, 'inbound_routes', 'route_mail_test_intro', {
   id: 'route_mail_test_intro',
   route_address: routeAddress,
   ecosystem_id: ecosystemId,
-  activity_type: 'introduction',
+  activity_type: 'referral',
   allowed_sender_domains: ['makehaven.org', 'entrepreneurship.nexus'],
   is_active: true,
 });

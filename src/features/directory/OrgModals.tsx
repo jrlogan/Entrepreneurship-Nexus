@@ -587,6 +587,11 @@ export const ManageInitiativeModal = ({
     const viewer = useViewer();
     const isEntrepreneur = viewer.role === 'entrepreneur';
     const safeOrganizations = Array.isArray(organizations) ? organizations : [];
+
+    const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
+    const featureFlags = ecosystem?.settings?.feature_flags || {};
+    const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
+    const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
     const safePipelines = Array.isArray(pipelines) ? pipelines : [];
     const safeChecklists = Array.isArray(checklists) ? checklists : [];
 
@@ -635,14 +640,20 @@ export const ManageInitiativeModal = ({
                 setSelectedChecklistId(safeChecklists[0]?.id || '');
                 
                 // Smart Org Defaulting
-                if (orgId) {
+                if (isEntrepreneur) {
+                    // Entrepreneurs can only create for their own org
+                    setSelectedOrgId(viewer.orgId);
+                } else if (orgId) {
                     // 1. Contextual passed ID
                     setSelectedOrgId(orgId);
+                } else if (viewer.orgId) {
+                    // 2. Default to viewer's current acting org
+                    setSelectedOrgId(viewer.orgId);
                 } else if (safeOrganizations.length === 1) {
-                    // 2. Only one option available
+                    // 3. Only one option available
                     setSelectedOrgId(safeOrganizations[0].id);
                 } else {
-                    // 3. Multiple options (Admin/Dual Role) -> Force explicit selection (No default)
+                    // 4. Multiple options, no context — force explicit selection
                     setSelectedOrgId('');
                 }
             }
@@ -662,22 +673,24 @@ export const ManageInitiativeModal = ({
         let finalPipelineId: string | undefined = undefined;
         let finalChecklists: any[] = [];
 
-        if (processMode === 'pipeline') {
-            if (!pipelineId) {
-                setFormError("Please select a pipeline.");
-                return;
+        if (canAccessProcesses) {
+            if (processMode === 'pipeline') {
+                if (!pipelineId) {
+                    setFormError("Please select a pipeline.");
+                    return;
+                }
+                finalPipelineId = pipelineId;
+                finalChecklists = [];
+            } else {
+                if (!selectedChecklistId) {
+                    setFormError("Please select a checklist.");
+                    return;
+                }
+                finalPipelineId = undefined;
+                // Persist existing progress if editing and ID matches, otherwise create new
+                const existing = initiative?.checklists.find(c => c.template_id === selectedChecklistId);
+                finalChecklists = [existing || { template_id: selectedChecklistId, items_checked: {} }];
             }
-            finalPipelineId = pipelineId;
-            finalChecklists = [];
-        } else {
-            if (!selectedChecklistId) {
-                setFormError("Please select a checklist.");
-                return;
-            }
-            finalPipelineId = undefined;
-            // Persist existing progress if editing and ID matches, otherwise create new
-            const existing = initiative?.checklists.find(c => c.template_id === selectedChecklistId);
-            finalChecklists = [existing || { template_id: selectedChecklistId, items_checked: {} }];
         }
 
         onSave({
@@ -713,8 +726,9 @@ export const ManageInitiativeModal = ({
     
     // Show org selector if:
     // 1. Not editing an existing initiative
-    // 2. AND (Multiple organizations exist OR No pre-defined context was passed)
-    const showOrgSelector = !initiative && (safeOrganizations.length > 1 || !orgId);
+    // 2. Not an entrepreneur (they are locked to their own org)
+    // 3. AND (Multiple organizations exist OR No pre-defined context was passed)
+    const showOrgSelector = !initiative && !isEntrepreneur && (safeOrganizations.length > 1 || !orgId);
 
     // Helpers for preview
     const selectedPipelineDef = safePipelines.find(p => p.id === pipelineId);
@@ -763,7 +777,7 @@ export const ManageInitiativeModal = ({
                 </div>
 
                 {/* PROCESS SELECTION */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                {canAccessProcesses && <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                     <div className="flex justify-between items-center">
                         <h4 className="text-sm font-bold text-gray-800">Process Definition</h4>
                         {/* Only Admins/Staff can create NEW process definitions */}
@@ -864,7 +878,7 @@ export const ManageInitiativeModal = ({
                             )}
                         </div>
                     )}
-                </div>
+                </div>}
 
                 {formError && <p className="text-sm text-red-600 mt-2">{formError}</p>}
                 <div className="flex justify-end pt-2 gap-2">

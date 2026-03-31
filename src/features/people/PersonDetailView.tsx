@@ -10,6 +10,8 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { getAllOrganizationAffiliations } from '../../domain/people/affiliations';
 import { ENUMS } from '../../domain/standards/enums';
 import { uploadImageFile } from '../../services/storageUploads';
+import { callHttpFunction } from '../../services/httpFunctionClient';
+import { ALL_ECOSYSTEMS } from '../../data/mockData';
 
 interface PersonDetailViewProps {
   person: Person;
@@ -91,6 +93,36 @@ export const PersonDetailView = ({
   const [templateDrafts, setTemplateDrafts] = useState<Array<{id: string; name: string; subject?: string; body: string}>>(person.referral_templates || []);
   const [isSavingTemplates, setIsSavingTemplates] = useState(false);
   const [templatesSavedAt, setTemplatesSavedAt] = useState<number | null>(null);
+
+  // Privacy & Data state
+  type NoticeRecord = { id: string; type: string; status: string; created_at: string; sent_at: string | null };
+  const [noticeHistory, setNoticeHistory] = useState<NoticeRecord[] | null>(null);
+  const [isLoadingNotices, setIsLoadingNotices] = useState(false);
+  const [removalState, setRemovalState] = useState<null | 'confirming' | 'loading' | 'done' | 'already_pending'>(null);
+  const [removalRequestedAt, setRemovalRequestedAt] = useState<string | null>(null);
+
+  const loadNoticeHistory = async () => {
+    setIsLoadingNotices(true);
+    try {
+      const result = await callHttpFunction<Record<string, never>, { notices: NoticeRecord[] }>('getMyNoticeHistory', {});
+      setNoticeHistory(result.notices);
+    } catch {
+      setNoticeHistory([]);
+    } finally {
+      setIsLoadingNotices(false);
+    }
+  };
+
+  const handleRequestRemoval = async () => {
+    setRemovalState('loading');
+    try {
+      const result = await callHttpFunction<Record<string, never>, { already_pending: boolean; requested_at: string }>('requestDataRemoval', {});
+      setRemovalRequestedAt(result.requested_at);
+      setRemovalState(result.already_pending ? 'already_pending' : 'done');
+    } catch {
+      setRemovalState(null);
+    }
+  };
   useEffect(() => { setTemplateDrafts(person.referral_templates || []); }, [person.referral_templates]);
   const [profileForm, setProfileForm] = useState({
     first_name: person.first_name,
@@ -111,6 +143,10 @@ export const PersonDetailView = ({
     .sort((left, right) => new Date(right.start_date).getTime() - new Date(left.start_date).getTime());
   const allAffiliations = getAllOrganizationAffiliations(person);
   const visibleAffiliations = allAffiliations.filter((affiliation) => affiliation.organization_id);
+  const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
+  const featureFlags = ecosystem?.settings?.feature_flags || {};
+  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
+  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
   const isOwnProfile = viewer.personId === person.id;
   const canEditProfile = isOwnProfile
     || viewer.role === 'platform_admin'
@@ -237,6 +273,7 @@ export const PersonDetailView = ({
   const handleSaveProfile = async () => {
     setIsSavingProfile(true);
     setProfileSaveError('');
+    const isSelfEntrepreneur = isOwnProfile && viewer.role === 'entrepreneur';
     const normalizedAffiliations = profileForm.affiliations
       .filter((affiliation) => affiliation.organization_id)
       .map((affiliation) => ({
@@ -244,7 +281,10 @@ export const PersonDetailView = ({
         role_title: affiliation.role_title || null,
         relationship_type: affiliation.relationship_type || 'other',
         status: affiliation.status || 'active',
-        can_self_manage: affiliation.can_self_manage ?? false,
+        // Entrepreneurs cannot self-grant management rights — preserve existing value only
+        can_self_manage: isSelfEntrepreneur
+          ? (person.organization_affiliations?.find(a => a.organization_id === affiliation.organization_id)?.can_self_manage ?? false)
+          : (affiliation.can_self_manage ?? false),
         is_primary: affiliation.is_primary ?? false,
       }));
     const activeAffiliations = normalizedAffiliations.filter((affiliation) => affiliation.status === 'active');
@@ -415,7 +455,7 @@ export const PersonDetailView = ({
             )}
             {showStaffActions && (
               <>
-                <button onClick={() => setShowLogInteraction(true)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">Log Interaction</button>
+                {canAccessInteractions && <button onClick={() => setShowLogInteraction(true)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">Log Interaction</button>}
                 <button onClick={() => setShowCreateReferral(true)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-50">Make Referral</button>
               </>
             )}
@@ -434,7 +474,7 @@ export const PersonDetailView = ({
         <nav className="-mb-px flex space-x-6">
           {[
             { id: 'associations', label: 'Associations' },
-            { id: 'interactions', label: `Interactions (${personInteractions.length})` },
+            ...(canAccessInteractions ? [{ id: 'interactions', label: `Interactions (${personInteractions.length})` }] : []),
             { id: 'referrals', label: `Referrals (${personReferrals.length})` },
             { id: 'participation', label: `Participation (${personParticipations.length})` },
             ...((isOwnProfile || isAdminViewer) ? [{ id: 'settings', label: isOwnProfile ? 'My Settings' : 'Settings' }] : []),
@@ -567,7 +607,7 @@ export const PersonDetailView = ({
                 </div>
               </Card>
             )}
-            {isOwnProfile && <Card title="My Email Templates">
+            {isOwnProfile && viewer.role !== 'entrepreneur' && <Card title="My Email Templates">
               <div className="space-y-4">
                 <p className="text-sm text-gray-600">
                   Save personal invite templates to reuse when accepting referrals. Great for scheduling a call, visiting your space, or a Calendly link.
@@ -657,6 +697,116 @@ export const PersonDetailView = ({
                 <div className="text-xs text-gray-400">Subject line note: if you leave the subject blank, the email subject will default to <em>"[Org] accepted your referral"</em>. The body of your template is inserted as a paragraph inside the system email wrapper.</div>
               </div>
             </Card>}
+
+            {isOwnProfile && (
+              <Card title="Privacy & Data">
+                <div className="space-y-5 text-sm">
+                  <p className="text-gray-600">
+                    This platform stores your name, email, organization affiliation, referral history, and activity records to support the ecosystem network. Below is a summary of what we hold and what we've sent you.
+                  </p>
+
+                  {/* Emails sent */}
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="font-medium text-gray-800">Emails sent to you by this platform</div>
+                      {noticeHistory === null && (
+                        <button
+                          type="button"
+                          onClick={() => void loadNoticeHistory()}
+                          disabled={isLoadingNotices}
+                          className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
+                        >
+                          {isLoadingNotices ? 'Loading…' : 'Show history'}
+                        </button>
+                      )}
+                    </div>
+                    {noticeHistory === null ? (
+                      <p className="text-xs text-gray-400 italic">Click "Show history" to load your email log.</p>
+                    ) : noticeHistory.length === 0 ? (
+                      <p className="text-xs text-gray-400 italic">No platform emails on record.</p>
+                    ) : (
+                      <div className="rounded border border-gray-200 divide-y divide-gray-100">
+                        {noticeHistory.map((notice) => (
+                          <div key={notice.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <span className="text-gray-700 capitalize">{notice.type.replace(/_/g, ' ')}</span>
+                            <div className="flex items-center gap-2 text-right">
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${notice.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                                {notice.status}
+                              </span>
+                              <span className="text-xs text-gray-400 whitespace-nowrap">
+                                {new Date(notice.sent_at || notice.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Data held */}
+                  <div>
+                    <div className="font-medium text-gray-800 mb-2">Data we hold about you</div>
+                    <div className="rounded border border-gray-200 bg-gray-50 divide-y divide-gray-100 text-xs">
+                      {[
+                        ['Name', `${person.first_name} ${person.last_name}`],
+                        ['Email', person.email],
+                        ['Organization', person.organization_id || 'None linked'],
+                        ['Role', person.system_role],
+                        ['Account created', (person as any).created_at ? new Date((person as any).created_at).toLocaleDateString() : 'Unknown'],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex gap-4 px-3 py-2">
+                          <span className="w-32 shrink-0 text-gray-500">{label}</span>
+                          <span className="text-gray-800 break-all">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Removal request */}
+                  <div className="rounded-md border border-rose-100 bg-rose-50 px-4 py-3">
+                    <div className="font-medium text-rose-900 mb-1">Request removal from the system</div>
+                    <p className="text-xs text-rose-800 mb-3">
+                      Submits a request to a platform administrator to permanently delete your profile, referrals, and activity records. This does not happen automatically — an administrator will review and process your request, typically within 30 days.
+                    </p>
+                    {removalState === 'done' ? (
+                      <p className="text-xs text-rose-800 font-medium">
+                        Request submitted {removalRequestedAt ? `on ${new Date(removalRequestedAt).toLocaleDateString()}` : ''}. An administrator has been notified and will follow up.
+                      </p>
+                    ) : removalState === 'already_pending' ? (
+                      <p className="text-xs text-rose-800 font-medium">
+                        A removal request is already on file {removalRequestedAt ? `from ${new Date(removalRequestedAt).toLocaleDateString()}` : ''}. An administrator will follow up.
+                      </p>
+                    ) : removalState === 'confirming' ? (
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void handleRequestRemoval()}
+                          className="rounded bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
+                        >
+                          Yes, submit request
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRemovalState(null)}
+                          className="text-xs text-rose-700 hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={removalState === 'loading'}
+                        onClick={() => setRemovalState('confirming')}
+                        className="rounded border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        Request data removal
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
@@ -709,6 +859,7 @@ export const PersonDetailView = ({
             organizations={organizations}
             currentOrgId={viewer.orgId}
             subjectOrg={organizations.find((organization) => organization.id === person.organization_id)}
+            subjectPersonId={person.id}
           />
         </>
       )}
@@ -846,12 +997,16 @@ export const PersonDetailView = ({
               <div>
                 <div className="font-medium text-gray-900">Organization Affiliations</div>
                 <div className="text-xs text-gray-500">
-                  Add every business or organization this person is connected to, including inactive past associations.
+                  {isOwnProfile && viewer.role === 'entrepreneur'
+                    ? 'Your organization links are managed through the My Ventures portal. You can update your role title or mark a past affiliation as inactive here.'
+                    : 'Add every business or organization this person is connected to, including inactive past associations.'}
                 </div>
               </div>
-              <button onClick={handleAddAffiliation} className="rounded border border-indigo-200 bg-white px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
-                + Add Organization
-              </button>
+              {(!isOwnProfile || viewer.role !== 'entrepreneur') && (
+                <button onClick={handleAddAffiliation} className="rounded border border-indigo-200 bg-white px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+                  + Add Organization
+                </button>
+              )}
             </div>
             <div className="space-y-4">
               {profileForm.affiliations.map((affiliation, index) => (
@@ -910,14 +1065,24 @@ export const PersonDetailView = ({
                       </select>
                     </div>
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={affiliation.can_self_manage}
-                      onChange={(event) => handleAffiliationChange(index, 'can_self_manage', event.target.checked)}
-                    />
-                    Can act on behalf of this organization
-                  </label>
+                  {isOwnProfile && viewer.role === 'entrepreneur' ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-400">
+                      <input type="checkbox" checked={affiliation.can_self_manage} disabled readOnly />
+                      <span>Can act on behalf of this organization</span>
+                      {!affiliation.can_self_manage && (
+                        <span className="text-xs text-gray-400 italic">(granted via the portal claim flow)</span>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={affiliation.can_self_manage}
+                        onChange={(event) => handleAffiliationChange(index, 'can_self_manage', event.target.checked)}
+                      />
+                      Can act on behalf of this organization
+                    </label>
+                  )}
                 </div>
               ))}
               {profileForm.affiliations.length === 0 && (

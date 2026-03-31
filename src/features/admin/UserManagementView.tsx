@@ -433,6 +433,11 @@ export const UserManagementView = ({
                 No organizations are configured in this ecosystem yet. Add the ESO organization first, then return here to invite staff into it.
               </div>
             )}
+            {['eso_staff', 'eso_admin', 'eso_coach'].includes(inviteForm.invited_role) && selectedInviteOrganization && !selectedInviteOrganization.roles?.includes('eso') && (
+              <div className="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                <strong>Warning:</strong> "{selectedInviteOrganization.name}" is not configured as an ESO organization. Inviting someone as {inviteForm.invited_role} into a non-ESO org may result in incorrect access. Verify the organization's roles before proceeding.
+              </div>
+            )}
             {inviteForm.invited_role === 'entrepreneur' && (
               <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                 Entrepreneurs can be invited without an organization. They can join the ecosystem first and add a venture later.

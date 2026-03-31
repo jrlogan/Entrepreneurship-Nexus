@@ -11,16 +11,8 @@ import { MOCK_PEOPLE, ALL_ORGANIZATIONS } from '../mockData';
 
 const MOCK_INBOUND_ROUTES: InboundRoute[] = [
   {
-    id: 'route_newhaven_intro',
-    route_address: 'newhaven+introduction@inbound.example.org',
-    ecosystem_id: 'eco_new_haven',
-    activity_type: 'introduction',
-    allowed_sender_domains: ['makehaven.org', 'ctinnovations.com'],
-    is_active: true,
-  },
-  {
     id: 'route_newhaven_referral',
-    route_address: 'newhaven+referral@inbound.example.org',
+    route_address: 'referrals+new-haven@inbound.example.org',
     ecosystem_id: 'eco_new_haven',
     activity_type: 'referral',
     allowed_sender_domains: ['makehaven.org', 'ctinnovations.com'],

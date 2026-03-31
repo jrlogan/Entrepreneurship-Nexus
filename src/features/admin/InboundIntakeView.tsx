@@ -8,16 +8,6 @@ import type { AuthorizedSenderDomain, InboundActivityType, InboundMessage, Inbou
 import type { Organization } from '../../domain/organizations/types';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 
-interface NoticeQueueItem {
-  id: string;
-  type: string;
-  person_id: string;
-  to_email: string;
-  status: string;
-  payload?: Record<string, unknown>;
-  created_at: string;
-}
-
 export const InboundIntakeView = () => {
   const repos = useRepos();
   const viewer = useViewer();
@@ -28,11 +18,9 @@ export const InboundIntakeView = () => {
   const canManageAuthorizedDomains = currentRole === 'platform_admin';
   const [messages, setMessages] = useState<InboundMessage[]>([]);
   const [parseResults, setParseResults] = useState<InboundParseResult[]>([]);
-  const [noticeQueue, setNoticeQueue] = useState<NoticeQueueItem[]>([]);
   const [routes, setRoutes] = useState<InboundRoute[]>([]);
   const [authorizedDomains, setAuthorizedDomains] = useState<AuthorizedSenderDomain[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [isSavingDomain, setIsSavingDomain] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleEsoOrganizations, setVisibleEsoOrganizations] = useState<Organization[]>([]);
@@ -45,7 +33,6 @@ export const InboundIntakeView = () => {
     if (!canViewInboundIntake) {
         setMessages([]);
         setParseResults([]);
-        setNoticeQueue([]);
         setRoutes([]);
         setAuthorizedDomains([]);
         setVisibleEsoOrganizations([]);
@@ -69,18 +56,15 @@ export const InboundIntakeView = () => {
         setAuthorizedDomains(firestoreDomains);
 
         if (canViewRawIntake) {
-          const [firestoreMessages, firestoreParseResults, firestoreNoticeQueue] = await Promise.all([
+          const [firestoreMessages, firestoreParseResults] = await Promise.all([
             queryCollection<InboundMessage>('inbound_messages'),
             queryCollection<InboundParseResult>('inbound_parse_results'),
-            queryCollection<NoticeQueueItem>('notice_queue'),
           ]);
           setMessages(firestoreMessages);
           setParseResults(firestoreParseResults);
-          setNoticeQueue(firestoreNoticeQueue);
         } else {
           setMessages([]);
           setParseResults([]);
-          setNoticeQueue([]);
         }
       } else {
         const organizations = await repos.organizations.getAll(viewer, viewer.ecosystemId);
@@ -88,7 +72,6 @@ export const InboundIntakeView = () => {
         setAllEcosystemOrganizations(organizations.slice().sort((a, b) => a.name.localeCompare(b.name)));
         setMessages(await repos.inboundMessages.getMessages());
         setParseResults(await repos.inboundMessages.getParseResults());
-        setNoticeQueue([]);
         setRoutes(await repos.inboundMessages.getRoutes());
         setAuthorizedDomains([]);
       }
@@ -132,7 +115,7 @@ export const InboundIntakeView = () => {
     .filter((domain) => domain.ecosystem_id === viewer.ecosystemId)
     .sort((a, b) => a.domain.localeCompare(b.domain));
   const [tab, setTab] = useState<'log' | 'setup'>(canViewRawIntake ? 'log' : 'setup');
-  const [newRoute, setNewRoute] = useState({ route_address: '', activity_type: 'introduction' as InboundActivityType });
+  const [newRoute, setNewRoute] = useState({ route_address: '', activity_type: 'referral' as InboundActivityType });
   const [isSavingRoute, setIsSavingRoute] = useState(false);
   const [templateCopied, setTemplateCopied] = useState(false);
 
@@ -151,25 +134,12 @@ export const InboundIntakeView = () => {
         is_active: true,
       };
       await setDocument('inbound_routes', id, routeDoc);
-      setNewRoute({ route_address: '', activity_type: 'introduction' });
+      setNewRoute({ route_address: '', activity_type: 'referral' });
       await loadData();
     } catch (err: any) {
       setError(err?.message || 'Unable to create route.');
     } finally {
       setIsSavingRoute(false);
-    }
-  };
-
-  const sendQueuedNotices = async () => {
-    setIsSending(true);
-    setError(null);
-    try {
-      await callHttpFunction('sendQueuedNotices', {});
-      await loadData();
-    } catch (err: any) {
-      setError(err?.message || 'Unable to send queued notices.');
-    } finally {
-      setIsSending(false);
     }
   };
 
@@ -236,6 +206,21 @@ export const InboundIntakeView = () => {
   const [isApproving, setIsApproving] = useState(false);
   const [ignoringMessageId, setIgnoringMessageId] = useState<string | null>(null);
   const [confirmDeleteDomainId, setConfirmDeleteDomainId] = useState<string | null>(null);
+  const [confirmDeleteRouteId, setConfirmDeleteRouteId] = useState<string | null>(null);
+  const [isDeletingRoute, setIsDeletingRoute] = useState(false);
+
+  const deleteRoute = async (id: string) => {
+    setIsDeletingRoute(true);
+    try {
+      await deleteDocument('inbound_routes', id);
+      setConfirmDeleteRouteId(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to delete route.');
+    } finally {
+      setIsDeletingRoute(false);
+    }
+  };
 
   const handleOpenReview = (message: InboundMessage) => {
     const result = parseResultByMessageId.get(message.id);
@@ -298,15 +283,6 @@ export const InboundIntakeView = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Inbound Intake</h2>
         <div className="flex items-center gap-3">
-          {canViewRawIntake && tab === 'log' && (
-            <button
-              onClick={() => void sendQueuedNotices()}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-              disabled={isSending || noticeQueue.filter((notice) => notice.status === 'queued').length === 0}
-            >
-              {isSending ? 'Sending...' : 'Send queued notices'}
-            </button>
-          )}
           <button
             onClick={() => void loadData()}
             className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
@@ -363,10 +339,7 @@ export const InboundIntakeView = () => {
                   <span>Inbound Messages</span>
                   <Badge color="indigo">{scopedMessages.length}</Badge>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span>Queued Notices</span>
-                  <Badge color="green">{noticeQueue.length}</Badge>
-                </div>
+
               </>
             )}
             <div className="pt-2 text-xs text-gray-500">
@@ -394,11 +367,14 @@ export const InboundIntakeView = () => {
                   value={newRoute.activity_type}
                   onChange={e => setNewRoute({ ...newRoute, activity_type: e.target.value as InboundActivityType })}
                 >
-                  <option value="introduction">introduction</option>
-                  <option value="referral">referral</option>
-                  <option value="followup">followup</option>
-                  <option value="outcome">outcome</option>
+                  <option value="referral">referral — ESO refers or introduces an entrepreneur to another ESO (fully active)</option>
+                  <option value="grant">grant — Inbound grant opportunity email (fully active)</option>
+                  <option value="followup">followup — Update on an existing referral (captured, manual review only)</option>
+                  <option value="outcome">outcome — Referral close / outcome email (captured, manual review only)</option>
                 </select>
+                {['followup', 'outcome'].includes(newRoute.activity_type) && (
+                  <p className="mt-1 text-xs text-amber-700">This type is not yet fully wired — inbound emails will be captured and queued for manual review but no automated action will fire.</p>
+                )}
               </div>
               <button
                 onClick={() => void handleCreateRoute()}
@@ -416,8 +392,32 @@ export const InboundIntakeView = () => {
               {scopedRoutes.map((route) => (
                   <div key={route.id} className="rounded-md border border-gray-200 p-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-gray-900">{route.route_address}</div>
-                      <Badge color={route.is_active ? 'green' : 'gray'}>{route.is_active ? 'active' : 'inactive'}</Badge>
+                      <div className="text-sm font-semibold text-gray-900 font-mono">{route.route_address}</div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Badge color={route.is_active ? 'green' : 'gray'}>{route.is_active ? 'active' : 'inactive'}</Badge>
+                        {canManageAuthorizedDomains && (
+                          confirmDeleteRouteId === route.id ? (
+                            <span className="text-xs text-red-700">
+                              Remove route?{' '}
+                              <button
+                                onClick={() => void deleteRoute(route.id)}
+                                disabled={isDeletingRoute}
+                                className="font-bold underline mr-1 disabled:opacity-50"
+                              >
+                                Yes, remove
+                              </button>
+                              <button onClick={() => setConfirmDeleteRouteId(null)} className="text-gray-500 underline">Cancel</button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDeleteRouteId(route.id)}
+                              className="text-xs text-red-500 hover:text-red-700 border border-red-200 hover:bg-red-50 px-2 py-0.5 rounded"
+                            >
+                              Remove
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
                     <div className="mt-1 text-xs text-gray-500">{route.activity_type} · inbound route</div>
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -429,12 +429,30 @@ export const InboundIntakeView = () => {
                 ))}
             </div>
           )}
+          <div className="mt-4 rounded-md border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600 space-y-1.5">
+            <div className="font-semibold text-gray-700 mb-2">Activity type reference</div>
+            {[
+              { type: 'referral', label: 'Referral', status: 'active', desc: 'ESO BCCs the route address when referring or introducing an entrepreneur to another ESO. Auto-creates a referral record and notifies both parties.' },
+              { type: 'grant', label: 'Grant', status: 'active', desc: 'Forwarded or scraped grant opportunity emails. Auto-creates a Grant Lab entry.' },
+              { type: 'followup', label: 'Follow-up', status: 'partial', desc: 'Status update emails on an existing referral. Captured for review — linking to the original referral is not yet automated.' },
+              { type: 'outcome', label: 'Outcome', status: 'partial', desc: 'Referral close/outcome emails. Captured for review — auto-closing the referral record is not yet implemented.' },
+            ].map(({ type, label, status, desc }) => (
+              <div key={type} className="flex gap-2">
+                <span className={`mt-0.5 flex-shrink-0 inline-block w-2 h-2 rounded-full ${status === 'active' ? 'bg-green-500' : 'bg-amber-400'}`} />
+                <span><strong>{label}</strong> — {desc}</span>
+              </div>
+            ))}
+            <div className="pt-1 flex gap-3 text-[11px] text-gray-500">
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" /> Fully active</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-400" /> Captured, manual review only</span>
+            </div>
+          </div>
         </Card>
       </div>
 
       <Card title="Introduction Email Template">
         {(() => {
-          const introRoute = scopedRoutes.find((r) => r.activity_type === 'introduction' && r.is_active);
+          const introRoute = scopedRoutes.find((r) => r.activity_type === 'referral' && r.is_active);
           const bccAddress = introRoute?.route_address || '[your-intake-address@inbound.postmarkapp.com]';
           const headers = [
             `To: [Receiving ESO contact email]`,
@@ -576,6 +594,13 @@ export const InboundIntakeView = () => {
               </div>
             )}
 
+            <div className="mb-4 grid gap-2 rounded-md border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600 sm:grid-cols-2">
+              <div><span className="font-semibold text-gray-700">Active</span> — domain is live and will be matched against incoming emails. Inactive domains are ignored by the parser.</div>
+              <div><span className="font-semibold text-gray-700">Sender affiliation</span> — automatically links the sender to the ESO organization when an email arrives from this domain.</div>
+              <div><span className="font-semibold text-gray-700">Sender receipt</span> — sends the person who sent the introduction a confirmation email once it's processed.</div>
+              <div><span className="font-semibold text-gray-700">Claim prompt</span> — sends the entrepreneur (CC'd on the email) an invite to create a platform account.</div>
+            </div>
+
             {scopedAuthorizedDomains.length === 0 ? (
               <p className="text-sm text-gray-500">No sender domain policies configured for this ecosystem yet.</p>
             ) : (
@@ -692,6 +717,23 @@ export const InboundIntakeView = () => {
                 ))}
               </div>
             )}
+
+            {(() => {
+              const configuredOrgIds = new Set(scopedAuthorizedDomains.map((d) => d.organization_id));
+              const unconfigured = visibleEsoOrganizations.filter((o) => !configuredOrgIds.has(o.id));
+              if (unconfigured.length === 0) return null;
+              return (
+                <div className="mt-4 rounded-md border border-dashed border-amber-200 bg-amber-50 px-4 py-3">
+                  <div className="text-xs font-semibold text-amber-800 mb-1">ESOs without an approved domain</div>
+                  <div className="flex flex-wrap gap-2">
+                    {unconfigured.map((o) => (
+                      <span key={o.id} className="inline-flex items-center rounded-full bg-white border border-amber-200 px-2.5 py-0.5 text-xs text-amber-900">{o.name}</span>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-amber-700">Emails from these organizations will trigger an <em>unknown sender domain</em> flag and require manual review.</p>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Card>
@@ -700,31 +742,6 @@ export const InboundIntakeView = () => {
 
       {tab === 'log' && <div className="space-y-6">
 
-      {canViewRawIntake && (
-      <Card title="Queued Notices">
-        {noticeQueue.length === 0 ? (
-          <p className="text-sm text-gray-500">No queued notices yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {noticeQueue
-              .slice()
-              .sort((a, b) => b.created_at.localeCompare(a.created_at))
-              .map((notice) => (
-                <div key={notice.id} className="rounded-md border border-gray-200 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-gray-900">{notice.to_email}</div>
-                    <Badge color={notice.status === 'queued' ? 'yellow' : notice.status === 'failed' ? 'red' : 'green'}>{notice.status}</Badge>
-                  </div>
-                  <div className="mt-1 text-xs text-gray-500">{notice.type} · {new Date(notice.created_at).toLocaleString()}</div>
-                  {(notice as any).last_error && (
-                    <div className="mt-2 text-xs text-red-600">{(notice as any).last_error}</div>
-                  )}
-                </div>
-              ))}
-          </div>
-        )}
-      </Card>
-      )}
 
       {canViewRawIntake && (
       <Card title={

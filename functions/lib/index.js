@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.extractGrantData = exports.referralEmailAction = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.recordOnboardingAcknowledgment = exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = exports.extractGrantData = exports.referralEmailAction = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -577,23 +577,10 @@ const upsertDraftPerson = async (candidateEmail, candidateName, organizationId, 
     });
     return docRef.get();
 };
-const enqueueNotice = async (personId, email, payload) => {
-    const docRef = db.collection('notice_queue').doc();
-    await docRef.set({
-        id: docRef.id,
-        type: 'referral_follow_up',
-        person_id: personId,
-        to_email: email,
-        status: 'queued',
-        payload,
-        created_at: new Date().toISOString(),
-    });
-};
-const enqueueTypedNotice = async (type, toEmail, payload, options) => {
+const sendNotice = async (type, toEmail, payload, options) => {
     const normalizedEmail = normalize(toEmail);
-    if (!normalizedEmail) {
+    if (!normalizedEmail)
         return null;
-    }
     const dedupeKey = options?.dedupeKey || null;
     if (dedupeKey) {
         const existing = await db.collection('notice_queue')
@@ -602,23 +589,45 @@ const enqueueTypedNotice = async (type, toEmail, payload, options) => {
             .where('dedupe_key', '==', dedupeKey)
             .limit(1)
             .get();
-        if (!existing.empty) {
+        if (!existing.empty)
             return existing.docs[0];
-        }
     }
+    const now = new Date().toISOString();
     const docRef = db.collection('notice_queue').doc();
-    await docRef.set({
+    const notice = {
         id: docRef.id,
         type,
         person_id: options?.personId || null,
         to_email: normalizedEmail,
-        status: 'queued',
         payload,
         dedupe_key: dedupeKey,
-        created_at: new Date().toISOString(),
-    });
+        created_at: now,
+    };
+    try {
+        const sendResult = await sendPostmarkEmail(notice);
+        await docRef.set({
+            ...notice,
+            status: 'sent',
+            sent_at: now,
+            provider: 'postmark',
+            provider_message_id: sendResult?.MessageID || null,
+        });
+    }
+    catch (err) {
+        await docRef.set({
+            ...notice,
+            status: 'failed',
+            failed_at: now,
+            last_error: err?.message || 'Postmark send failed',
+        });
+    }
     return docRef.get();
 };
+// Legacy alias used by referral follow-up path
+const enqueueNotice = async (personId, email, payload) => {
+    await sendNotice('referral_follow_up', email, payload, { personId });
+};
+const enqueueTypedNotice = sendNotice;
 const getEcosystemName = async (ecosystemId) => {
     if (!ecosystemId)
         return null;
@@ -1219,6 +1228,98 @@ const renderNoticeContent = (notice) => {
             ].join('')),
         };
     }
+    if (notice.type === 'consent_access_request') {
+        const companyName = notice.payload?.company_name || 'your company';
+        const requestingEsoName = notice.payload?.requesting_eso_name || 'a partner organization';
+        const requestMessage = notice.payload?.request_message || null;
+        const approveUrl = notice.payload?.approve_url || getAppBaseUrl();
+        const declineUrl = notice.payload?.decline_url || getAppBaseUrl();
+        const manageUrl = notice.payload?.manage_url || getAppBaseUrl();
+        return {
+            subject: `${requestingEsoName} is requesting access to ${companyName}'s records`,
+            textBody: [
+                'Hello,',
+                '',
+                `${requestingEsoName} has requested permission to view activity notes and interactions that other organizations have recorded about ${companyName} in Entrepreneurship Nexus.`,
+                '',
+                requestMessage ? `Message from ${requestingEsoName}:\n"${requestMessage}"\n` : '',
+                'You can approve or decline this request using the links below. You can also revoke access at any time from your company privacy settings.',
+                '',
+                `Approve: ${approveUrl}`,
+                `Decline: ${declineUrl}`,
+                '',
+                `Manage your privacy settings: ${manageUrl}`,
+                '',
+                'Thank you,',
+                'Entrepreneurship Nexus',
+            ].filter(l => l !== null).join('\n'),
+            htmlBody: wrap([
+                emailH2('Data sharing request'),
+                emailP(`<strong>${requestingEsoName}</strong> has requested permission to view activity notes and interactions recorded about <strong>${companyName}</strong> in Entrepreneurship Nexus.`),
+                requestMessage ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#1a1a2e;background:#f9fafb;border-left:3px solid #1a1a2e;padding:12px 16px;border-radius:0 4px 4px 0;"><strong>Their message:</strong> ${requestMessage.replace(/\n/g, '<br>')}</p>` : '',
+                emailP('You can approve or decline. If approved, you can revoke access at any time from your company\'s privacy settings.'),
+                ctaButton('Approve Access', approveUrl),
+                `<p style="margin:8px 0 24px;text-align:center;">${secondaryButton('Decline', declineUrl)}</p>`,
+                emailP(`<span style="font-size:13px;color:#6b7280;">You can also <a href="${manageUrl}" style="color:#4f46e5;">manage all privacy settings</a> in Entrepreneurship Nexus at any time.</span>`),
+            ].join('')),
+        };
+    }
+    if (notice.type === 'consent_access_approved') {
+        const companyName = notice.payload?.company_name || 'the company';
+        const manageUrl = notice.payload?.manage_url || getAppBaseUrl();
+        return {
+            subject: `Access approved — ${companyName} has shared their records with you`,
+            textBody: [
+                'Hello,',
+                '',
+                `${companyName} has approved your request to view their shared activity records in Entrepreneurship Nexus.`,
+                '',
+                'You can now view non-private interactions and notes recorded by other partner organizations. This access can be revoked by the company at any time.',
+                '',
+                `Sign in to view: ${manageUrl}`,
+                '',
+                'Thank you,',
+                'Entrepreneurship Nexus',
+            ].join('\n'),
+            htmlBody: wrap([
+                emailH2('Data access approved'),
+                emailP(`<strong>${companyName}</strong> has approved your request to view their shared activity records in Entrepreneurship Nexus.`),
+                emailP('You can now view non-private interactions and notes recorded by other partner organizations. This access can be revoked by the company at any time.'),
+                ctaButton('Open in Nexus', manageUrl),
+            ].join('')),
+        };
+    }
+    if (notice.type === 'consent_manager_override') {
+        const companyName = notice.payload?.company_name || 'your company';
+        const esoName = notice.payload?.eso_name || 'a partner organization';
+        const managerName = notice.payload?.manager_name || 'An ecosystem manager';
+        const overrideReason = notice.payload?.override_reason || 'No reason given';
+        const manageUrl = notice.payload?.manage_url || getAppBaseUrl();
+        return {
+            subject: `Notice: Ecosystem manager granted ${esoName} access to ${companyName}'s records`,
+            textBody: [
+                'Hello,',
+                '',
+                `This is a transparency notice. ${managerName}, an ecosystem manager, has granted ${esoName} access to activity records for ${companyName}.`,
+                '',
+                `Reason given: ${overrideReason}`,
+                '',
+                'You can review this in your privacy settings and revoke access if needed.',
+                '',
+                `Manage your privacy settings: ${manageUrl}`,
+                '',
+                'Thank you,',
+                'Entrepreneurship Nexus',
+            ].join('\n'),
+            htmlBody: wrap([
+                emailH2('Transparency notice: access granted by ecosystem manager'),
+                emailP(`<strong>${managerName}</strong>, an ecosystem manager, has granted <strong>${esoName}</strong> access to activity records for <strong>${companyName}</strong>.`),
+                detailBox([['Reason', overrideReason]]),
+                emailP('This access was granted to resolve a technical or support issue. You can review it in your privacy settings and revoke access at any time.'),
+                ctaButton('Review Privacy Settings', manageUrl),
+            ].join('')),
+        };
+    }
     return {
         subject: 'Notification from Entrepreneurship Nexus',
         textBody: 'A new notification is available in Entrepreneurship Nexus.',
@@ -1347,13 +1448,16 @@ const createReferralFromInboundMessage = async (args) => {
     const ecosystemName = await getEcosystemName(ecosystemId);
     const introContactPermission = parseResult.intro_contact_permission || 'unknown';
     if (!suppressEntrepreneurIntro && introContactPermission !== 'not_confirmed') {
-        await enqueueNotice(person.id, personEmail, {
+        await sendNotice('referral_follow_up', personEmail, {
             inbound_message_id: message.id,
             referral_id: referralRef.id,
             receiving_org_name: receivingOrganization?.get('name') || null,
             referring_org_name: referringOrgName,
             ecosystem_name: ecosystemName,
             subject: message.subject || '',
+        }, {
+            personId: person.id,
+            dedupeKey: `${referralRef.id}:entrepreneur-intro:${personEmail}`,
         });
     }
     if (receivingOrgIntakeEmail) {
@@ -1504,14 +1608,20 @@ const processInboundEmailPayload = async (payload) => {
     const route = routeMatch.empty ? null : routeMatch.docs[0].data();
     const senderEmail = normalize(payload.from_email);
     const providerMessageId = payload.provider_message_id || null;
-    // 1. Deduplication check
+    const messageIdHeader = payload.message_id_header || null;
+    // 1. Deduplication check — by Postmark MessageID first, then RFC 2822 Message-ID header.
+    // The Message-ID header is the same across all deliveries of the same email (e.g. sent to
+    // two inbound routes), while Postmark's MessageID is unique per delivery, so we need both.
+    const dupChecks = [];
     if (providerMessageId) {
-        const duplicate = await db.collection('inbound_messages')
-            .where('provider_message_id', '==', providerMessageId)
-            .limit(1)
-            .get();
-        if (!duplicate.empty) {
-            const existing = duplicate.docs[0];
+        dupChecks.push(db.collection('inbound_messages').where('provider_message_id', '==', providerMessageId).limit(1).get());
+    }
+    if (messageIdHeader) {
+        dupChecks.push(db.collection('inbound_messages').where('message_id_header', '==', messageIdHeader).limit(1).get());
+    }
+    for (const result of await Promise.all(dupChecks)) {
+        if (!result.empty) {
+            const existing = result.docs[0];
             return {
                 ok: true,
                 inbound_message_id: existing.id,
@@ -1587,7 +1697,7 @@ const processInboundEmailPayload = async (payload) => {
         message_id_header: payload.message_id_header || null,
         route_address: routeAddress,
         ecosystem_id: resolvedEcosystemId,
-        activity_type: route?.activity_type || 'introduction',
+        activity_type: route?.activity_type || 'referral',
         from_email: senderEmail,
         to_emails: payload.to_emails || [],
         cc_emails: payload.cc_emails || [],
@@ -1621,7 +1731,7 @@ const processInboundEmailPayload = async (payload) => {
     };
     await parseResultRef.set(parseResultData);
     // 3. Activity-specific routing
-    const activityType = route?.activity_type || 'introduction';
+    const activityType = route?.activity_type || 'referral';
     if (activityType === 'grant') {
         const grantResult = await processGrantOpportunity({
             message: { ...inboundMessageRef, id: inboundMessageRef.id, ...payload, ecosystem_id: resolvedEcosystemId, received_at: now },
@@ -1799,10 +1909,11 @@ const mapPostmarkInboundToInternal = (payload) => {
         || parseAddressList(payload.To);
     const ccEmails = payload.CcFull?.map((entry) => normalize(entry.Email)).filter(Boolean)
         || parseAddressList(payload.Cc);
+    const messageIdHeader = payload.Headers?.find((h) => h.Name?.toLowerCase() === 'message-id')?.Value?.trim() || undefined;
     return {
         provider: 'postmark',
         provider_message_id: payload.MessageID || undefined,
-        message_id_header: undefined,
+        message_id_header: messageIdHeader,
         route_address: normalize(payload.OriginalRecipient) || toEmails[0] || '',
         from_email: normalize(payload.FromFull?.Email) || parseAddressList(payload.From)[0] || '',
         to_emails: toEmails,
@@ -2191,6 +2302,23 @@ exports.createInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
     if (!manager) {
         return;
     }
+    // Prevent duplicate invites: if a pending invite already exists for the same
+    // email + organization + ecosystem, return it rather than creating another.
+    const existingQuery = await db.collection('invites')
+        .where('email', '==', email)
+        .where('organization_id', '==', organizationId)
+        .where('ecosystem_id', '==', ecosystemId)
+        .where('status', '==', 'pending')
+        .limit(1)
+        .get();
+    if (!existingQuery.empty) {
+        const existing = existingQuery.docs[0].data();
+        res.status(409).json({
+            error: `A pending invite for ${email} already exists. Use "Resend" to send another email, or revoke the existing invite first.`,
+            invite_id: existing.id,
+        });
+        return;
+    }
     const token = generateInviteToken();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
@@ -2222,42 +2350,14 @@ exports.createInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
         ecosystem_id: ecosystemId,
     });
     const inviteUrl = `${getAppBaseUrl()}?invite=${token}`;
-    const noticeRef = db.collection('notice_queue').doc();
-    const noticePayload = {
-        id: noticeRef.id,
-        type: 'access_invite',
-        status: 'queued',
-        to_email: email,
-        created_at: now,
-        payload: {
-            invite_id: inviteRef.id,
-            invite_url: inviteUrl,
-            invited_role: invitedRole,
-            organization_id: organizationId,
-            ecosystem_id: ecosystemId,
-            note,
-        },
-    };
-    await noticeRef.set(noticePayload);
-    // Try to send immediately so the invitee gets the email right away.
-    // If Postmark is not configured, the notice stays queued for manual processing.
-    try {
-        const sendResult = await sendPostmarkEmail(noticePayload);
-        await noticeRef.set({
-            status: 'sent',
-            sent_at: new Date().toISOString(),
-            provider: 'postmark',
-            provider_message_id: sendResult?.MessageID || null,
-        }, { merge: true });
-    }
-    catch (sendErr) {
-        await noticeRef.set({
-            status: 'failed',
-            failed_at: new Date().toISOString(),
-            last_error: sendErr?.message || 'Postmark send failed',
-        }, { merge: true });
-        // Don't fail the invite creation — the notice is queued and can be retried via sendQueuedNotices.
-    }
+    await sendNotice('access_invite', email, {
+        invite_id: inviteRef.id,
+        invite_url: inviteUrl,
+        invited_role: invitedRole,
+        organization_id: organizationId,
+        ecosystem_id: ecosystemId,
+        note,
+    });
     res.json({ ok: true, invite_id: inviteRef.id, invite_url: inviteUrl });
 });
 exports.listInvites = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
@@ -2398,10 +2498,15 @@ exports.acceptInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
             return;
         }
         const now = new Date().toISOString();
-        const firstName = authUser.displayName?.split(' ')[0] || 'New';
-        const lastName = authUser.displayName?.split(' ').slice(1).join(' ') || 'User';
         const existingPerson = await findExistingPersonByEmail(authEmail);
         const personRef = existingPerson?.ref || db.collection('people').doc(decoded.uid);
+        // Only fall back to Auth display name if the person record doesn't already have a name.
+        const existingPersonDoc = await personRef.get();
+        const existingFirstName = existingPersonDoc.data()?.first_name;
+        const existingLastName = existingPersonDoc.data()?.last_name;
+        const hasExistingName = existingFirstName && existingFirstName !== 'New';
+        const firstName = hasExistingName ? existingFirstName : (authUser.displayName?.split(' ')[0] || 'New');
+        const lastName = hasExistingName ? existingLastName : (authUser.displayName?.split(' ').slice(1).join(' ') || 'User');
         await personRef.set({
             id: personRef.id,
             auth_uid: decoded.uid,
@@ -2427,6 +2532,26 @@ exports.acceptInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
             joined_at: now,
             invited_by_person_id: invite.invited_by_person_id,
         }, { merge: true });
+        // If a bare entrepreneur membership exists from completeSelfSignup (organization_id = '')
+        // and this invite is for an elevated role with an org, revoke the bare one to avoid
+        // non-deterministic primary membership selection in the frontend.
+        if (invite.organization_id && invite.invited_role !== 'entrepreneur') {
+            const bareMembershipId = `${personRef.id}_${invite.ecosystem_id}_none`;
+            if (bareMembershipId !== membershipRef.id) {
+                const bareMembership = await db.collection('person_memberships').doc(bareMembershipId).get();
+                if (bareMembership.exists && bareMembership.data()?.system_role === 'entrepreneur') {
+                    await bareMembership.ref.set({ status: 'revoked', updated_at: now }, { merge: true });
+                }
+            }
+        }
+        // Update Firebase custom claims so Firestore security rules reflect the new role immediately
+        // rather than waiting for the JWT to expire (up to 1 hour).
+        const authUid = existingPersonDoc.data()?.auth_uid || decoded.uid;
+        await admin.auth().setCustomUserClaims(authUid, {
+            nexus_role: invite.invited_role,
+            nexus_org_id: invite.organization_id || '',
+            nexus_ecosystem_id: invite.ecosystem_id || '',
+        });
         await inviteDoc.ref.set({
             status: 'accepted',
             accepted_at: now,
@@ -2481,39 +2606,14 @@ exports.resendInvite = (0, https_1.onRequest)({ invoker: 'public' }, async (req,
         token_last4: nextToken.slice(-4),
     }, { merge: true });
     const inviteUrl = `${getAppBaseUrl()}?invite=${nextToken}`;
-    const resendNoticeRef = db.collection('notice_queue').doc();
-    const resendNoticePayload = {
-        id: resendNoticeRef.id,
-        type: 'access_invite',
-        status: 'queued',
-        to_email: invite.email,
-        created_at: now,
-        payload: {
-            invite_id: invite.id,
-            invite_url: inviteUrl,
-            invited_role: invite.invited_role,
-            organization_id: invite.organization_id,
-            ecosystem_id: invite.ecosystem_id,
-            note: invite.note || '',
-        },
-    };
-    await resendNoticeRef.set(resendNoticePayload);
-    try {
-        const sendResult = await sendPostmarkEmail(resendNoticePayload);
-        await resendNoticeRef.set({
-            status: 'sent',
-            sent_at: new Date().toISOString(),
-            provider: 'postmark',
-            provider_message_id: sendResult?.MessageID || null,
-        }, { merge: true });
-    }
-    catch (sendErr) {
-        await resendNoticeRef.set({
-            status: 'failed',
-            failed_at: new Date().toISOString(),
-            last_error: sendErr?.message || 'Postmark send failed',
-        }, { merge: true });
-    }
+    await sendNotice('access_invite', invite.email, {
+        invite_id: invite.id,
+        invite_url: inviteUrl,
+        invited_role: invite.invited_role,
+        organization_id: invite.organization_id,
+        ecosystem_id: invite.ecosystem_id,
+        note: invite.note || '',
+    });
     await logAudit('invite_resent', manager.uid, { invite_id: invite.id });
     res.json({ ok: true, invite_url: inviteUrl });
 });
@@ -3298,10 +3398,10 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, a
         allow_invite_prompt: true,
     }, { merge: true });
     await db.collection('inbound_routes').doc('route_newhaven_intro').set({
-        id: 'route_newhaven_intro',
-        route_address: 'newhaven+introduction@inbound.example.org',
+        id: 'route_newhaven_referral',
+        route_address: 'referrals+new-haven@inbound.example.org',
         ecosystem_id: 'eco_new_haven',
-        activity_type: 'introduction',
+        activity_type: 'referral',
         allowed_sender_domains: ['makehaven.org', 'ctinnovations.org'],
         is_active: true,
     }, { merge: true });
@@ -3815,5 +3915,635 @@ Text: ${pageText}`;
     catch (e) {
         console.error(`[GrantLab] Response parsing failed: ${e?.message}`);
         throw new https_1.HttpsError('internal', `Response parsing failed: ${e?.message}`);
+    }
+});
+// ─── Organization Claim / Affiliation Request ────────────────────────────────
+//
+// Called by an authenticated entrepreneur who sees a domain-matched org on their
+// portal and wants to affiliate with it.
+//
+// Unclaimed (no other active members):  link immediately, no approval needed.
+// Claimed   (others already in org):    create a pending account_request that
+//                                        ESO admins / platform admins see in
+//                                        User Management and can approve.
+exports.claimOrganization = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    const orgId = req.body?.org_id || '';
+    const ecosystemId = req.body?.ecosystem_id || '';
+    if (!orgId || !ecosystemId) {
+        res.status(400).json({ error: 'org_id and ecosystem_id are required' });
+        return;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const authUser = await admin.auth().getUser(decoded.uid);
+        const authEmail = normalize(authUser.email);
+        if (!authEmail) {
+            res.status(400).json({ error: 'Authenticated account must have an email address' });
+            return;
+        }
+        // Resolve person record
+        const existingPerson = await findExistingPersonByEmail(authEmail);
+        const personRef = existingPerson?.ref || db.collection('people').doc(decoded.uid);
+        const personDoc = await personRef.get();
+        if (!personDoc.exists) {
+            res.status(404).json({ error: 'Person record not found. Complete your profile first.' });
+            return;
+        }
+        const person = personDoc.data();
+        // Ensure org exists
+        const orgDoc = await db.collection('organizations').doc(orgId).get();
+        if (!orgDoc.exists) {
+            res.status(404).json({ error: 'Organization not found' });
+            return;
+        }
+        const org = orgDoc.data();
+        // Prevent duplicate requests
+        const pendingRequest = await db.collection('account_requests')
+            .where('auth_uid', '==', decoded.uid)
+            .where('requested_organization_id', '==', orgId)
+            .where('status', '==', 'pending')
+            .limit(1)
+            .get();
+        if (!pendingRequest.empty) {
+            res.status(409).json({
+                error: 'You already have a pending request to join this organization.',
+                status: 'already_pending',
+            });
+            return;
+        }
+        // Check if org already has other active members (excluding this user)
+        const existingMembers = await db.collection('people')
+            .where('organization_id', '==', orgId)
+            .get();
+        const otherMembers = existingMembers.docs.filter((doc) => doc.id !== personRef.id && doc.data().email !== authEmail);
+        const now = new Date().toISOString();
+        if (otherMembers.length === 0) {
+            // ── Unclaimed: link directly ────────────────────────────────────────────
+            await personRef.set({
+                organization_id: orgId,
+                primary_organization_id: orgId,
+                updated_at: now,
+            }, { merge: true });
+            // Update or create membership with the org
+            const membershipId = `${personRef.id}_${ecosystemId}_${orgId}`;
+            await db.collection('person_memberships').doc(membershipId).set({
+                id: membershipId,
+                person_id: personRef.id,
+                ecosystem_id: ecosystemId,
+                organization_id: orgId,
+                system_role: person.system_role || 'entrepreneur',
+                status: 'active',
+                joined_at: now,
+            }, { merge: true });
+            // Revoke the bare _none membership so it doesn't shadow the org-scoped one
+            const bareMembershipId = `${personRef.id}_${ecosystemId}_none`;
+            const bareMembership = await db.collection('person_memberships').doc(bareMembershipId).get();
+            if (bareMembership.exists && bareMembership.data()?.system_role === 'entrepreneur') {
+                await bareMembership.ref.set({ status: 'revoked', updated_at: now }, { merge: true });
+            }
+            // Refresh Firebase claims with the new org context
+            const authUid = person.auth_uid || decoded.uid;
+            await admin.auth().setCustomUserClaims(authUid, {
+                nexus_role: person.system_role || 'entrepreneur',
+                nexus_org_id: orgId,
+                nexus_ecosystem_id: ecosystemId,
+            });
+            await logAudit('org_claimed', decoded.uid, { org_id: orgId, ecosystem_id: ecosystemId });
+            res.json({ ok: true, status: 'claimed', org_id: orgId, org_name: org.name });
+        }
+        else {
+            // ── Claimed: create a pending affiliation request ───────────────────────
+            const requestRef = db.collection('account_requests').doc(decoded.uid);
+            await requestRef.set({
+                id: decoded.uid,
+                auth_uid: decoded.uid,
+                email: authEmail,
+                first_name: person.first_name || 'New',
+                last_name: person.last_name || 'User',
+                requested_role: person.system_role || 'entrepreneur',
+                requested_organization_id: orgId,
+                requested_ecosystem_id: ecosystemId,
+                status: 'pending',
+                note: `Requesting to join "${org.name}" — their email domain matches this account (${authEmail}). ${otherMembers.length} existing member(s) on record.`,
+                created_at: now,
+                updated_at: now,
+            }, { merge: true });
+            await logAudit('org_affiliation_requested', decoded.uid, {
+                org_id: orgId,
+                ecosystem_id: ecosystemId,
+                existing_member_count: otherMembers.length,
+            });
+            res.json({ ok: true, status: 'pending', org_id: orgId, org_name: org.name });
+        }
+    }
+    catch (err) {
+        console.error('claimOrganization error', err);
+        res.status(500).json({ error: err?.message || 'Unable to process organization claim' });
+    }
+});
+// ─── My Notice History ───────────────────────────────────────────────────────
+// Returns outbound emails the platform has sent to the authenticated user.
+exports.getMyNoticeHistory = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const authUser = await admin.auth().getUser(decoded.uid);
+        const email = normalize(authUser.email);
+        if (!email) {
+            res.status(400).json({ error: 'No email on account' });
+            return;
+        }
+        const snap = await db.collection('notice_queue')
+            .where('to_email', '==', email)
+            .orderBy('created_at', 'desc')
+            .limit(50)
+            .get();
+        const notices = snap.docs.map((doc) => {
+            const d = doc.data();
+            return {
+                id: d.id,
+                type: d.type,
+                status: d.status,
+                created_at: d.created_at,
+                sent_at: d.sent_at || null,
+            };
+        });
+        res.json({ ok: true, notices });
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid authentication token' });
+    }
+});
+// ─── Request Data Removal ────────────────────────────────────────────────────
+// Logs a removal request to audit_logs and notifies platform admins.
+// Does not delete data automatically — a human reviews and acts.
+exports.requestDataRemoval = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const authUser = await admin.auth().getUser(decoded.uid);
+        const email = normalize(authUser.email);
+        if (!email) {
+            res.status(400).json({ error: 'No email on account' });
+            return;
+        }
+        // Prevent duplicate pending requests
+        const existing = await db.collection('audit_logs')
+            .where('action', '==', 'data_removal_requested')
+            .where('actor_person_id', '==', decoded.uid)
+            .orderBy('created_at', 'desc')
+            .limit(1)
+            .get();
+        if (!existing.empty) {
+            const lastRequest = existing.docs[0].data();
+            res.json({ ok: true, already_pending: true, requested_at: lastRequest.created_at });
+            return;
+        }
+        const now = new Date().toISOString();
+        await logAudit('data_removal_requested', decoded.uid, { email, requested_at: now });
+        // Notify platform admins
+        const adminsSnap = await db.collection('people')
+            .where('system_role', '==', 'platform_admin')
+            .limit(5)
+            .get();
+        for (const adminDoc of adminsSnap.docs) {
+            const adminEmail = normalize(adminDoc.data().email);
+            if (adminEmail) {
+                await sendNotice('data_removal_request', adminEmail, {
+                    requester_email: email,
+                    requester_uid: decoded.uid,
+                    requested_at: now,
+                }, { dedupeKey: `data-removal:${decoded.uid}` });
+            }
+        }
+        res.json({ ok: true, already_pending: false, requested_at: now });
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid authentication token' });
+    }
+});
+// ─── Consent Access Request ─────────────────────────────────────────────────
+// ESO staff calls this to request access to a company's cross-ESO records.
+// Sends an email to company admins with approve/decline links.
+exports.requestConsentAccess = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const { organization_id, // The company being requested access to
+        ecosystem_id, request_message, } = req.body || {};
+        if (!organization_id || !ecosystem_id) {
+            res.status(400).json({ error: 'organization_id and ecosystem_id are required' });
+            return;
+        }
+        // Resolve requester's person record and org (ESO)
+        const personSnap = await db.collection('people').where('auth_uid', '==', decoded.uid).limit(1).get();
+        if (personSnap.empty) {
+            res.status(404).json({ error: 'Requester person record not found' });
+            return;
+        }
+        const requesterPerson = personSnap.docs[0].data();
+        const requesterPersonId = personSnap.docs[0].id;
+        const requestingEsoId = requesterPerson.primary_organization_id;
+        if (!requestingEsoId) {
+            res.status(400).json({ error: 'Requester has no organization' });
+            return;
+        }
+        // Prevent duplicate pending requests
+        const existing = await db.collection('consent_requests')
+            .where('resource_id', '==', organization_id)
+            .where('requesting_eso_id', '==', requestingEsoId)
+            .where('status', '==', 'pending')
+            .limit(1)
+            .get();
+        if (!existing.empty) {
+            res.status(409).json({ error: 'A pending access request already exists', request_id: existing.docs[0].id });
+            return;
+        }
+        // Create request record
+        const now = new Date().toISOString();
+        const requestId = `creq_${Date.now()}_${(0, crypto_1.randomBytes)(4).toString('hex')}`;
+        await db.collection('consent_requests').doc(requestId).set({
+            ecosystem_id,
+            resource_id: organization_id,
+            requesting_eso_id: requestingEsoId,
+            requested_by_person_id: requesterPersonId,
+            requested_access_level: 'read',
+            status: 'pending',
+            requested_at: now,
+            request_message: request_message || null,
+        });
+        // Build approve / decline action tokens
+        const approveToken = (0, crypto_1.randomBytes)(32).toString('hex');
+        const declineToken = (0, crypto_1.randomBytes)(32).toString('hex');
+        const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+        await db.collection('consent_action_tokens').doc(approveToken).set({
+            request_id: requestId,
+            action: 'approve',
+            created_at: now,
+            expires_at: expires,
+            used_at: null,
+        });
+        await db.collection('consent_action_tokens').doc(declineToken).set({
+            request_id: requestId,
+            action: 'decline',
+            created_at: now,
+            expires_at: expires,
+            used_at: null,
+        });
+        // Resolve names
+        const orgSnap = await db.collection('organizations').doc(organization_id).get();
+        const esoSnap = await db.collection('organizations').doc(requestingEsoId).get();
+        const companyName = orgSnap.exists ? (orgSnap.data()?.name || 'your company') : 'your company';
+        const esoName = esoSnap.exists ? (esoSnap.data()?.name || 'a partner organization') : 'a partner organization';
+        const ecosystemName = await getEcosystemName(ecosystem_id);
+        const manageUrl = `${getAppBaseUrl()}?view=my_org&tab=privacy`;
+        const approveUrl = `${getFunctionsBaseUrl()}/consentEmailAction?token=${approveToken}`;
+        const declineUrl = `${getFunctionsBaseUrl()}/consentEmailAction?token=${declineToken}`;
+        // Find company admins / founders to notify
+        const membersSnap = await db.collection('person_memberships')
+            .where('organization_id', '==', organization_id)
+            .where('ecosystem_id', '==', ecosystem_id)
+            .get();
+        const adminPersonIds = membersSnap.docs
+            .filter(d => ['admin', 'owner', 'founder'].includes(d.data().role || ''))
+            .map(d => d.data().person_id);
+        // Fallback: notify anyone linked to the org
+        const notifyIds = adminPersonIds.length ? adminPersonIds : membersSnap.docs.map(d => d.data().person_id);
+        const notifiedEmails = new Set();
+        for (const personId of notifyIds) {
+            const pSnap = await db.collection('people').doc(personId).get();
+            if (!pSnap.exists)
+                continue;
+            const email = normalize(pSnap.data()?.email);
+            if (!email || notifiedEmails.has(email))
+                continue;
+            notifiedEmails.add(email);
+            await sendNotice('consent_access_request', email, {
+                company_name: companyName,
+                requesting_eso_name: esoName,
+                request_message: request_message || null,
+                ecosystem_name: ecosystemName,
+                approve_url: approveUrl,
+                decline_url: declineUrl,
+                manage_url: manageUrl,
+            }, { dedupeKey: `consent-request:${requestId}:${email}` });
+        }
+        await logAudit('consent_access_requested', requesterPersonId, {
+            request_id: requestId,
+            organization_id,
+            requesting_eso_id: requestingEsoId,
+            ecosystem_id,
+        });
+        res.json({ ok: true, request_id: requestId, notified: notifiedEmails.size });
+    }
+    catch (err) {
+        console.error('requestConsentAccess error', err);
+        res.status(500).json({ error: err?.message || 'Internal error' });
+    }
+});
+// ─── Consent Email Action (approve / decline from email link) ───────────────
+exports.consentEmailAction = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    setCors(res);
+    const token = req.query['token'];
+    if (!token) {
+        res.status(400).send('Missing token');
+        return;
+    }
+    const tokenSnap = await db.collection('consent_action_tokens').doc(token).get();
+    if (!tokenSnap.exists) {
+        res.status(404).send('Token not found or expired');
+        return;
+    }
+    const tokenData = tokenSnap.data();
+    if (tokenData.used_at) {
+        res.status(410).send('This link has already been used');
+        return;
+    }
+    if (new Date(tokenData.expires_at) < new Date()) {
+        res.status(410).send('This link has expired');
+        return;
+    }
+    const requestId = tokenData.request_id;
+    const action = tokenData.action;
+    const requestSnap = await db.collection('consent_requests').doc(requestId).get();
+    if (!requestSnap.exists) {
+        res.status(404).send('Request not found');
+        return;
+    }
+    const requestData = requestSnap.data();
+    if (requestData.status !== 'pending') {
+        res.status(410).send(`This request has already been ${requestData.status}`);
+        return;
+    }
+    const now = new Date().toISOString();
+    await db.collection('consent_action_tokens').doc(token).update({ used_at: now });
+    await db.collection('consent_requests').doc(requestId).update({
+        status: action === 'approve' ? 'approved' : 'declined',
+        responded_at: now,
+        responded_by_person_id: 'email_action', // No auth available via email link
+    });
+    if (action === 'approve') {
+        // Create consent policy
+        const policyId = `pol_${requestId}`;
+        await db.collection('consent_policies').doc(policyId).set({
+            resource_id: requestData.resource_id,
+            viewer_id: requestData.requesting_eso_id,
+            resource_type: 'organization',
+            access_level: requestData.requested_access_level || 'read',
+            is_active: true,
+            updated_at: now,
+            granted_via: 'eso_request',
+            request_id: requestId,
+        });
+        await db.collection('consent_events').doc(`evt_${policyId}`).set({
+            resource_id: requestData.resource_id,
+            viewer_id: requestData.requesting_eso_id,
+            actor_id: 'email_action',
+            action: 'granted',
+            timestamp: now,
+            new_access_level: requestData.requested_access_level || 'read',
+            reason: 'Approved via email consent link',
+            granted_via: 'eso_request',
+            override_reason: null,
+        });
+        // Notify the requesting ESO
+        const esoMembersSnap = await db.collection('person_memberships')
+            .where('organization_id', '==', requestData.requesting_eso_id)
+            .where('ecosystem_id', '==', requestData.ecosystem_id)
+            .get();
+        const requesterPersonId = requestData.requested_by_person_id;
+        const pSnap = await db.collection('people').doc(requesterPersonId).get();
+        const requesterEmail = normalize(pSnap.exists ? pSnap.data()?.email : null);
+        const orgSnap = await db.collection('organizations').doc(requestData.resource_id).get();
+        const companyName = orgSnap.exists ? (orgSnap.data()?.name || 'the company') : 'the company';
+        const ecosystemName = await getEcosystemName(requestData.ecosystem_id);
+        if (requesterEmail) {
+            await sendNotice('consent_access_approved', requesterEmail, {
+                company_name: companyName,
+                ecosystem_name: ecosystemName,
+                manage_url: getAppBaseUrl(),
+            }, { dedupeKey: `consent-approved:${requestId}` });
+        }
+        res.send(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:40px;">
+        <h2 style="color:#16a34a;">Access Approved</h2>
+        <p>You have approved data sharing for ${companyName}. The requesting organization will be notified.</p>
+        <p><a href="${getAppBaseUrl()}?view=my_org&tab=privacy" style="color:#4f46e5;">Manage privacy settings →</a></p>
+      </body></html>
+    `);
+    }
+    else {
+        res.send(`
+      <html><body style="font-family:sans-serif;text-align:center;padding:40px;">
+        <h2 style="color:#dc2626;">Access Declined</h2>
+        <p>The access request has been declined. No data has been shared.</p>
+        <p><a href="${getAppBaseUrl()}?view=my_org&tab=privacy" style="color:#4f46e5;">Manage privacy settings →</a></p>
+      </body></html>
+    `);
+    }
+});
+// ─── Ecosystem Manager Consent Override ─────────────────────────────────────
+// Ecosystem managers can grant access to any company's records with a mandatory
+// reason — logged transparently in the consent audit history visible to the company.
+exports.managerConsentOverride = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const { organization_id, // Company being granted to
+        eso_id, // ESO being granted access
+        access_level = 'read', override_reason, ecosystem_id, } = req.body || {};
+        if (!organization_id || !eso_id || !override_reason || !ecosystem_id) {
+            res.status(400).json({ error: 'organization_id, eso_id, override_reason, and ecosystem_id are required' });
+            return;
+        }
+        // Verify requester is ecosystem_manager or platform_admin
+        const personSnap = await db.collection('people').where('auth_uid', '==', decoded.uid).limit(1).get();
+        if (personSnap.empty) {
+            res.status(404).json({ error: 'Person record not found' });
+            return;
+        }
+        const managerPerson = personSnap.docs[0].data();
+        const managerPersonId = personSnap.docs[0].id;
+        const managerRole = managerPerson.system_role || '';
+        if (!['ecosystem_manager', 'platform_admin'].includes(managerRole)) {
+            res.status(403).json({ error: 'Only ecosystem managers can override consent' });
+            return;
+        }
+        const now = new Date().toISOString();
+        const policyId = `pol_override_${organization_id}_${eso_id}`;
+        await db.collection('consent_policies').doc(policyId).set({
+            resource_id: organization_id,
+            viewer_id: eso_id,
+            resource_type: 'organization',
+            access_level,
+            is_active: true,
+            updated_at: now,
+            granted_via: 'manager_override',
+            request_id: null,
+        });
+        const managerName = `${managerPerson.first_name || ''} ${managerPerson.last_name || ''}`.trim() || 'An ecosystem manager';
+        const eventId = `evt_override_${Date.now()}`;
+        await db.collection('consent_events').doc(eventId).set({
+            resource_id: organization_id,
+            viewer_id: eso_id,
+            actor_id: managerPersonId,
+            action: 'granted',
+            timestamp: now,
+            new_access_level: access_level,
+            reason: `Ecosystem manager override: ${override_reason}`,
+            granted_via: 'manager_override',
+            override_reason,
+        });
+        // Resolve names and send transparency email to company admins
+        const orgSnap = await db.collection('organizations').doc(organization_id).get();
+        const esoSnap = await db.collection('organizations').doc(eso_id).get();
+        const companyName = orgSnap.exists ? (orgSnap.data()?.name || 'your company') : 'your company';
+        const esoName = esoSnap.exists ? (esoSnap.data()?.name || 'a partner organization') : 'a partner organization';
+        const ecosystemName = await getEcosystemName(ecosystem_id);
+        const manageUrl = `${getAppBaseUrl()}?view=my_org&tab=privacy`;
+        const membersSnap = await db.collection('person_memberships')
+            .where('organization_id', '==', organization_id)
+            .where('ecosystem_id', '==', ecosystem_id)
+            .get();
+        const notifiedEmails = new Set();
+        for (const memberDoc of membersSnap.docs) {
+            const pSnap = await db.collection('people').doc(memberDoc.data().person_id).get();
+            if (!pSnap.exists)
+                continue;
+            const email = normalize(pSnap.data()?.email);
+            if (!email || notifiedEmails.has(email))
+                continue;
+            notifiedEmails.add(email);
+            await sendNotice('consent_manager_override', email, {
+                company_name: companyName,
+                eso_name: esoName,
+                manager_name: managerName,
+                override_reason,
+                ecosystem_name: ecosystemName,
+                manage_url: manageUrl,
+            }, { dedupeKey: `consent-override:${policyId}:${email}` });
+        }
+        await logAudit('consent_manager_override', managerPersonId, {
+            organization_id,
+            eso_id,
+            access_level,
+            override_reason,
+            ecosystem_id,
+        });
+        res.json({ ok: true, policy_id: policyId, notified: notifiedEmails.size });
+    }
+    catch (err) {
+        console.error('managerConsentOverride error', err);
+        res.status(500).json({ error: err?.message || 'Internal error' });
+    }
+});
+// ─── Record Onboarding Acknowledgment ───────────────────────────────────────
+// Called when an entrepreneur completes the onboarding acknowledgment modal.
+// Idempotent: safe to call multiple times.
+exports.recordOnboardingAcknowledgment = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    setCors(res);
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = getBearerToken(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const { ecosystem_id } = req.body || {};
+        if (!ecosystem_id) {
+            res.status(400).json({ error: 'ecosystem_id required' });
+            return;
+        }
+        const personSnap = await db.collection('people').where('auth_uid', '==', decoded.uid).limit(1).get();
+        if (personSnap.empty) {
+            res.status(404).json({ error: 'Person record not found' });
+            return;
+        }
+        const personId = personSnap.docs[0].id;
+        // Idempotent — deterministic doc ID
+        const ackId = `ack_${personId}_${ecosystem_id}`;
+        const existing = await db.collection('consent_events').doc(ackId).get();
+        if (existing.exists) {
+            res.json({ ok: true, already_acknowledged: true, acknowledged_at: existing.data()?.timestamp });
+            return;
+        }
+        const now = new Date().toISOString();
+        await db.collection('consent_events').doc(ackId).set({
+            resource_id: personId,
+            viewer_id: ecosystem_id,
+            actor_id: personId,
+            action: 'acknowledged',
+            timestamp: now,
+            reason: 'Onboarding data-sharing acknowledgment',
+            granted_via: null,
+            override_reason: null,
+        });
+        res.json({ ok: true, already_acknowledged: false, acknowledged_at: now });
+    }
+    catch (err) {
+        console.error('recordOnboardingAcknowledgment error', err);
+        res.status(500).json({ error: err?.message || 'Internal error' });
     }
 });

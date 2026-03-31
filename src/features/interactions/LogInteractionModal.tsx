@@ -7,6 +7,7 @@ import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 import { loadEnums } from '../../domain/standards/loadStandards';
 import { base64ToBytes, decodeAudioData, createPcmBlob } from '../../utils';
 import { useRepos, useViewer } from '../../data/AppDataContext';
+import { ALL_ECOSYSTEMS } from '../../data/mockData';
 
 interface LogInteractionModalProps {
     isOpen: boolean;
@@ -36,6 +37,14 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
     const viewer = useViewer();
     const enums = loadEnums();
     const pipelines = repos.pipelines.getPipelines(viewer.ecosystemId);
+
+    const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
+    const featureFlags = ecosystem?.settings?.feature_flags || {};
+    const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
+    const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
+    const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
+    const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
+    const canUseInteractionAI = canAccessAdvancedWorkflows || featureFlags.interactions_ai === true;
     
     // Form State
     const [orgId, setOrgId] = useState('');
@@ -359,8 +368,8 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
                     </div>
                 </div>
 
-                {/* AI Helper Section */}
-                <div className={`p-4 rounded-lg border transition-colors ${isLive ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}>
+                {/* AI Helper Section — only shown when interactions_ai flag is on */}
+                {canUseInteractionAI && <div className={`p-4 rounded-lg border transition-colors ${isLive ? 'bg-red-50 border-red-200' : 'bg-indigo-50 border-indigo-100'}`}>
                     <label className={`block text-xs font-bold mb-2 uppercase tracking-wide ${isLive ? 'text-red-800' : 'text-indigo-800'}`}>
                         {isLive ? '🔴 Live Dictation Active' : 'AI Assistant'}
                     </label>
@@ -390,7 +399,7 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
                         <p className="text-xs text-red-600 mt-2">Listening... Say "Set date to..." or "Notes are..."</p>
                     )}
                     {micError && <p className="text-sm text-red-600 mt-2">{micError}</p>}
-                </div>
+                </div>}
 
                 <div>
                     <label className={FORM_LABEL_CLASS}>Notes / Summary</label>
@@ -438,9 +447,9 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
 
                     {!actionType ? (
                         <div className="flex gap-2 flex-wrap">
-                            <button onClick={() => addAction('task')} className="px-3 py-1 bg-white border border-gray-300 text-gray-600 text-xs font-bold rounded hover:bg-gray-50">+ Task</button>
+                            {canAccessTasksAdvice && <button onClick={() => addAction('task')} className="px-3 py-1 bg-white border border-gray-300 text-gray-600 text-xs font-bold rounded hover:bg-gray-50">+ Task</button>}
                             <button onClick={() => addAction('referral')} className="px-3 py-1 bg-white border border-gray-300 text-purple-600 text-xs font-bold rounded hover:bg-purple-50">+ Referral</button>
-                            <button onClick={() => addAction('initiative')} className="px-3 py-1 bg-white border border-gray-300 text-green-600 text-xs font-bold rounded hover:bg-green-50">+ Initiative</button>
+                            {canAccessInitiatives && <button onClick={() => addAction('initiative')} className="px-3 py-1 bg-white border border-gray-300 text-green-600 text-xs font-bold rounded hover:bg-green-50">+ Initiative</button>}
                             <button onClick={() => addAction('metric')} className="px-3 py-1 bg-white border border-gray-300 text-blue-600 text-xs font-bold rounded hover:bg-blue-50">+ Impact Metric</button>
                         </div>
                     ) : (

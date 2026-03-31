@@ -498,7 +498,7 @@ export const ReferralsView = ({
         const recOrg = organizations.find(o => o.id === ref.receiving_org_id);
         const bccRoute = inboundRoutes.find(r =>
             r.ecosystem_id === viewer.ecosystemId &&
-            r.activity_type === 'introduction' &&
+            r.activity_type === 'referral' &&
             r.is_active
         );
 

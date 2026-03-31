@@ -12,6 +12,7 @@ import { ENUMS } from '../../domain/standards/enums';
 import { EditOrgModal, ManagePersonModal } from './OrgModals';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
+import { callHttpFunction } from '../../services/httpFunctionClient';
 
 interface OrganizationDetailViewProps {
     org: Organization;
@@ -71,6 +72,18 @@ export const OrganizationDetailView = ({
     const [pendingAction, setPendingAction] = useState<'remove_ecosystem' | 'archive' | 'delete' | null>(null);
     useEffect(() => { setOrgTemplateDrafts(org.referral_templates || []); }, [org.referral_templates]);
 
+    // ESO consent request flow
+    const [accessRequestMessage, setAccessRequestMessage] = useState('');
+    const [accessRequestStatus, setAccessRequestStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+    const [accessRequestError, setAccessRequestError] = useState('');
+
+    // Manager override state
+    const [isOverridePanelOpen, setIsOverridePanelOpen] = useState(false);
+    const [overrideTargetEsoId, setOverrideTargetEsoId] = useState('');
+    const [overrideReason, setOverrideReason] = useState('');
+    const [overrideStatus, setOverrideStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const [overrideError, setOverrideError] = useState('');
+
     React.useEffect(() => {
         if (initialTab && initialTab !== activeTab) {
             setActiveTab(initialTab);
@@ -104,6 +117,7 @@ export const OrganizationDetailView = ({
     const featureFlags = ecosystem?.settings?.feature_flags || {};
     const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
     const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
+    const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
     const canAccessMetrics = canAccessAdvancedWorkflows || featureFlags.dashboard === true || featureFlags.metrics_manager === true;
     const canRequestSupport = isEntrepreneurViewer && org.roles.includes('eso') && !isOwnOrganization;
     const actingOrganization = organizations.find((candidate) => candidate.id === viewer.orgId) || null;
@@ -133,11 +147,23 @@ export const OrganizationDetailView = ({
     const consentEvents = repos.consent.getEventsForEntity(org.id);
     const visibleEvents = showAllEvents ? consentEvents : consentEvents.slice(0, 10);
     const isManageable = isOwnOrganization || viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
+    const isEcosystemManager = viewer.role === 'ecosystem_manager' || viewer.role === 'platform_admin';
     const availablePartnerOrgs = organizations.filter((candidate) =>
         candidate.id !== org.id &&
         candidate.ecosystem_ids.includes(viewer.ecosystemId) &&
         candidate.roles.includes('eso') &&
         !activePolicies.some((policy) => policy.viewerId === candidate.id)
+    );
+    // ESO viewers who don't have consent yet and aren't viewing their own org
+    const viewerEsoOrg = organizations.find(o => o.id === viewer.orgId);
+    const isEsoViewer = !isOwnOrganization && !isEntrepreneurViewer && !!viewerEsoOrg?.roles?.includes('eso');
+    const viewerAlreadyHasConsent = activePolicies.some(p => p.viewerId === viewer.orgId);
+    const canRequestAccessForOrg = isEsoViewer && !viewerAlreadyHasConsent && org.operational_visibility === 'restricted';
+    // All ESO orgs available for manager override (not yet granted)
+    const allEsoOrgs = organizations.filter(o =>
+        o.id !== org.id &&
+        o.ecosystem_ids.includes(viewer.ecosystemId) &&
+        o.roles.includes('eso')
     );
 
     // Access Control Check
@@ -267,6 +293,45 @@ export const OrganizationDetailView = ({
         setSelectedPartnerOrgId('');
         setSelectedAccessLevel('read');
         onRefresh?.();
+    };
+
+    const handleSendConsentRequest = async () => {
+        setAccessRequestStatus('sending');
+        setAccessRequestError('');
+        try {
+            await callHttpFunction('requestConsentAccess', {
+                organization_id: org.id,
+                ecosystem_id: viewer.ecosystemId,
+                request_message: accessRequestMessage.trim() || undefined,
+            });
+            setAccessRequestStatus('sent');
+        } catch (err: any) {
+            setAccessRequestStatus('error');
+            setAccessRequestError(err?.message || 'Failed to send request');
+        }
+    };
+
+    const handleManagerOverride = async () => {
+        if (!overrideTargetEsoId || !overrideReason.trim()) return;
+        setOverrideStatus('saving');
+        setOverrideError('');
+        try {
+            await callHttpFunction('managerConsentOverride', {
+                organization_id: org.id,
+                eso_id: overrideTargetEsoId,
+                access_level: 'read',
+                override_reason: overrideReason.trim(),
+                ecosystem_id: viewer.ecosystemId,
+            });
+            setOverrideStatus('saved');
+            setIsOverridePanelOpen(false);
+            setOverrideTargetEsoId('');
+            setOverrideReason('');
+            onRefresh?.();
+        } catch (err: any) {
+            setOverrideStatus('error');
+            setOverrideError(err?.message || 'Failed to apply override');
+        }
     };
 
     const handleSaveOrgProfile = async (updates: Partial<Organization>) => {
@@ -477,7 +542,7 @@ export const OrganizationDetailView = ({
                          {accessRequestSent && <p className="text-sm text-green-600">Access request sent.</p>}
                      </>
                  )}
-                 {canViewDetails && !isEntrepreneurViewer && (
+                 {canViewDetails && !isEntrepreneurViewer && canAccessInteractions && (
                      <button
                         onClick={() => setActiveTab('interactions')}
                         className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
@@ -615,7 +680,7 @@ export const OrganizationDetailView = ({
                  { id: 'people', label: `People (${isRestricted ? visiblePeople.length : orgPeople.length})` },
                  { id: 'participation', label: `Participation (${orgParticipations.length})` },
                  ...(canAccessInitiatives ? [{ id: 'initiatives', label: `Initiatives (${orgInitiatives.length})` }] : []),
-                 { id: 'interactions', label: `Interactions (${orgInteractions.length})` },
+                 ...(canAccessInteractions ? [{ id: 'interactions', label: `Interactions (${orgInteractions.length})` }] : []),
                  { id: 'referrals', label: `Referrals (${orgReferrals.length})` },
                  { id: 'privacy', label: 'Privacy' },
                  ...(isManageable && org.roles.includes('eso') ? [{ id: 'settings', label: 'Settings' }] : []),
@@ -1258,6 +1323,111 @@ export const OrganizationDetailView = ({
                           </div>
                       </Card>
 
+                      {/* ESO: Request access when org is restricted and viewer doesn't have consent */}
+                      {canRequestAccessForOrg && (
+                        <Card title="Request Data Access">
+                          {accessRequestStatus === 'sent' ? (
+                            <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-4 text-sm text-green-900">
+                              <strong>Request sent.</strong> The company admin will receive an email with an approve / decline link. You'll be notified if they approve.
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              <p className="text-sm text-gray-600">
+                                <strong>{org.name}</strong> has restricted data access. You can request permission to view interaction notes and activity recorded by other partner organizations. The company admin will be emailed and can approve or decline.
+                              </p>
+                              <div>
+                                <label className={FORM_LABEL_CLASS}>Message to company admin <span className="text-gray-400 font-normal">(optional)</span></label>
+                                <textarea
+                                  value={accessRequestMessage}
+                                  onChange={e => setAccessRequestMessage(e.target.value)}
+                                  rows={3}
+                                  placeholder="Briefly explain why you'd like access…"
+                                  className={FORM_TEXTAREA_CLASS}
+                                />
+                              </div>
+                              {accessRequestStatus === 'error' && (
+                                <p className="text-sm text-red-600">{accessRequestError}</p>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => void handleSendConsentRequest()}
+                                disabled={accessRequestStatus === 'sending'}
+                                className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                              >
+                                {accessRequestStatus === 'sending' ? 'Sending…' : 'Send Access Request'}
+                              </button>
+                            </div>
+                          )}
+                        </Card>
+                      )}
+
+                      {/* Ecosystem manager override panel */}
+                      {isEcosystemManager && !isManageable && (
+                        <Card title="Ecosystem Manager: Grant Override Access">
+                          <div className="space-y-3">
+                            <div className="rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                              <strong>Manager override</strong> — Use this only to resolve technical or support issues. The company will receive a transparency email immediately and the action is logged in the consent audit history.
+                            </div>
+                            {!isOverridePanelOpen ? (
+                              <button
+                                type="button"
+                                onClick={() => setIsOverridePanelOpen(true)}
+                                className="rounded border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                              >
+                                Grant override access to an ESO…
+                              </button>
+                            ) : (
+                              <div className="space-y-3">
+                                <div>
+                                  <label className={FORM_LABEL_CLASS}>ESO to grant access</label>
+                                  <select
+                                    value={overrideTargetEsoId}
+                                    onChange={e => setOverrideTargetEsoId(e.target.value)}
+                                    className={FORM_SELECT_CLASS}
+                                  >
+                                    <option value="">— Select ESO —</option>
+                                    {allEsoOrgs.map(o => (
+                                      <option key={o.id} value={o.id}>{o.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className={FORM_LABEL_CLASS}>Reason for override <span className="text-red-500">*</span></label>
+                                  <textarea
+                                    value={overrideReason}
+                                    onChange={e => setOverrideReason(e.target.value)}
+                                    rows={2}
+                                    placeholder="Describe the technical or support reason for granting access without company approval…"
+                                    className={FORM_TEXTAREA_CLASS}
+                                  />
+                                  <p className="mt-1 text-xs text-gray-500">This reason will be visible to the company in their consent audit history.</p>
+                                </div>
+                                {overrideStatus === 'error' && (
+                                  <p className="text-sm text-red-600">{overrideError}</p>
+                                )}
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleManagerOverride()}
+                                    disabled={!overrideTargetEsoId || !overrideReason.trim() || overrideStatus === 'saving'}
+                                    className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                                  >
+                                    {overrideStatus === 'saving' ? 'Applying…' : 'Apply Override'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setIsOverridePanelOpen(false); setOverrideReason(''); setOverrideTargetEsoId(''); setOverrideStatus('idle'); }}
+                                    className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </Card>
+                      )}
+
                       <Card title="Trusted Partners (Consent Grants)">
                           <div className="space-y-4">
                               <p className="text-sm text-gray-500">
@@ -1418,9 +1588,17 @@ export const OrganizationDetailView = ({
                                                             {new Date(evt.timestamp).toLocaleDateString()} <span className="text-gray-400 text-xs">{new Date(evt.timestamp).toLocaleTimeString()}</span>
                                                         </td>
                                                         <td className="px-4 py-3 whitespace-nowrap">
-                                                            <Badge color={evt.action === 'granted' ? 'green' : evt.action === 'revoked' ? 'red' : 'yellow'}>
-                                                                {evt.action.toUpperCase()}
-                                                            </Badge>
+                                                            <div className="flex flex-col gap-1">
+                                                                <Badge color={evt.action === 'granted' ? 'green' : evt.action === 'revoked' ? 'red' : evt.action === 'acknowledged' ? 'blue' : 'yellow'}>
+                                                                    {evt.action.toUpperCase()}
+                                                                </Badge>
+                                                                {(evt as any).grantedVia === 'manager_override' && (
+                                                                    <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-200 rounded px-1.5 py-0.5 inline-block">Override</span>
+                                                                )}
+                                                                {(evt as any).grantedVia === 'eso_request' && (
+                                                                    <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-700 bg-indigo-100 border border-indigo-200 rounded px-1.5 py-0.5 inline-block">ESO Request</span>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
                                                             {partnerName}

@@ -41,6 +41,7 @@ import { AppRepos } from '../data/repos';
 import { AppDataProvider } from '../data/AppDataContext';
 import { setDocument, getDocument } from '../services/firestoreClient';
 import { isEmulatorMode } from '../services/firebaseConfig';
+import { callHttpFunction } from '../services/httpFunctionClient';
 
 // Shared
 import { Modal } from '../shared/ui/Components';
@@ -77,9 +78,11 @@ import { AppShell } from './AppShell';
 import { ViewMode } from './types';
 import { CONFIG } from './config';
 import { useAuthContext } from './AuthProvider';
+import type { InviteSummary } from '../domain/auth/invites';
 import { resolveSessionPerson } from '../domain/auth/resolveSessionPerson';
 import { getActiveOrganizationAffiliations } from '../domain/people/affiliations';
 import { isFirebaseEnabled } from '../services/firebaseApp';
+import { signOutUser } from '../services/authService';
 
 // Ecosystem data for config view (still static for now as it's config)
 import { NEW_HAVEN_ECOSYSTEM as DEFAULT_ECO } from '../data/mockData';
@@ -97,6 +100,7 @@ type RouteState = {
   personId?: string | null;
   tab?: string | undefined;
   ecosystemId?: string | null;
+  inviteToken?: string | null;
 };
 
 const readRouteFromLocation = (): RouteState => {
@@ -112,6 +116,7 @@ const readRouteFromLocation = (): RouteState => {
     personId: params.get('person'),
     tab: params.get('tab') || undefined,
     ecosystemId: params.get('eco'),
+    inviteToken: params.get('invite'),
   };
 };
 
@@ -126,6 +131,7 @@ const writeRouteToLocation = (route: RouteState, mode: 'push' | 'replace' = 'pus
   if (route.personId) params.set('person', route.personId);
   if (route.tab) params.set('tab', route.tab);
   if (route.ecosystemId) params.set('eco', route.ecosystemId);
+  if (route.inviteToken) params.set('invite', route.inviteToken);
 
   const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
   if (mode === 'replace') {
@@ -149,9 +155,65 @@ const App = () => {
   const [demoUser, setDemoUser] = useState<Person>(defaultDemoUser);
   const [resolvedAuthPerson, setResolvedAuthPerson] = useState<Person | null>(null);
   const [isResolvingAuthPerson, setIsResolvingAuthPerson] = useState(false);
+  const [hasAttemptedPersonResolution, setHasAttemptedPersonResolution] = useState(false);
+  const [pendingInviteToken] = useState<string>(() => {
+    if (initialRoute.inviteToken) {
+      return initialRoute.inviteToken;
+    }
+    if (typeof window === 'undefined') {
+      return '';
+    }
+    try {
+      return sessionStorage.getItem('pending_invite_token') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [pendingInviteSummary, setPendingInviteSummary] = useState<InviteSummary | null>(null);
 
   const shouldRequireAuth = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
   const activeUser = shouldRequireAuth ? resolvedAuthPerson : demoUser;
+
+  useEffect(() => {
+    if (!pendingInviteToken) {
+      return;
+    }
+    try {
+      sessionStorage.setItem('pending_invite_token', pendingInviteToken);
+    } catch {
+      // ignore storage failures
+    }
+  }, [pendingInviteToken]);
+
+  useEffect(() => {
+    if (!pendingInviteToken) {
+      setPendingInviteSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadInviteSummary = async () => {
+      try {
+        const summary = await callHttpFunction<{ token: string }, InviteSummary>('getInviteSummary', { token: pendingInviteToken });
+        if (!cancelled) {
+          setPendingInviteSummary(summary);
+        }
+      } catch {
+        if (!cancelled) {
+          setPendingInviteSummary(null);
+        }
+      }
+    };
+
+    void loadInviteSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingInviteToken]);
+
+  // Onboarding acknowledgment — shown once per entrepreneur per ecosystem
+  const [showAcknowledgmentModal, setShowAcknowledgmentModal] = useState(false);
+  const [isSubmittingAck, setIsSubmittingAck] = useState(false);
 
   // Context Management
   const [currentEcosystemId, setCurrentEcosystemId] = useState<string>(initialRoute.ecosystemId || demoUser.memberships?.[0]?.ecosystem_id || DEFAULT_ECO.id);
@@ -198,7 +260,11 @@ const App = () => {
     }
 
     const validOrgIds = new Set(activeOrganizationAffiliations.map((affiliation) => affiliation.organization_id));
-    if (!currentActingOrgId || !validOrgIds.has(currentActingOrgId)) {
+    // Privileged roles (platform_admin, ecosystem_manager) can act on behalf of any org in the
+    // system — not just their direct affiliations — so trust whatever is stored in localStorage
+    // rather than resetting to their primary org on every reload.
+    const isPrivilegedRole = ['platform_admin', 'ecosystem_manager'].includes(currentRole);
+    if (!currentActingOrgId || (!isPrivilegedRole && !validOrgIds.has(currentActingOrgId))) {
       // Prefer: primary org → membership org → first affiliation
       const primaryOrgId = activeUser?.organization_id;
       const fallback =
@@ -271,9 +337,31 @@ const App = () => {
               : matchedUser.memberships[0].ecosystem_id
           ));
         }
+
+        // Auto-accept any pending invite for already-authenticated users
+        if (matchedUser) {
+          try {
+            if (pendingInviteToken) {
+              await callHttpFunction('acceptInvite', { token: pendingInviteToken });
+              sessionStorage.removeItem('pending_invite_token');
+            }
+          } catch { /* non-fatal — invite may already be accepted or expired */ }
+
+          // Show onboarding acknowledgment modal for entrepreneurs who haven't seen it yet
+          if (matchedUser.system_role === 'entrepreneur' && !CONFIG.IS_DEMO_MODE) {
+            try {
+              const ackKey = `nexus_ack_${matchedUser.id}_${matchedUser.memberships?.[0]?.ecosystem_id || 'default'}`;
+              const alreadyAcked = sessionStorage.getItem(ackKey) || localStorage.getItem(ackKey);
+              if (!alreadyAcked) {
+                setShowAcknowledgmentModal(true);
+              }
+            } catch { /* ignore storage errors */ }
+          }
+        }
       } finally {
         if (!cancelled) {
           setIsResolvingAuthPerson(false);
+          setHasAttemptedPersonResolution(true);
         }
       }
     };
@@ -283,7 +371,7 @@ const App = () => {
     return () => {
       cancelled = true;
     };
-  }, [repos, session.authUser]);
+  }, [pendingInviteToken, repos, session.authUser]);
 
   useEffect(() => {
     if (shouldRequireAuth && session.authUser && isResolvingAuthPerson) {
@@ -404,6 +492,7 @@ const App = () => {
       personId: route.personId ?? undefined,
       tab: route.tab,
       ecosystemId: route.ecosystemId ?? currentEcosystemId,
+      inviteToken: pendingInviteToken || undefined,
     }, mode);
   };
 
@@ -443,8 +532,9 @@ const App = () => {
       personId: selectedPersonId || undefined,
       tab: selectedTab,
       ecosystemId: currentEcosystemId,
+      inviteToken: pendingInviteToken || undefined,
     }, 'replace');
-  }, [view, selectedOrgId, selectedPersonId, selectedTab, currentEcosystemId]);
+  }, [view, selectedOrgId, selectedPersonId, selectedTab, currentEcosystemId, pendingInviteToken]);
 
   const [ecosystemOverrides, setEcosystemOverrides] = useState<Record<string, Partial<Ecosystem>>>(() => {
     // Seed from localStorage immediately (works in all environments)
@@ -495,9 +585,9 @@ const App = () => {
   const canAccessApiConsole = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.api_console === true);
   const canAccessDataQuality = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_quality === true);
   const canAccessDataStandards = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_standards === true);
-  const canAccessMetricsManager = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.metrics_manager === true);
+  const canAccessMetricsManager = (isPlatformAdmin || currentRole === 'ecosystem_manager') && featureFlags.metrics_manager === true;
   const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
-  const canAccessGrantLab = isPlatformAdmin || featureFlags.grant_lab === true;
+  const canAccessGrantLab = featureFlags.grant_lab === true;
   const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
@@ -539,7 +629,17 @@ const App = () => {
     view,
   ]);
 
-  const shouldShowAuthLoading = shouldRequireAuth && (session.status === 'loading' || (!!session.authUser && isResolvingAuthPerson));
+  const shouldShowAuthLoading = shouldRequireAuth && (
+    session.status === 'loading' ||
+    (!!session.authUser && isResolvingAuthPerson) ||
+    (!!session.authUser && !hasAttemptedPersonResolution)
+  );
+  const normalizedInviteEmail = pendingInviteSummary?.email?.trim().toLowerCase() || '';
+  const normalizedAuthEmail = session.authUser?.email?.trim().toLowerCase() || '';
+  const inviteRequiresDifferentAccount = !!pendingInviteToken
+    && !!normalizedInviteEmail
+    && !!normalizedAuthEmail
+    && normalizedInviteEmail !== normalizedAuthEmail;
 
   if (shouldShowAuthLoading) {
     return (
@@ -564,6 +664,39 @@ const App = () => {
         organizations={ALL_ORGANIZATIONS}
         ecosystems={ALL_ECOSYSTEMS}
       />
+    );
+  }
+
+  if (inviteRequiresDifferentAccount) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
+        <div className="w-full max-w-2xl rounded-3xl border border-white/10 bg-white/5 px-8 py-10 shadow-2xl shadow-black/30 backdrop-blur">
+          <div className="inline-flex rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
+            Invite Link Detected
+          </div>
+          <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white">This invite is for a different account</h1>
+          <p className="mt-3 text-sm leading-7 text-slate-300">
+            You are currently signed in as <strong className="text-white">{session.authUser?.email}</strong>, but this invitation is for <strong className="text-white">{pendingInviteSummary?.email}</strong>.
+          </p>
+          <p className="mt-3 text-sm leading-7 text-slate-300">
+            Sign out, then continue with the invited email address to accept the invite.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              className="rounded bg-white px-4 py-2 font-medium text-slate-900 hover:bg-slate-100"
+              onClick={() => { void signOutUser(); }}
+            >
+              Sign out and continue
+            </button>
+            <button
+              className="rounded border border-white/15 px-4 py-2 font-medium text-slate-200 hover:bg-white/5"
+              onClick={() => { window.location.href = '/'; }}
+            >
+              Stay in current workspace
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -821,6 +954,47 @@ const App = () => {
               </div>
            )}
       </AppShell>
+
+      {/* Onboarding Data-Sharing Acknowledgment */}
+      {showAcknowledgmentModal && activeUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
+            <div className="border-b border-gray-100 px-6 py-5">
+              <h2 className="text-lg font-bold text-gray-900">Welcome to {currentEcosystem?.name || 'Entrepreneurship Nexus'}</h2>
+              <p className="mt-1 text-sm text-gray-500">A quick note about your data and privacy</p>
+            </div>
+            <div className="px-6 py-5 space-y-4 text-sm text-gray-700">
+              <p>When you work with organizations in this ecosystem, they may record interactions, referrals, and notes related to your business. Here's what you should know:</p>
+              <ul className="space-y-2 pl-4">
+                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Basic profile</strong> — your name, business, and contact info are visible to organizations you work with in this ecosystem.</span></li>
+                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Interaction records</strong> — each organization only sees their own notes and activity with you by default.</span></li>
+                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Cross-organization sharing</strong> — you control whether partner organizations can see each other's records. You'll be asked to approve any such requests.</span></li>
+                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Your rights</strong> — you can review all sharing activity and request data removal at any time from your business privacy settings.</span></li>
+              </ul>
+              <p className="text-xs text-gray-500 border-t border-gray-100 pt-3">By continuing, you acknowledge that organizations in this ecosystem may record interactions with your business as described above.</p>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-100 px-6 py-4">
+              <button
+                type="button"
+                disabled={isSubmittingAck}
+                onClick={async () => {
+                  setIsSubmittingAck(true);
+                  try {
+                    await callHttpFunction('recordOnboardingAcknowledgment', { ecosystem_id: currentEcosystemId });
+                    const ackKey = `nexus_ack_${activeUser.id}_${currentEcosystemId}`;
+                    try { localStorage.setItem(ackKey, new Date().toISOString()); } catch { /* ignore */ }
+                  } catch { /* non-fatal */ }
+                  setIsSubmittingAck(false);
+                  setShowAcknowledgmentModal(false);
+                }}
+                className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {isSubmittingAck ? 'Saving…' : 'I understand, continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Demo Tour Component */}
       {CONFIG.IS_DEMO_MODE && (

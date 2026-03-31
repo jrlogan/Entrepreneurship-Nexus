@@ -97,17 +97,23 @@ const ROUTE_ADDRESS = 'newhaven+introduction@inbound.example.org';
         domain: 'makehaven.org',
         created_at: new Date().toISOString(),
     });
+    // Give MakeHaven an intake email so referral_new_intake notices (and tokens) are generated
+    await db.collection('organizations').doc('org_makehaven').update({
+        referral_intake_prefs: { intake_contact_email: 'intake@makehaven.org' },
+    });
 });
 // ---------------------------------------------------------------------------
 // Helper: create a referral via inbound email and return its ID + action tokens
 // ---------------------------------------------------------------------------
 async function createReferralAndGetTokens(uniqueId) {
+    // Use timestamp to ensure unique IDs across emulator restarts and repeated runs
+    const msgId = `action-test-${uniqueId}-${Date.now()}`;
     const { status, body } = await post('processInboundEmail', {
         provider: 'manual',
-        provider_message_id: `action-test-${uniqueId}`,
+        provider_message_id: msgId,
         from_email: 'staff@makehaven.org',
         to_emails: [ROUTE_ADDRESS],
-        cc_emails: [`testfounder${uniqueId}@example.com`],
+        cc_emails: [`testfounder${uniqueId}-${Date.now()}@example.com`],
         subject: 'Introduction: Test Founder',
         text_body: `Hi team,\n\nIntroducing Test Founder who is building a startup.\n\nBest,\nJordan`,
     });

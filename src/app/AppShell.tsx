@@ -104,9 +104,9 @@ export const AppShell: React.FC<AppShellProps> = ({
   const canAccessApiConsole = isPlatformAdmin || (isPrivileged && featureFlags.api_console === true);
   const canAccessDataQuality = isPlatformAdmin || (isPrivileged && featureFlags.data_quality === true);
   const canAccessDataStandards = isPlatformAdmin || (isPrivileged && featureFlags.data_standards === true);
-  const canAccessMetricsManager = isPlatformAdmin || (isSuper && featureFlags.metrics_manager === true);
+  const canAccessMetricsManager = (isPlatformAdmin || isSuper) && featureFlags.metrics_manager === true;
   const canAccessInboundIntake = isPlatformAdmin || ((currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true);
-  const canAccessGrantLab = isPlatformAdmin || featureFlags.grant_lab === true;
+  const canAccessGrantLab = featureFlags.grant_lab === true;
 
   const iconClass = "w-5 h-5";
   const isDemoMode = CONFIG.IS_DEMO_MODE;
@@ -440,13 +440,24 @@ export const AppShell: React.FC<AppShellProps> = ({
                    />
                  )}
                  {canAccessTasksAdvice && (
-                   <SidebarItem 
-                     active={view === 'todos'} 
-                     onClick={() => handleNav('todos')} 
-                     label="Tasks & Advice" 
-                     icon={<IconList className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
+                   <SidebarItem
+                     active={view === 'todos'}
+                     onClick={() => handleNav('todos')}
+                     label="Tasks & Advice"
+                     icon={<IconList className={iconClass} />}
+                     textColor={theme.itemText}
+                     iconColor={theme.itemIcon}
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
+                 {canAccessGrantLab && (
+                   <SidebarItem
+                     active={view === 'grants'}
+                     onClick={() => handleNav('grants')}
+                     label="Grant Opportunities"
+                     icon={<IconBook className={iconClass} />}
+                     textColor={theme.itemText}
+                     iconColor={theme.itemIcon}
                      hoverClass={theme.itemHover}
                    />
                  )}
