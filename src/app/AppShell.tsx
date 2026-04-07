@@ -306,6 +306,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                    iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
                  />
+                 <SidebarItem
+                   active={view === 'referral_form'}
+                   onClick={() => handleNav('referral_form')}
+                   label="Make a Referral"
+                   icon={<IconExternalLink className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  {canAccessGrantLab && (
                    <SidebarItem
                      active={view === 'grants'}

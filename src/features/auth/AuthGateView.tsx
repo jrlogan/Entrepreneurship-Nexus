@@ -21,6 +21,8 @@ type SignupFormState = {
   email: string;
   password: string;
   ecosystem_id: string;
+  venture_name: string;
+  venture_description: string;
 };
 
 type SignInFormState = {
@@ -71,12 +73,15 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
   const inviteEcosystem = inviteSummary?.ecosystem_id
     ? displayEcosystems.find((ecosystem) => ecosystem.id === inviteSummary.ecosystem_id) || null
     : null;
+  const [showVentureFields, setShowVentureFields] = useState(false);
   const [signupForm, setSignupForm] = useState<SignupFormState>({
     first_name: '',
     last_name: '',
     email: authUserEmail || '',
     password: '',
     ecosystem_id: defaultEcosystemId,
+    venture_name: '',
+    venture_description: '',
   });
 
   useEffect(() => {
@@ -196,11 +201,21 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
         ecosystem_id: inviteEcosystemId || signupForm.ecosystem_id,
         first_name: signupForm.first_name.trim(),
         last_name: signupForm.last_name.trim(),
+        ...(signupForm.venture_name.trim() ? { venture_name: signupForm.venture_name.trim() } : {}),
+        ...(signupForm.venture_description.trim() ? { venture_description: signupForm.venture_description.trim() } : {}),
       });
 
       if (inviteToken) {
-        await callHttpFunction('acceptInvite', { token: inviteToken });
-        try { sessionStorage.removeItem('pending_invite_token'); } catch { /* ignore */ }
+        try {
+          await callHttpFunction('acceptInvite', { token: inviteToken });
+          try { sessionStorage.removeItem('pending_invite_token'); } catch { /* ignore */ }
+        } catch (inviteErr: any) {
+          // Account was created but invite accept failed — redirect anyway and show warning.
+          // The user can retry from inside the app or an admin can adjust their role.
+          setError(`Account created, but the invite could not be applied: ${inviteErr?.message || 'unknown error'}. Please contact your administrator to assign your role, or try signing in again.`);
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       setSuccess('Account created. Reloading your workspace.');
@@ -222,7 +237,18 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
         throw new Error('Email and password are required.');
       }
       await signInWithEmail(signInForm.email.trim(), signInForm.password);
+      if (inviteToken) {
+        try {
+          await callHttpFunction('acceptInvite', { token: inviteToken });
+          try { sessionStorage.removeItem('pending_invite_token'); } catch { /* ignore */ }
+        } catch (inviteErr: any) {
+          setError(`Signed in, but the invite could not be applied: ${inviteErr?.message || 'unknown error'}. Please contact your administrator.`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
       setSuccess('Signed in. Loading your workspace.');
+      window.location.href = '/';
     } catch (err: any) {
       setError(err?.message || 'Unable to sign in.');
     } finally {
@@ -408,21 +434,27 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
               {status === 'unauthenticated' && inviteToken && (
                 <>
                   <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
-                    <div className="mb-3 text-base font-semibold text-indigo-900">
-                      Create account and accept invite
+                    <div className="mb-1 text-base font-semibold text-indigo-900">
+                      New here? Create an account to accept your invite
                     </div>
+                    <div className="mb-3 text-xs text-indigo-700">Fill in your name and choose a password — your email is already set from the invite.</div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <input className="rounded border border-slate-300 px-3 py-2" placeholder="First name" value={signupForm.first_name} onChange={(event) => setSignupForm({ ...signupForm, first_name: event.target.value })} />
                       <input className="rounded border border-slate-300 px-3 py-2" placeholder="Last name" value={signupForm.last_name} onChange={(event) => setSignupForm({ ...signupForm, last_name: event.target.value })} />
-                      <input className="rounded border border-slate-300 bg-slate-50 px-3 py-2 sm:col-span-2 text-slate-600" placeholder="Email" value={signupForm.email} readOnly />
+                      <input
+                        className="rounded border border-slate-300 bg-slate-50 px-3 py-2 sm:col-span-2 text-slate-600"
+                        placeholder={isLoadingInvite ? 'Loading invite details…' : 'Email'}
+                        value={signupForm.email}
+                        readOnly
+                      />
                       <input className="rounded border border-slate-300 px-3 py-2 sm:col-span-2" type="password" placeholder="Password" value={signupForm.password} onChange={(event) => setSignupForm({ ...signupForm, password: event.target.value })} />
                       <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2 text-slate-700">
                         <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Ecosystem</div>
                         <div className="mt-1">{inviteEcosystem?.name || effectiveEcosystemId}</div>
                       </div>
                     </div>
-                    <button className="mt-4 w-full rounded bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting}>
-                      Create account and accept invite
+                    <button className="mt-4 w-full rounded bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting || isLoadingInvite}>
+                      {isLoadingInvite ? 'Loading invite…' : 'Create account and accept invite'}
                     </button>
                     <div className="mt-5 flex items-center gap-3">
                       <div className="h-px flex-1 bg-slate-200" />
@@ -430,24 +462,24 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                       <div className="h-px flex-1 bg-slate-200" />
                     </div>
                     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                      <div className="mb-3 text-sm font-semibold text-slate-900">Already have an account?</div>
-                      <div className="flex gap-2">
+                      <div className="mb-3 text-sm font-semibold text-slate-900">Already have an account? Sign in to accept.</div>
+                      <div className="grid gap-2">
                         <input
-                          className="flex-1 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-slate-600"
-                          placeholder="Email"
+                          className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-slate-600"
+                          placeholder={isLoadingInvite ? 'Loading invite details…' : 'Email'}
                           value={signInForm.email}
                           readOnly
                         />
                         <input
-                          className="flex-1 rounded border border-slate-300 px-3 py-2"
+                          className="rounded border border-slate-300 px-3 py-2"
                           type="password"
                           placeholder="Password"
                           value={signInForm.password}
                           onChange={(event) => setSignInForm({ ...signInForm, password: event.target.value })}
                         />
                       </div>
-                      <button className="mt-3 w-full rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleSignIn} disabled={isSubmitting}>
-                        Sign in and accept invite
+                      <button className="mt-3 w-full rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleSignIn} disabled={isSubmitting || isLoadingInvite}>
+                        {isLoadingInvite ? 'Loading invite…' : 'Sign in and accept invite'}
                       </button>
                     </div>
                   </div>
@@ -535,6 +567,30 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                           {ecosystemOptions}
                         </select>
                       </div>
+                      {!showVentureFields ? (
+                        <button
+                          type="button"
+                          className="mt-3 text-xs text-slate-500 hover:text-slate-700 underline"
+                          onClick={() => setShowVentureFields(true)}
+                        >
+                          + Add your venture details (optional)
+                        </button>
+                      ) : (
+                        <div className="mt-3 grid gap-3">
+                          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                            Tell us about your venture — you can skip this and fill it in later.
+                          </div>
+                          <input className="rounded border border-slate-300 px-3 py-2 text-sm" placeholder="Venture / company name (optional)" value={signupForm.venture_name} onChange={(event) => setSignupForm({ ...signupForm, venture_name: event.target.value })} />
+                          <textarea className="rounded border border-slate-300 px-3 py-2 text-sm" rows={2} placeholder="What are you working on? (optional)" value={signupForm.venture_description} onChange={(event) => setSignupForm({ ...signupForm, venture_description: event.target.value })} />
+                          <button
+                            type="button"
+                            className="text-left text-xs text-slate-400 hover:text-slate-600 underline"
+                            onClick={() => { setShowVentureFields(false); setSignupForm((f) => ({ ...f, venture_name: '', venture_description: '' })); }}
+                          >
+                            Skip venture details
+                          </button>
+                        </div>
+                      )}
                       <button className="mt-4 rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting}>
                         Create entrepreneur account
                       </button>

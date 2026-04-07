@@ -1948,12 +1948,30 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
   const footer = parseFooter(textForParsing);
 
   const footerEmail = typeof footer?.client_email === 'string' ? normalize(footer.client_email) : undefined;
+
+  // Collect known ESO domains for this ecosystem so non-ESO emails in the To field
+  // can be identified as the entrepreneur/client (flexible To+To convention).
+  const esoDomains: string[] = [];
+  if (resolvedEcosystemId) {
+    try {
+      const esoDomainsSnap = await db.collection('authorized_sender_domains')
+        .where('ecosystem_id', '==', resolvedEcosystemId)
+        .get();
+      esoDomainsSnap.forEach((doc) => {
+        const domain = doc.data().domain as string | undefined;
+        if (domain) esoDomains.push(domain.toLowerCase().trim());
+      });
+    } catch { /* non-fatal; fall back to CC-only convention */ }
+  }
+
   const { clientEmail, additionalCcEmails: ccEmails } = extractClientEmail({
     footerEmail,
     ccEmails: payload.cc_emails || [],
+    toEmails: payload.to_emails || [],
     textBody: textForParsing,
     senderEmail,
     routeAddress,
+    esoDomains,
   });
   // Name priority: footer > subject extraction > formatted local part of email
   // e.g. "horst@..." → "Horst", "john.smith@..." → "John Smith"
@@ -2503,6 +2521,21 @@ export const completeSelfSignup = onRequest({ invoker: 'public' }, async (req, r
     const isExistingElevatedRole = existingRole && existingRole !== 'entrepreneur';
     const resolvedRole = isExistingElevatedRole ? existingRole : 'entrepreneur';
 
+    // If entrepreneur provided a venture name, create/find a draft org and link them.
+    const ventureName = (req.body?.venture_name as string | undefined)?.trim() || '';
+    const ventureDescription = (req.body?.venture_description as string | undefined)?.trim() || '';
+    let linkedOrgId = '';
+    if (ventureName) {
+      const orgResult = await upsertDraftOrganization(ventureName, ecosystemId);
+      if (orgResult?.doc?.id) {
+        linkedOrgId = orgResult.doc.id;
+        // Update description if provided and org was just created
+        if (ventureDescription && orgResult.created) {
+          await orgResult.doc.ref.update({ description: ventureDescription });
+        }
+      }
+    }
+
     await personRef.set({
       id: personRef.id,
       auth_uid: decoded.uid,
@@ -2511,7 +2544,8 @@ export const completeSelfSignup = onRequest({ invoker: 'public' }, async (req, r
       email,
       role: '',
       system_role: resolvedRole,
-      primary_organization_id: '',
+      primary_organization_id: linkedOrgId || '',
+      organization_id: linkedOrgId || '',
       ecosystem_id: ecosystemId,
       status: 'active',
       updated_at: now,
@@ -2783,8 +2817,53 @@ export const listInvites = onRequest({ invoker: 'public' }, async (req, res) => 
       return;
     }
 
+    let inviteDocs: FirebaseFirestore.QueryDocumentSnapshot[];
+    if (person.get('system_role') === 'platform_admin') {
+      const snap = await db.collection('invites').limit(50).get();
+      inviteDocs = snap.docs;
+    } else {
+      const scoped = memberships
+        .filter((membership) => ['ecosystem_manager', 'eso_admin'].includes(membership.system_role))
+        .map((membership) => ({ ecosystem_id: membership.ecosystem_id, organization_id: membership.organization_id }));
+
+      const allInvites = await db.collection('invites').limit(100).get();
+      inviteDocs = allInvites.docs.filter((doc) => {
+        const data = doc.data();
+        return scoped.some((scope) =>
+          data.ecosystem_id === scope.ecosystem_id &&
+          (person.get('system_role') === 'ecosystem_manager' || data.organization_id === scope.organization_id)
+        );
+      });
+    }
+
+    // Cross-reference pending invite emails against the people collection so the
+    // UI can flag invites where the person already joined outside the invite flow.
+    const pendingEmails = inviteDocs
+      .filter((doc) => doc.data().status === 'pending')
+      .map((doc) => normalize(doc.data().email as string))
+      .filter(Boolean);
+
+    const emailsInSystem = new Set<string>();
+    const personIdByEmail = new Map<string, string>();
+    if (pendingEmails.length > 0) {
+      // Firestore 'in' queries max 30 items; chunk if needed.
+      const chunks: string[][] = [];
+      for (let i = 0; i < pendingEmails.length; i += 30) {
+        chunks.push(pendingEmails.slice(i, i + 30));
+      }
+      await Promise.all(chunks.map(async (chunk) => {
+        const snap = await db.collection('people').where('email', 'in', chunk).get();
+        snap.forEach((doc) => {
+          const email = normalize(doc.data().email as string);
+          emailsInSystem.add(email);
+          personIdByEmail.set(email, doc.id);
+        });
+      }));
+    }
+
     const sanitizeInvite = (doc: FirebaseFirestore.QueryDocumentSnapshot | FirebaseFirestore.DocumentSnapshot) => {
       const data = doc.data() as InviteRecord;
+      const inviteEmail = normalize(data.email);
       return {
         id: data.id,
         email: data.email,
@@ -2804,30 +2883,13 @@ export const listInvites = onRequest({ invoker: 'public' }, async (req, res) => 
         revoked_at: data.revoked_at || null,
         revoked_by_person_id: data.revoked_by_person_id || null,
         token_last4: data.token_last4 || null,
+        // Flag when the invitee already has a person record (joined outside invite flow)
+        person_in_system: data.status === 'pending' ? emailsInSystem.has(inviteEmail) : false,
+        existing_person_id: data.status === 'pending' ? (personIdByEmail.get(inviteEmail) || null) : null,
       };
     };
 
-    let invitesSnapshot;
-    if (person.get('system_role') === 'platform_admin') {
-      invitesSnapshot = await db.collection('invites').limit(50).get();
-    } else {
-      const scoped = memberships
-        .filter((membership) => ['ecosystem_manager', 'eso_admin'].includes(membership.system_role))
-        .map((membership) => ({ ecosystem_id: membership.ecosystem_id, organization_id: membership.organization_id }));
-
-      const allInvites = await db.collection('invites').limit(100).get();
-      const docs = allInvites.docs.filter((doc) => {
-        const data = doc.data();
-        return scoped.some((scope) =>
-          data.ecosystem_id === scope.ecosystem_id &&
-          (person.get('system_role') === 'ecosystem_manager' || data.organization_id === scope.organization_id)
-        );
-      });
-      res.json({ invites: docs.map((doc) => sanitizeInvite(doc)) });
-      return;
-    }
-
-    res.json({ invites: invitesSnapshot.docs.map((doc) => sanitizeInvite(doc)) });
+    res.json({ invites: inviteDocs.map((doc) => sanitizeInvite(doc)) });
   } catch {
     res.status(401).json({ error: 'Invalid authentication token' });
   }
@@ -2989,6 +3051,136 @@ export const acceptInvite = onRequest({ invoker: 'public' }, async (req, res) =>
     });
 
     res.json({ ok: true, invite_id: invite.id });
+  } catch {
+    res.status(401).json({ error: 'Invalid authentication token' });
+  }
+});
+
+/**
+ * Admin-only: apply a pending invite's role to a person who already joined the system
+ * outside the invite flow. Looks up the person by the invite's email, grants them the
+ * invited role + org membership, updates Firebase claims, and marks the invite accepted.
+ */
+export const applyPendingInvite = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) {
+    return;
+  }
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const token = getBearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  const inviteId = req.body?.invite_id as string | undefined;
+  if (!inviteId) {
+    res.status(400).json({ error: 'invite_id is required' });
+    return;
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    const adminPerson = await db.collection('people').doc(decoded.uid).get();
+    if (!adminPerson.exists) {
+      res.status(403).json({ error: 'No person record found' });
+      return;
+    }
+    const adminRole = adminPerson.get('system_role') as string;
+    if (!['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(adminRole)) {
+      res.status(403).json({ error: 'Insufficient permissions' });
+      return;
+    }
+
+    const inviteDoc = await db.collection('invites').doc(inviteId).get();
+    if (!inviteDoc.exists) {
+      res.status(404).json({ error: 'Invite not found' });
+      return;
+    }
+
+    const invite = inviteDoc.data() as InviteRecord;
+    if (invite.status !== 'pending') {
+      res.status(409).json({ error: `Invite is already ${invite.status}` });
+      return;
+    }
+
+    const existingPerson = await findExistingPersonByEmail(normalize(invite.email));
+    if (!existingPerson) {
+      res.status(404).json({ error: 'No person found with this invite email — they have not joined yet' });
+      return;
+    }
+
+    const personDoc = await existingPerson.ref.get();
+    const personData = personDoc.data() || {};
+    const now = new Date().toISOString();
+
+    // Update person record with invited role + org
+    await existingPerson.ref.set({
+      system_role: invite.invited_role,
+      primary_organization_id: invite.organization_id || personData.primary_organization_id || '',
+      organization_id: invite.organization_id || personData.organization_id || '',
+      ecosystem_id: invite.ecosystem_id || personData.ecosystem_id || '',
+      updated_at: now,
+    }, { merge: true });
+
+    // Create/update the scoped membership
+    const membershipRef = db.collection('person_memberships').doc(
+      `${existingPerson.ref.id}_${invite.ecosystem_id}_${invite.organization_id || 'none'}`
+    );
+    await membershipRef.set({
+      id: membershipRef.id,
+      person_id: existingPerson.ref.id,
+      ecosystem_id: invite.ecosystem_id,
+      organization_id: invite.organization_id,
+      system_role: invite.invited_role,
+      status: 'active',
+      joined_at: now,
+      invited_by_person_id: invite.invited_by_person_id,
+    }, { merge: true });
+
+    // Revoke bare entrepreneur membership if upgrading to org role
+    if (invite.organization_id && invite.invited_role !== 'entrepreneur') {
+      const bareMembershipId = `${existingPerson.ref.id}_${invite.ecosystem_id}_none`;
+      if (bareMembershipId !== membershipRef.id) {
+        const bareMembership = await db.collection('person_memberships').doc(bareMembershipId).get();
+        if (bareMembership.exists && bareMembership.data()?.system_role === 'entrepreneur') {
+          await bareMembership.ref.set({ status: 'revoked', updated_at: now }, { merge: true });
+        }
+      }
+    }
+
+    // Update Firebase custom claims
+    const authUid = personData.auth_uid as string | undefined;
+    if (authUid) {
+      await admin.auth().setCustomUserClaims(authUid, {
+        nexus_role: invite.invited_role,
+        nexus_org_id: invite.organization_id || '',
+        nexus_ecosystem_id: invite.ecosystem_id || '',
+      });
+    }
+
+    // Mark invite accepted
+    await inviteDoc.ref.set({
+      status: 'accepted',
+      accepted_at: now,
+      accepted_by_auth_uid: authUid || null,
+      updated_at: now,
+    }, { merge: true });
+
+    await logAudit('invite_applied_to_existing_person', decoded.uid, {
+      invite_id: invite.id,
+      invited_role: invite.invited_role,
+      organization_id: invite.organization_id,
+      ecosystem_id: invite.ecosystem_id,
+      person_id: existingPerson.ref.id,
+    });
+
+    res.json({ ok: true, person_id: existingPerson.ref.id });
   } catch {
     res.status(401).json({ error: 'Invalid authentication token' });
   }
@@ -5228,4 +5420,120 @@ export const recordOnboardingAcknowledgment = onRequest({ invoker: 'public' }, a
     console.error('recordOnboardingAcknowledgment error', err);
     res.status(500).json({ error: err?.message || 'Internal error' });
   }
+});
+
+// ─── Referral Intake Form ────────────────────────────────────────────────────
+// Called by logged-in ESO staff submitting the dedicated referral intake form.
+// Handles org lookup/upsert so the caller doesn't need to pre-create an org.
+export const submitReferralForm = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const token = getBearerToken(req);
+  if (!token) { res.status(401).json({ error: 'Authentication required' }); return; }
+
+  let uid: string;
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    uid = decoded.uid;
+  } catch {
+    res.status(401).json({ error: 'Invalid authentication token' });
+    return;
+  }
+
+  // Look up person by auth UID
+  const personSnaps = await db.collection('people').where('auth_uid', '==', uid).limit(1).get();
+  if (personSnaps.empty) {
+    res.status(404).json({ error: 'Person record not found' });
+    return;
+  }
+  const personDoc = personSnaps.docs[0];
+  const person = personDoc.data();
+  const referringPersonId = personDoc.id;
+  const referringOrgId: string | null = person.primary_organization_id || person.organization_id || null;
+  const ecosystemId: string = person.primary_ecosystem_id || '';
+
+  const {
+    venture_name,
+    subject_org_id,
+    receiving_org_id,
+    venture_stage,
+    support_needs,
+    contact_name,
+    contact_email,
+    contact_phone,
+    website,
+    notes,
+    allow_intro_contact,
+  } = req.body as Record<string, any>;
+
+  if (!receiving_org_id) {
+    res.status(400).json({ error: 'receiving_org_id is required' });
+    return;
+  }
+
+  // Resolve or upsert the subject org
+  let finalSubjectOrgId: string | null = subject_org_id || null;
+  let finalSubjectOrgName = '';
+  if (!finalSubjectOrgId && venture_name?.trim()) {
+    const orgResult = await upsertDraftOrganization(venture_name.trim(), ecosystemId);
+    if (orgResult?.doc?.id) {
+      finalSubjectOrgId = orgResult.doc.id;
+      finalSubjectOrgName = (orgResult.doc.data() as any)?.name || venture_name.trim();
+      if (website?.trim() && orgResult.created) {
+        await orgResult.doc.ref.update({ website: website.trim(), updated_at: new Date().toISOString() });
+      }
+    }
+  } else if (finalSubjectOrgId) {
+    const snap = await db.collection('organizations').doc(finalSubjectOrgId).get();
+    finalSubjectOrgName = (snap.data() as any)?.name || '';
+  }
+
+  // Build structured notes from form fields
+  const noteLines: string[] = [];
+  if (venture_stage) noteLines.push(`Stage: ${venture_stage}`);
+  if (Array.isArray(support_needs) && support_needs.length > 0) {
+    noteLines.push(`Support Needs: ${(support_needs as string[]).join(', ')}`);
+  }
+  if (website?.trim()) noteLines.push(`Website: ${website.trim()}`);
+  const contactParts = [contact_name, contact_email, contact_phone].filter(Boolean);
+  if (contactParts.length) noteLines.push(`Contact: ${contactParts.join(' · ')}`);
+  if (allow_intro_contact === false) noteLines.push('Note: Do not contact entrepreneur directly without permission.');
+  if (notes?.trim()) {
+    if (noteLines.length > 0) noteLines.push('');
+    noteLines.push(notes.trim());
+  }
+
+  // Create the referral
+  const referralRef = db.collection('referrals').doc();
+  const now = new Date().toISOString();
+  await referralRef.set({
+    id: referralRef.id,
+    ecosystem_id: ecosystemId,
+    referring_org_id: referringOrgId,
+    referring_person_id: referringPersonId,
+    receiving_org_id,
+    subject_org_id: finalSubjectOrgId,
+    subject_person_id: contact_email ? null : 'unknown_person',
+    date: now,
+    status: 'pending',
+    notes: noteLines.join('\n') || '',
+    source: 'manual_ui',
+    created_at: now,
+    updated_at: now,
+  });
+
+  await logAudit('referral_form_submitted', referringPersonId, {
+    referral_id: referralRef.id,
+    subject_org_id: finalSubjectOrgId,
+    receiving_org_id,
+  });
+
+  res.json({
+    ok: true,
+    referral_id: referralRef.id,
+    subject_org_id: finalSubjectOrgId,
+    subject_org_name: finalSubjectOrgName,
+  });
 });

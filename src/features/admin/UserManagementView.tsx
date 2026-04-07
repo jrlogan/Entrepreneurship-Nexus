@@ -142,7 +142,9 @@ export const UserManagementView = ({
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
   const [requestActionError, setRequestActionError] = useState<string | null>(null);
   const [inviteActionError, setInviteActionError] = useState<string | null>(null);
-  const [inviteResult, setInviteResult] = useState<{ invite_url: string } | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ invite_url: string; action?: 'created' | 'resent'; email?: string } | null>(null);
+  const [resentInviteIds, setResentInviteIds] = useState<Set<string>>(new Set());
+  const [applyingInviteId, setApplyingInviteId] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState<InviteFormState>({
     email: '',
     invited_role: 'eso_coach',
@@ -335,7 +337,7 @@ export const UserManagementView = ({
         ecosystem_id: currentInviteEcosystemId,
       };
       const result = await callHttpFunction<InviteFormState, { invite_url: string }>('createInvite', payload);
-      setInviteResult(result);
+      setInviteResult({ ...result, action: 'created', email: payload.email });
       setInviteForm((current) => ({ ...current, email: '', note: '' }));
       await loadInvites();
     } catch (error: any) {
@@ -349,7 +351,8 @@ export const UserManagementView = ({
     setInviteActionError(null);
     try {
       const result = await callHttpFunction<{ invite_id: string }, { invite_url: string }>('resendInvite', { invite_id: invite.id });
-      setInviteResult(result);
+      setInviteResult({ ...result, action: 'resent', email: invite.email });
+      setResentInviteIds((prev) => new Set(prev).add(invite.id));
       await loadInvites();
     } catch (error: any) {
       setInviteActionError(error?.message || 'Unable to resend invite.');
@@ -363,6 +366,21 @@ export const UserManagementView = ({
       await loadInvites();
     } catch (error: any) {
       setInviteActionError(error?.message || 'Unable to revoke invite.');
+    }
+  };
+
+  const handleApplyInvite = async (invite: Invite) => {
+    setInviteActionError(null);
+    setApplyingInviteId(invite.id);
+    try {
+      await callHttpFunction('applyPendingInvite', { invite_id: invite.id });
+      setInviteResult({ invite_url: '', action: 'resent', email: invite.email });
+      await loadInvites();
+      onRefresh?.();
+    } catch (error: any) {
+      setInviteActionError(error?.message || 'Unable to apply invite role.');
+    } finally {
+      setApplyingInviteId(null);
     }
   };
 
@@ -463,10 +481,30 @@ export const UserManagementView = ({
             {inviteActionError && (
               <div className="rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{inviteActionError}</div>
             )}
-            {inviteResult?.invite_url && (
+            {inviteResult && (
               <div className="rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                Invite created:
-                <div className="mt-1 break-all font-mono text-xs">{inviteResult.invite_url}</div>
+                <div className="font-semibold">
+                  {inviteResult.action === 'resent' && !inviteResult.invite_url
+                    ? `Role applied to ${inviteResult.email} — they are now active.`
+                    : inviteResult.action === 'resent'
+                    ? `Email resent to ${inviteResult.email}`
+                    : `Invite created — email sent to ${inviteResult.email}`}
+                </div>
+                {inviteResult.invite_url && (
+                  <>
+                    <div className="mt-2 flex items-center gap-2">
+                      <code className="flex-1 break-all font-mono text-xs bg-white/60 rounded px-2 py-1">{inviteResult.invite_url}</code>
+                      <button
+                        type="button"
+                        onClick={() => void navigator.clipboard.writeText(inviteResult.invite_url)}
+                        className="shrink-0 rounded border border-emerald-300 bg-white px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-100"
+                      >
+                        Copy link
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-emerald-700">Share this link directly if the email doesn&rsquo;t arrive — it opens the invite sign-up page.</p>
+                  </>
+                )}
               </div>
             )}
             <div className="space-y-3">
@@ -489,10 +527,31 @@ export const UserManagementView = ({
                     <div className="mt-2 text-xs text-gray-500">Expires {invite.expires_at}</div>
                     {invite.token_last4 && <div className="mt-1 text-xs text-gray-400">Invite token ends with {invite.token_last4}</div>}
                     {invite.note && <div className="mt-1 text-xs text-gray-500">{invite.note}</div>}
-                    {invite.status === 'pending' && (
-                      <div className="mt-3 flex gap-3 text-sm">
-                        <button onClick={() => void handleResendInvite(invite)} className="font-medium text-indigo-700 hover:text-indigo-900">Resend</button>
+                    {invite.status === 'pending' && invite.person_in_system && (
+                      <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        <div className="font-semibold">Person already in system</div>
+                        <div className="mt-0.5">This person joined without using the invite link. Apply the invite role to grant them the correct access.</div>
+                        <div className="mt-2 flex items-center gap-3">
+                          <button
+                            onClick={() => void handleApplyInvite(invite)}
+                            disabled={applyingInviteId === invite.id}
+                            className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                          >
+                            {applyingInviteId === invite.id ? 'Applying…' : `Apply ${invite.invited_role} role`}
+                          </button>
+                          <button onClick={() => void handleRevokeInvite(invite)} className="font-medium text-rose-700 hover:text-rose-900 text-xs">
+                            Revoke instead
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {invite.status === 'pending' && !invite.person_in_system && (
+                      <div className="mt-3 flex items-center gap-3 text-sm">
+                        <button onClick={() => void handleResendInvite(invite)} className="font-medium text-indigo-700 hover:text-indigo-900">Resend email</button>
                         <button onClick={() => void handleRevokeInvite(invite)} className="font-medium text-rose-700 hover:text-rose-900">Revoke</button>
+                        {resentInviteIds.has(invite.id) && (
+                          <span className="text-xs font-medium text-emerald-700">✓ Email sent</span>
+                        )}
                       </div>
                     )}
                   </div>

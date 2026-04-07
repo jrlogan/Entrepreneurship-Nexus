@@ -102,30 +102,52 @@ const normalize = (val?: string | null): string =>
 
 /**
  * Extracts the entrepreneur's email from an inbound email payload.
- * Convention: To = receiving agency, CC = entrepreneur(s), BCC = inbound system address.
- * Priority: structured footer > CC field > text body scan.
+ * Conventions supported:
+ *   Standard: To = receiving agency (ESO), CC = entrepreneur, BCC = inbound system address.
+ *   Flexible: To may contain both the entrepreneur AND the ESO email — the system detects
+ *             which is which by checking against known ESO domains. Any To email whose
+ *             domain does NOT match a known ESO domain is treated as the client/entrepreneur.
+ * Priority: structured footer > To non-ESO addresses / CC field > text body scan.
  */
 export const extractClientEmail = (opts: {
   footerEmail?: string;
   ccEmails: string[];
+  toEmails?: string[];
   textBody?: string;
   senderEmail: string;
   routeAddress: string;
+  esoDomains?: string[];
 }): { clientEmail: string; additionalCcEmails: string[] } => {
-  const { footerEmail, ccEmails, textBody, senderEmail, routeAddress } = opts;
+  const { footerEmail, ccEmails, toEmails = [], textBody, senderEmail, routeAddress, esoDomains = [] } = opts;
+
+  const normalizedEsoDomains = esoDomains.map((d) => d.toLowerCase().trim());
+
+  const isEsoDomain = (email: string): boolean => {
+    const domain = email.split('@')[1]?.toLowerCase() || '';
+    return normalizedEsoDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
+  };
+
+  const systemAddresses = new Set([normalize(senderEmail), normalize(routeAddress)]);
+
+  // Check To field for non-ESO addresses (entrepreneur in To alongside the ESO)
+  const normalizedTo = toEmails.map(normalize).filter(Boolean);
+  const clientEmailFromTo = normalizedEsoDomains.length > 0
+    ? normalizedTo.find((e) => !systemAddresses.has(e) && !isEsoDomain(e))
+    : undefined;
 
   const normalizedCc = ccEmails.map(normalize).filter(Boolean);
   const clientEmailFromCc = normalizedCc.find(
-    (e) => e !== normalize(senderEmail) && e !== normalize(routeAddress)
+    (e) => !systemAddresses.has(e)
   );
 
   const clientEmail = footerEmail
+    || clientEmailFromTo
     || clientEmailFromCc
     || extractEmails(textBody).find((e) => e !== normalize(senderEmail))
     || '';
 
   const additionalCcEmails = normalizedCc.filter(
-    (e) => e !== normalize(senderEmail) && e !== normalize(routeAddress) && e !== clientEmail
+    (e) => !systemAddresses.has(e) && e !== clientEmail
   );
 
   return { clientEmail, additionalCcEmails };

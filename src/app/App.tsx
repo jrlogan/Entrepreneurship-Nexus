@@ -57,6 +57,7 @@ import { InitiativesView } from '../features/pipelines/InitiativesView';
 import { PipelinesView } from '../features/pipelines/PipelinesView';
 import { InteractionsView } from '../features/interactions/InteractionsView';
 import { ReferralsView } from '../features/referrals/ReferralsView';
+import { ReferralFormView } from '../features/referrals/ReferralFormView';
 import { ReportsView } from '../features/reports/ReportsView';
 import { DataQualityView } from '../features/admin/DataQualityView';
 import { DataStandardsView } from '../features/admin/DataStandardsView';
@@ -89,7 +90,7 @@ import { NEW_HAVEN_ECOSYSTEM as DEFAULT_ECO } from '../data/mockData';
 
 const APP_VIEWS = new Set<ViewMode>([
   'dashboard', 'directory', 'detail', 'pipelines', 'initiatives', 'reports', 'contacts', 'person_detail',
-  'my_clients', 'interactions', 'referrals', 'my_ventures', 'user_management', 'api_console', 'data_quality',
+  'my_clients', 'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
   'journey', 'ecosystem_config', 'scout', 'todos', 'my_org', 'my_projects', 'data_standards',
   'metrics_manager', 'my_metrics_tasks', 'inbound_intake', 'grants',
 ]);
@@ -815,6 +816,13 @@ const App = () => {
                   onSelectPerson={navigateToPerson}
                   onEditMyTemplates={() => applyRoute({ view: 'person_detail', personId: activeUser.id, tab: 'settings', ecosystemId: currentEcosystemId }, 'push')}
                   onRefresh={refreshData}
+                />
+           )}
+           {view === 'referral_form' && (
+                <ReferralFormView
+                  currentUser={activeUser}
+                  organizations={organizations}
+                  onReferralCreated={() => {}}
                 />
            )}
            {view === 'reports' && (

@@ -21,6 +21,9 @@ export interface Invite {
   revoked_at?: string;
   revoked_by_person_id?: string;
   token_last4?: string | null;
+  // Set by listInvites when the invitee already has a person record (joined outside invite flow)
+  person_in_system?: boolean;
+  existing_person_id?: string | null;
 }
 
 export interface InviteSummary {

@@ -208,9 +208,24 @@ export const ReferralsView = ({
                     });
                     await repos.referrals.update(selectedReferral.id, { invite_sent_at: new Date().toISOString() });
                 }
+                // Auto-link subject org as client when accepting
+                if (selectedReferral.subject_org_id) {
+                    const subjectOrg = organizations.find((o: any) => o.id === selectedReferral.subject_org_id);
+                    if (subjectOrg && !subjectOrg.managed_by_ids?.includes(currentOrgId)) {
+                        await repos.organizations.update(selectedReferral.subject_org_id, {
+                            managed_by_ids: [...(subjectOrg.managed_by_ids || []), currentOrgId],
+                        });
+                    }
+                }
+                setFeedbackTone('success');
+                setFeedbackMessage(acceptanceEmailMessage.trim()
+                    ? 'Referral accepted and invite email sent.'
+                    : 'Referral accepted.');
                 setSelectedReferral(null);
                 onRefresh?.();
-            } catch (error) {
+            } catch (error: any) {
+                setFeedbackTone('error');
+                setFeedbackMessage(error?.message || 'Failed to accept referral.');
                 console.error('Failed to accept referral:', error);
             } finally {
                 setIsProcessing(false);
@@ -699,9 +714,10 @@ I'd love to learn more about what you're working on and how we can help. [Add yo
 
                      {showEmailTemplate && (
                          <div className="p-4 space-y-4 bg-white border-t border-slate-200">
-                             <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
-                                 Send this from your own inbox. BCC the tracking address so the system automatically logs the outreach.
-                                 Fill in every <strong>[bracket]</strong> before sending — the referral note can be copied from the specific referral record.
+                             <div className="rounded bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800 space-y-1">
+                                 <p>Send this from your own inbox. BCC the tracking address so the system automatically logs the outreach.</p>
+                                 <p>Fill in every <strong>[bracket]</strong> before sending — the referral note can be copied from the specific referral record.</p>
+                                 <p><strong>To field:</strong> You can put the entrepreneur&rsquo;s email, the receiving ESO&rsquo;s email, or both — the system detects who is who by domain. CC is also fine for either party.</p>
                              </div>
 
                              {/* BCC address */}

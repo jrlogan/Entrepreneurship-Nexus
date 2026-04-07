@@ -169,7 +169,7 @@ export const OrganizationDetailView = ({
     const viewerEsoOrg = organizations.find(o => o.id === viewer.orgId);
     const isEsoViewer = !isOwnOrganization && !isEntrepreneurViewer && !!viewerEsoOrg?.roles?.includes('eso');
     const viewerAlreadyHasConsent = activePolicies.some(p => p.viewerId === viewer.orgId);
-    const canRequestAccessForOrg = isEsoViewer && !viewerAlreadyHasConsent && org.operational_visibility === 'restricted';
+    const canRequestAccessForOrg = isEsoViewer && !viewerAlreadyHasConsent;
     // All ESO orgs available for manager override (not yet granted)
     const allEsoOrgs = organizations.filter(o =>
         o.id !== org.id &&
@@ -1523,60 +1523,48 @@ export const OrganizationDetailView = ({
                               </p>
                               {isManageable && (
                                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
-                                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-                                          <SearchableSelect
-                                              label="Find trusted ESO partner"
-                                              options={availablePartnerOrgs.map(o => ({ id: o.id, label: o.name }))}
-                                              value={selectedPartnerOrgId}
-                                              onChange={setSelectedPartnerOrgId}
-                                              placeholder="Search ESO organizations in this ecosystem..."
-                                          />
-                                          <button
-                                              type="button"
-                                              onClick={handleGrantConsent}
-                                              disabled={!selectedPartnerOrgId}
-                                              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                          >
-                                              Grant Read Access
-                                          </button>
-                                      </div>
-                                      <div className="mt-1">
-                                          <button
-                                              type="button"
-                                              onClick={() => { if (selectedAccessLevel === 'read') setSelectedAccessLevel('write'); else setSelectedAccessLevel('read'); }}
-                                              className="text-xs text-gray-400 hover:text-gray-600 underline"
-                                          >
-                                              {selectedAccessLevel === 'read' ? 'Grant elevated access instead (write / admin)' : 'Back to read access'}
-                                          </button>
+                                      <SearchableSelect
+                                          label="Find trusted ESO partner"
+                                          options={availablePartnerOrgs.map(o => ({ id: o.id, label: o.name }))}
+                                          value={selectedPartnerOrgId}
+                                          onChange={setSelectedPartnerOrgId}
+                                          placeholder="Search ESO organizations in this ecosystem..."
+                                      />
+                                      <div className="space-y-2">
+                                          <div className="text-xs font-medium text-gray-600">Access level to grant:</div>
+                                          <div className="flex gap-2 flex-wrap">
+                                              {(['read', 'write', 'admin'] as const).map((level) => (
+                                                  <button
+                                                      key={level}
+                                                      type="button"
+                                                      onClick={() => setSelectedAccessLevel(level)}
+                                                      className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${
+                                                          selectedAccessLevel === level
+                                                              ? level === 'admin' ? 'border-red-400 bg-red-100 text-red-800'
+                                                              : level === 'write' ? 'border-amber-400 bg-amber-100 text-amber-800'
+                                                              : 'border-indigo-400 bg-indigo-100 text-indigo-800'
+                                                              : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+                                                      }`}
+                                                  >
+                                                      {level.charAt(0).toUpperCase() + level.slice(1)}
+                                                  </button>
+                                              ))}
+                                              <button
+                                                  type="button"
+                                                  onClick={handleGrantConsent}
+                                                  disabled={!selectedPartnerOrgId}
+                                                  className={`ml-auto rounded px-4 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                                                      selectedAccessLevel === 'admin' ? 'bg-red-600 hover:bg-red-700'
+                                                      : selectedAccessLevel === 'write' ? 'bg-amber-600 hover:bg-amber-700'
+                                                      : 'bg-indigo-600 hover:bg-indigo-700'
+                                                  }`}
+                                              >
+                                                  Grant {selectedAccessLevel.charAt(0).toUpperCase() + selectedAccessLevel.slice(1)} Access
+                                              </button>
+                                          </div>
                                           {selectedAccessLevel !== 'read' && (
-                                              <div className="mt-2 space-y-2">
-                                                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                                      <strong>Elevated access</strong> — only grant this to trusted partners. Write allows adding interactions and updates; Admin allows managing data and sharing settings.
-                                                  </div>
-                                                  <div className="flex gap-2">
-                                                      <button
-                                                          type="button"
-                                                          onClick={() => setSelectedAccessLevel('write')}
-                                                          className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${selectedAccessLevel === 'write' ? 'border-amber-400 bg-amber-100 text-amber-800' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}
-                                                      >
-                                                          Write
-                                                      </button>
-                                                      <button
-                                                          type="button"
-                                                          onClick={() => setSelectedAccessLevel('admin')}
-                                                          className={`px-3 py-1.5 rounded border text-xs font-medium transition-colors ${selectedAccessLevel === 'admin' ? 'border-red-400 bg-red-100 text-red-800' : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'}`}
-                                                      >
-                                                          Admin
-                                                      </button>
-                                                      <button
-                                                          type="button"
-                                                          onClick={handleGrantConsent}
-                                                          disabled={!selectedPartnerOrgId}
-                                                          className="ml-auto rounded bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                                      >
-                                                          Grant {selectedAccessLevel.charAt(0).toUpperCase() + selectedAccessLevel.slice(1)} Access
-                                                      </button>
-                                                  </div>
+                                              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                                  <strong>Elevated access</strong> — only grant this to trusted partners. Write allows adding interactions; Admin allows managing data and sharing settings.
                                               </div>
                                           )}
                                       </div>
