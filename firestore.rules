@@ -232,6 +232,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // consent_tokens: written only by Cloud Functions (partnerUpsertPerson / consentAccept).
+    // No client-side read/write — the raw token is in the email link only.
+    match /consent_tokens/{tokenHash} {
+      allow read, write: if false;
+    }
+
+    // oidc_providers: written by partnerRegisterOidcProvider Cloud Function.
+    // ESO operators can read their own org's provider; client_secret is never
+    // returned by the oidcGetProviders HTTP function (server-side only).
+    match /oidc_providers/{providerId} {
+      allow read: if isEsoOperator() || isNetworkAdmin();
+      allow write: if false;
+    }
+
     match /inbound_parse_results/{resultId} {
       allow read: if isNetworkAdmin();
       allow write: if false;

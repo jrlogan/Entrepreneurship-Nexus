@@ -1,0 +1,882 @@
+openapi: 3.1.0
+
+info:
+  title: Entrepreneurship Nexus Partner API
+  version: "1.0"
+  description: |
+    Machine-to-machine API for Entrepreneurial Support Organizations (ESOs) to
+    sync people, organizations, and participation records into the Nexus platform.
+
+    **Authentication** — Every request requires an `X-Nexus-API-Key` header.
+    Keys are issued per ESO via the Nexus admin console. User JWTs are not
+    accepted on these endpoints.
+
+    **Identity resolution** — The API resolves records in this order:
+    1. `external_ref` index lookup (O(1), preferred)
+    2. Email / name match within the ecosystem
+    3. Create a new record
+
+    **Idempotency** — All upsert calls are safe to replay. Repeating the same
+    call updates the existing record rather than creating a duplicate.
+
+    **Consent model** — People created by a partner start with
+    `network_directory_consent: false`. They are visible to ESO staff immediately
+    but do not appear in the shared network directory until they opt in.
+    Pass `send_consent_email: true` on staff-initiated referrals to trigger the
+    opt-in email automatically.
+
+    **OIDC / SSO** — Any ESO can register their own OAuth2/OIDC server via
+    `partnerRegisterOidcProvider`. MakeHaven's Drupal OAuth is just one instance
+    of this generic system. The `oidcExchangeToken` endpoint powers "Sign in
+    with [ESO]" buttons on the Nexus frontend.
+
+  contact:
+    name: Nexus Support
+    url: https://entrepreneurship-nexus.web.app
+
+servers:
+  - url: https://us-central1-entrepreneurship-nexus.cloudfunctions.net
+    description: Production (Firebase Cloud Functions)
+
+security:
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Nexus-API-Key
+      description: |
+        Issued per ESO via the Nexus admin console.
+        Format: `nxk_live_...` (production) or `nxk_test_...` (sandbox).
+
+  schemas:
+
+    ExternalRef:
+      type: object
+      required: [source, id]
+      properties:
+        source:
+          type: string
+          description: |
+            Stable identifier for the external system.
+            Convention: `{org_slug}_{system}`, e.g. `makehaven_civicrm`.
+          example: makehaven_civicrm
+        id:
+          type: string
+          description: Record ID in the external system.
+          example: "12345"
+
+    UpsertPersonRequest:
+      type: object
+      required: [external_ref, ecosystem_id, eso_org_id, first_name, last_name, email]
+      properties:
+        external_ref:
+          $ref: '#/components/schemas/ExternalRef'
+        ecosystem_id:
+          type: string
+          description: Nexus ecosystem ID to place the person in.
+          example: greater-new-haven
+        eso_org_id:
+          type: string
+          description: Nexus org ID of the submitting ESO. Must match the API key owner.
+          example: org_makehaven
+        first_name:
+          type: string
+          example: Ada
+        last_name:
+          type: string
+          example: Lovelace
+        email:
+          type: string
+          format: email
+          example: ada@example.com
+        tags:
+          type: array
+          items:
+            type: string
+          description: Nexus tags to attach on creation or merge in on update.
+          example: [entrepreneur, maker]
+        send_consent_email:
+          type: boolean
+          default: false
+          description: |
+            When true, Nexus immediately sends the network directory opt-in email
+            to the person. Use on staff-initiated referrals. Omit for self-service
+            or update calls.
+
+    UpsertPersonResponse:
+      type: object
+      required: [ok, nexus_id, action]
+      properties:
+        ok:
+          type: boolean
+          example: true
+        nexus_id:
+          type: string
+          description: Stable Nexus person UUID. Store this alongside your local record.
+          example: abc123xyz
+        action:
+          type: string
+          enum: [created, updated, linked]
+          description: |
+            - `created`: new person record was made
+            - `updated`: existing record (found by external_ref) was updated
+            - `linked`: existing person found by email; external_ref was added to their record
+
+    UpsertOrganizationRequest:
+      type: object
+      required: [external_ref, ecosystem_id, eso_org_id, name]
+      properties:
+        external_ref:
+          $ref: '#/components/schemas/ExternalRef'
+        ecosystem_id:
+          type: string
+          example: greater-new-haven
+        eso_org_id:
+          type: string
+          example: org_makehaven
+        name:
+          type: string
+          example: Lovelace Analytics LLC
+        description:
+          type: string
+        email:
+          type: string
+          format: email
+        url:
+          type: string
+          format: uri
+        tax_status:
+          type: string
+          enum: [non_profit, for_profit, government, other]
+          default: other
+        tags:
+          type: array
+          items:
+            type: string
+
+    UpsertOrganizationResponse:
+      type: object
+      required: [ok, nexus_id, action]
+      properties:
+        ok:
+          type: boolean
+        nexus_id:
+          type: string
+        action:
+          type: string
+          enum: [created, updated, linked]
+
+    GetPersonResponse:
+      type: object
+      required: [ok, person]
+      properties:
+        ok:
+          type: boolean
+        person:
+          type: object
+          properties:
+            nexus_id:
+              type: string
+            first_name:
+              type: string
+            last_name:
+              type: string
+            email:
+              type: string
+            status:
+              type: string
+              enum: [active, inactive, draft]
+            tags:
+              type: array
+              items:
+                type: string
+            external_refs:
+              type: array
+              description: Only refs owned by the calling ESO are returned.
+              items:
+                $ref: '#/components/schemas/ExternalRef'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    RegisterWebhookRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: HTTPS endpoint to receive events.
+          example: https://your-crm.example.com/nexus/webhook
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - "interaction.logged"
+              - "referral.received"
+              - "referral.updated"
+              - "organization.created"
+              - "organization.updated"
+              - "*"
+          description: Event types to subscribe to. Use `["*"]` to receive all events.
+          example: [interaction.logged, referral.received, referral.updated]
+        description:
+          type: string
+          example: MakeHaven CiviCRM bridge
+
+    RegisterWebhookResponse:
+      type: object
+      required: [ok, webhook_id, signing_secret]
+      properties:
+        ok:
+          type: boolean
+        webhook_id:
+          type: string
+          example: wh_a1b2c3d4
+        signing_secret:
+          type: string
+          description: |
+            Store immediately — this value is not retrievable again.
+            Use it to verify the `X-Nexus-Signature` header on inbound deliveries:
+            `sha256=HMAC-SHA256(signing_secret, raw_request_body)`
+          example: "whsec_abc123..."
+
+    UpsertParticipationRequest:
+      type: object
+      required: [person_external_ref, ecosystem_id, eso_org_id, participation_type, name, status, start_date]
+      properties:
+        person_external_ref:
+          $ref: '#/components/schemas/ExternalRef'
+          description: Must resolve to an existing Nexus person. Push via partnerUpsertPerson first.
+        participation_external_ref:
+          $ref: '#/components/schemas/ExternalRef'
+          description: |
+            Idempotency key for this participation record. Recommended convention:
+            `{ source: "{your_source}", id: "{contactId}_{participation_type}" }`
+            e.g. `{ source: "makehaven_civicrm", id: "12345_membership" }`
+        ecosystem_id:
+          type: string
+          example: greater-new-haven
+        eso_org_id:
+          type: string
+          example: org_makehaven
+        participation_type:
+          type: string
+          enum: [membership, program, application, residency, rental, event, service]
+          example: membership
+        name:
+          type: string
+          description: Human-readable label for this participation.
+          example: MakeHaven Full Membership
+        status:
+          type: string
+          enum: [active, past, applied, waitlisted]
+          example: active
+        start_date:
+          type: string
+          format: date
+          example: "2024-03-01"
+        end_date:
+          type: string
+          format: date
+          description: Omit for ongoing participations.
+          example: "2025-03-01"
+        description:
+          type: string
+
+    UpsertParticipationResponse:
+      type: object
+      required: [ok, participation_id, action]
+      properties:
+        ok:
+          type: boolean
+        participation_id:
+          type: string
+        action:
+          type: string
+          enum: [created, updated]
+
+    RegisterOidcProviderRequest:
+      type: object
+      required: [ecosystem_id, eso_org_id, display_name, authorization_endpoint, token_endpoint, userinfo_endpoint, client_id, client_secret, scopes]
+      properties:
+        ecosystem_id:
+          type: string
+        eso_org_id:
+          type: string
+        display_name:
+          type: string
+          description: Shown on the "Sign in with …" button.
+          example: MakeHaven
+        logo_url:
+          type: string
+          format: uri
+        authorization_endpoint:
+          type: string
+          format: uri
+          description: Must use HTTPS.
+          example: https://makehaven.org/oauth/authorize
+        token_endpoint:
+          type: string
+          format: uri
+          example: https://makehaven.org/oauth/token
+        userinfo_endpoint:
+          type: string
+          format: uri
+          example: https://makehaven.org/oauth/userinfo
+        client_id:
+          type: string
+        client_secret:
+          type: string
+          description: Stored server-side only. Never returned via API.
+        scopes:
+          type: array
+          items:
+            type: string
+          example: [openid, email, profile]
+
+    OidcGetProvidersResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        providers:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              display_name:
+                type: string
+              logo_url:
+                type: string
+              authorization_endpoint:
+                type: string
+              client_id:
+                type: string
+              scopes:
+                type: array
+                items:
+                  type: string
+
+    OidcExchangeTokenRequest:
+      type: object
+      required: [provider_id, code, redirect_uri, code_verifier]
+      properties:
+        provider_id:
+          type: string
+          description: Nexus OIDC provider ID from oidcGetProviders.
+        code:
+          type: string
+          description: Authorization code returned by the provider after user login.
+        redirect_uri:
+          type: string
+          format: uri
+          description: Must match the redirect_uri used in the authorization request.
+        code_verifier:
+          type: string
+          description: PKCE code verifier (plain; server derives the challenge).
+
+    OidcExchangeTokenResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        firebase_token:
+          type: string
+          description: |
+            Firebase custom token. Pass to `signInWithCustomToken()` on the frontend
+            to obtain a Firebase session. Valid for 1 hour.
+        is_new_user:
+          type: boolean
+          description: True if this is the first Nexus login for this person.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: external_ref.source and external_ref.id are required
+
+    WebhookDelivery:
+      type: object
+      description: |
+        Shape of the JSON body posted to your registered webhook endpoint.
+        Verify with: `sha256=HMAC-SHA256(signing_secret, raw_body)` vs `X-Nexus-Signature` header.
+      properties:
+        id:
+          type: string
+          description: Unique delivery ID.
+        event:
+          type: string
+          enum:
+            - interaction.logged
+            - referral.received
+            - referral.updated
+            - organization.created
+            - organization.updated
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          description: Event-specific payload (see event descriptions below).
+
+paths:
+
+  /partnerUpsertPerson:
+    post:
+      operationId: partnerUpsertPerson
+      summary: Create or update a person
+      description: |
+        Pushes an entrepreneur from your CRM into the Nexus. Safe to call on
+        every contact update — the external_ref makes it idempotent.
+
+        **Call order:** Push the person before pushing any participations for them.
+      tags: [People]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertPersonRequest'
+            example:
+              external_ref:
+                source: makehaven_civicrm
+                id: "12345"
+              ecosystem_id: greater-new-haven
+              eso_org_id: org_makehaven
+              first_name: Ada
+              last_name: Lovelace
+              email: ada@example.com
+              tags: [entrepreneur]
+              send_consent_email: false
+      responses:
+        "200":
+          description: Person updated or linked to existing record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertPersonResponse'
+        "201":
+          description: New person created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertPersonResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+
+  /partnerGetPerson:
+    get:
+      operationId: partnerGetPerson
+      summary: Retrieve a person by external reference
+      description: |
+        Returns the Nexus record for a person identified by your external system ID.
+        Only `external_refs` owned by your ESO are included in the response.
+      tags: [People]
+      parameters:
+        - name: source
+          in: query
+          required: true
+          schema:
+            type: string
+          example: makehaven_civicrm
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "12345"
+      responses:
+        "200":
+          description: Person found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetPersonResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /partnerUpsertOrganization:
+    post:
+      operationId: partnerUpsertOrganization
+      summary: Create or update an organization (entrepreneur's business)
+      description: |
+        Pushes an entrepreneur's business entity into the Nexus. Useful when your
+        CRM tracks the business separately from the person.
+      tags: [Organizations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertOrganizationRequest'
+      responses:
+        "200":
+          description: Organization updated or linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertOrganizationResponse'
+        "201":
+          description: New organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertOrganizationResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+
+  /partnerUpsertParticipation:
+    post:
+      operationId: partnerUpsertParticipation
+      summary: Create or update a participation record
+      description: |
+        Tracks a person's structured involvement with your ESO — memberships,
+        program enrollments, residencies, events, and more.
+
+        **Prerequisite:** The person must already exist in Nexus. Call
+        `partnerUpsertPerson` first.
+
+        **Idempotency:** Supply `participation_external_ref` to ensure repeat calls
+        update the same record. Recommended ID: `{contactId}_{participation_type}`,
+        e.g. `{ source: "makehaven_civicrm", id: "12345_membership" }`.
+
+        **Status transitions:** Set `status: "past"` when participation ends rather
+        than deleting the record — preserves history.
+      tags: [Participations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertParticipationRequest'
+            examples:
+              activate_membership:
+                summary: Mark a membership as active
+                value:
+                  person_external_ref:
+                    source: makehaven_civicrm
+                    id: "12345"
+                  participation_external_ref:
+                    source: makehaven_civicrm
+                    id: "12345_membership"
+                  ecosystem_id: greater-new-haven
+                  eso_org_id: org_makehaven
+                  participation_type: membership
+                  name: MakeHaven Full Membership
+                  status: active
+                  start_date: "2024-03-01"
+              end_membership:
+                summary: Mark a membership as past (lapsed/cancelled)
+                value:
+                  person_external_ref:
+                    source: makehaven_civicrm
+                    id: "12345"
+                  participation_external_ref:
+                    source: makehaven_civicrm
+                    id: "12345_membership"
+                  ecosystem_id: greater-new-haven
+                  eso_org_id: org_makehaven
+                  participation_type: membership
+                  name: MakeHaven Full Membership
+                  status: past
+                  start_date: "2024-03-01"
+                  end_date: "2025-03-01"
+      responses:
+        "200":
+          description: Participation updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertParticipationResponse'
+        "201":
+          description: New participation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpsertParticipationResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          description: Person not found for the given person_external_ref
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /partnerRegisterWebhook:
+    post:
+      operationId: partnerRegisterWebhook
+      summary: Register a webhook endpoint
+      description: |
+        Registers an HTTPS endpoint on your ESO's organization record to receive
+        real-time Nexus events.
+
+        **The `signing_secret` is returned once — store it immediately.** You cannot
+        retrieve it again. Use it to verify inbound deliveries:
+
+        ```
+        sha256 = HMAC-SHA256(signing_secret, raw_request_body)
+        assert "sha256=" + sha256 == X-Nexus-Signature header
+        ```
+
+        **Event delivery** is best-effort with a 10-second timeout. Failed deliveries
+        are logged but not automatically retried.
+      tags: [Webhooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterWebhookRequest'
+      responses:
+        "201":
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterWebhookResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /partnerRegisterOidcProvider:
+    post:
+      operationId: partnerRegisterOidcProvider
+      summary: Register an OIDC/OAuth2 provider for SSO
+      description: |
+        Registers your ESO's OAuth2/OIDC server so entrepreneurs can use "Sign in
+        with [Your ESO]" on the Nexus frontend. The `client_secret` is stored
+        server-side and never returned via API.
+
+        All endpoint URLs must use HTTPS.
+      tags: [SSO / OIDC]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterOidcProviderRequest'
+      responses:
+        "201":
+          description: Provider registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  provider_id:
+                    type: string
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /oidcGetProviders:
+    get:
+      operationId: oidcGetProviders
+      summary: List OIDC providers for an ecosystem
+      description: |
+        Returns public provider info (display name, logo, authorization endpoint,
+        client_id, scopes) for all active OIDC providers in an ecosystem. Used by
+        the Nexus frontend to render "Sign in with …" buttons.
+
+        No API key required — this is a public endpoint.
+      tags: [SSO / OIDC]
+      security: []
+      parameters:
+        - name: ecosystem_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: greater-new-haven
+      responses:
+        "200":
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcGetProvidersResponse'
+
+  /oidcExchangeToken:
+    post:
+      operationId: oidcExchangeToken
+      summary: Exchange an OAuth authorization code for a Firebase session
+      description: |
+        Server-side PKCE code exchange. The frontend generates `code_verifier` and
+        `code_challenge` (S256), sends the user to the provider's authorization
+        endpoint, then posts the returned code here. This endpoint:
+
+        1. Exchanges the code at the provider's `token_endpoint`
+        2. Fetches userinfo to resolve the person's identity
+        3. Finds or creates a Nexus person + Firebase Auth account
+        4. Returns a Firebase custom token
+
+        The frontend calls `signInWithCustomToken(token)` to establish a session.
+
+        No API key required — called from the browser.
+      tags: [SSO / OIDC]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OidcExchangeTokenRequest'
+      responses:
+        "200":
+          description: Firebase custom token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OidcExchangeTokenResponse'
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /consentAccept:
+    get:
+      operationId: consentAccept
+      summary: Accept network directory consent (one-click link)
+      description: |
+        Validates the token from the opt-in email and marks the person's
+        `network_directory_consent` as accepted. Renders an HTML confirmation
+        page with a link to set up their Nexus account.
+
+        No auth required — the token is the credential. Token expires after 30 days.
+      tags: [Consent]
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+          description: Raw 64-hex-character token from the opt-in email link.
+      responses:
+        "200":
+          description: HTML confirmation page (text/html)
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          description: Invalid or expired token (HTML error page)
+          content:
+            text/html:
+              schema:
+                type: string
+
+  # ─── Webhook delivery shape (not an endpoint — documented for receivers) ────
+  x-webhook-events:
+    interaction.logged:
+      description: A new interaction was logged for a person by an ESO.
+      payload:
+        type: object
+        properties:
+          interaction_id: { type: string }
+          ecosystem_id: { type: string }
+          organization_id: { type: string }
+          person_id: { type: string }
+          date: { type: string, format: date }
+          type: { type: string }
+          recorded_by: { type: string }
+          source: { type: string }
+    referral.received:
+      description: A new referral was created where your ESO is the receiving org.
+      payload:
+        type: object
+        properties:
+          referral_id: { type: string }
+          ecosystem_id: { type: string }
+          status: { type: string }
+          referring_org_id: { type: string }
+          receiving_org_id: { type: string }
+          subject_person_id: { type: string }
+          date: { type: string, format: date }
+          intake_type: { type: string }
+    referral.updated:
+      description: Status or notes changed on an existing referral to your ESO.
+      payload:
+        type: object
+        properties:
+          referral_id: { type: string }
+          status: { type: string }
+          referring_org_id: { type: string }
+          receiving_org_id: { type: string }
+          subject_person_id: { type: string }
+
+  responses:
+    BadRequest:
+      description: Missing or invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: X-Nexus-API-Key header required for partner API
+    Forbidden:
+      description: API key org does not match eso_org_id in request body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Record not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+tags:
+  - name: People
+    description: Sync entrepreneur contact records
+  - name: Organizations
+    description: Sync entrepreneur business entities
+  - name: Participations
+    description: Track structured involvement (memberships, programs, events)
+  - name: Webhooks
+    description: Receive real-time Nexus events in your system
+  - name: SSO / OIDC
+    description: "Single sign-on: register your OAuth server and exchange codes for Firebase sessions"
+  - name: Consent
+    description: Network directory opt-in flow

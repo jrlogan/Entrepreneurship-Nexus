@@ -17,12 +17,24 @@
  *
  * Outbound delivery: Firestore triggers on `interactions` and `referrals`
  * fire webhooks to registered URLs, signed with HMAC-SHA256.
+ *
+ * Consent model:
+ * Partner-created people start with network_directory_consent: false so they
+ * don't appear in the shared network directory until the entrepreneur opts in.
+ * ESO staff can see and track them immediately (status: 'active', not 'draft').
+ * Pass send_consent_email: true to trigger an opt-in email to the entrepreneur.
+ *
+ * OIDC / SSO:
+ * Any ESO can register their own OAuth2/OIDC server via partnerRegisterOidcProvider.
+ * MakeHaven's Drupal OAuth is just one instance of this generic system. The
+ * oidcGetProviders and oidcExchangeToken functions power "Sign in with [ESO]"
+ * buttons on the Nexus frontend without requiring Firebase OIDC configuration.
  */
 
 import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { createHmac, randomBytes } from 'crypto';
+import { createHmac, createHash, randomBytes } from 'crypto';
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -55,6 +67,27 @@ interface WebhookRecord {
   status: 'active' | 'inactive' | 'failed';
   created_at: string;
   last_delivery?: string;
+}
+
+/**
+ * OIDC provider config stored in `oidc_providers/{provider_id}`.
+ * client_secret is server-side only — never returned via API.
+ */
+interface OidcProviderRecord {
+  id: string;
+  organization_id: string;
+  ecosystem_id: string;
+  display_name: string;
+  logo_url?: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  userinfo_endpoint: string;
+  client_id: string;
+  client_secret: string;
+  scopes: string[];        // e.g. ['openid', 'email', 'profile']
+  status: 'active' | 'disabled';
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Helpers (mirrors of index.ts utilities; extract to shared.ts in cleanup) ──
@@ -246,6 +279,150 @@ const deliverWebhooksForOrg = async (
   await Promise.allSettled(webhooks.map(wh => deliverToWebhook(wh, event, data)));
 };
 
+// ─── Participation external ref index ────────────────────────────────────────
+
+/**
+ * Writes a lookup entry so the same external participation can be upserted
+ * idempotently. Document ID: "participation:{source}:{id}" — same pattern as
+ * the person/org external ref index.
+ */
+const indexParticipationRef = async (
+  db: FirebaseFirestore.Firestore,
+  ref: ExternalRef,
+  participationId: string
+) => {
+  const docId = `participation:${ref.source}:${ref.id}`;
+  await db.collection('external_ref_index').doc(docId).set({
+    ref_key: `${ref.source}:${ref.id}`,
+    source: ref.source,
+    external_id: ref.id,
+    entity_type: 'participation',
+    entity_id: participationId,
+    indexed_at: new Date().toISOString(),
+  });
+};
+
+const findParticipationByExternalRef = async (
+  db: FirebaseFirestore.Firestore,
+  ref: ExternalRef
+): Promise<{ id: string; data: admin.firestore.DocumentData } | null> => {
+  const docId = `participation:${ref.source}:${ref.id}`;
+  const indexDoc = await db.collection('external_ref_index').doc(docId).get();
+  if (!indexDoc.exists) return null;
+  const participationDoc = await db.collection('participations').doc(indexDoc.get('entity_id') as string).get();
+  if (!participationDoc.exists) return null;
+  return { id: participationDoc.id, data: participationDoc.data()! };
+};
+
+// ─── Consent email helpers ────────────────────────────────────────────────────
+
+/**
+ * Generates a short-lived consent token, persists it, and sends the opt-in
+ * email via Postmark. The token is stored in `consent_tokens/{token_hash}`.
+ *
+ * The email asks the entrepreneur to join the network directory. Clicking the
+ * link calls consentAccept, which sets network_directory_consent: true.
+ * Not clicking leaves the person visible to ESO staff only — nothing breaks.
+ */
+const enqueueConsentEmail = async (
+  db: FirebaseFirestore.Firestore,
+  personId: string,
+  firstName: string,
+  email: string,
+  ecosystemId: string,
+  referringEsoId: string,
+): Promise<void> => {
+  const raw = randomBytes(32).toString('hex');
+  const tokenHash = createHash('sha256').update(raw).digest('hex');
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+  const now = new Date().toISOString();
+
+  await db.collection('consent_tokens').doc(tokenHash).set({
+    token_hash: tokenHash,
+    person_id: personId,
+    ecosystem_id: ecosystemId,
+    referring_eso_id: referringEsoId,
+    email,
+    status: 'pending',
+    created_at: now,
+    expires_at: expiresAt,
+  });
+
+  const baseUrl = process.env.NEXUS_APP_URL?.trim() || 'https://entrepreneurship-nexus.web.app';
+  const consentUrl = `${baseUrl}/consent?token=${raw}`;
+
+  const postmarkToken = process.env.POSTMARK_SERVER_TOKEN?.trim();
+  const fromEmail = process.env.POSTMARK_FROM_EMAIL?.trim();
+  if (!postmarkToken || !fromEmail) {
+    console.warn('Consent email not sent — POSTMARK_SERVER_TOKEN or POSTMARK_FROM_EMAIL not configured');
+    return;
+  }
+
+  const greeting = firstName || 'there';
+
+  // Resolve the ESO's display name for the referral attribution line.
+  let esoName = 'your support organization';
+  try {
+    const orgDoc = await db.collection('organizations').doc(esoOrgId).get();
+    if (orgDoc.exists && orgDoc.get('name')) {
+      esoName = orgDoc.get('name') as string;
+    }
+  } catch {
+    // Non-critical — fallback is fine
+  }
+
+  await fetch('https://api.postmarkapp.com/email', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Postmark-Server-Token': postmarkToken,
+    },
+    body: JSON.stringify({
+      From: fromEmail,
+      To: email,
+      Subject: `${esoName} thinks you'd benefit from regional entrepreneur resources`,
+      TextBody: [
+        `Hi ${greeting},`,
+        '',
+        `${esoName} suggested you might find value in the regional Entrepreneurship Nexus — a network that connects entrepreneurs with business advisors, funding programs, and workshops from organizations across the region.`,
+        '',
+        "Joining gives you access to these resources. It doesn't change anything about your existing relationship with the organizations already supporting you.",
+        '',
+        `Access the Entrepreneurship Nexus:\n${consentUrl}`,
+        '',
+        'Already a MakeHaven member? Click "Sign in with MakeHaven" on that page — your existing account connects automatically, no new password needed.',
+        '',
+        "Not ready yet? No problem — you don't need to do anything and nothing changes.",
+        '',
+        `— ${esoName}`,
+      ].join('\n'),
+      HtmlBody: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><style>
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;margin:0}
+.wrap{max-width:520px;margin:40px auto;background:#fff;border-radius:8px;padding:36px 44px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
+h2{font-size:20px;color:#1a1a2e;margin:0 0 16px}
+p{font-size:15px;color:#374151;line-height:1.6;margin:0 0 16px}
+.btn{display:inline-block;background:#1a1a2e;color:#fff;text-decoration:none;padding:11px 28px;border-radius:6px;font-size:14px;font-weight:600}
+.muted{font-size:13px;color:#6b7280}
+</style></head>
+<body><div class="wrap">
+<h2>Regional resources for entrepreneurs, recommended by ${esoName}</h2>
+<p>Hi ${greeting},</p>
+<p>${esoName} suggested you might find value in the <strong>regional Entrepreneurship Nexus</strong> — a network that connects entrepreneurs with business advisors, funding programs, and workshops from organizations across the region.</p>
+<p>Joining gives you access to these resources. It doesn't change anything about your existing relationship with the organizations already supporting you.</p>
+<p><a class="btn" href="${consentUrl}">Access the Entrepreneurship Nexus</a></p>
+<p class="muted">Already a MakeHaven member? Click <strong>"Sign in with MakeHaven"</strong> on that page — your existing account connects automatically, no new password needed.</p>
+<p class="muted">Not ready yet? No problem — you don't need to do anything and nothing changes.</p>
+</div></body></html>`,
+      MessageStream: process.env.POSTMARK_MESSAGE_STREAM?.trim() || 'outbound',
+    }),
+  }).catch(err => {
+    console.error('Consent email delivery failed:', err?.message);
+  });
+};
+
 // ─── Exported HTTP functions ──────────────────────────────────────────────────
 
 /**
@@ -290,6 +467,7 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
   const lastName = (req.body?.last_name || '').toString().trim();
   const email = normalize(req.body?.email);
   const tags: string[] = Array.isArray(req.body?.tags) ? req.body.tags : [];
+  const sendConsentEmail: boolean = req.body?.send_consent_email === true;
 
   if (!externalRef?.source || !externalRef?.id) {
     res.status(400).json({ error: 'external_ref.source and external_ref.id are required' });
@@ -359,9 +537,14 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
     return;
   }
 
-  // 3. Create new person record (partner-managed; no Firebase Auth account)
+  // 3. Create new person record (partner-managed; no Firebase Auth account yet).
+  //    status: 'active' so ESO staff can track immediately, but the network_profiles
+  //    record starts with network_directory_consent: false so the person doesn't
+  //    appear in the shared network directory until they opt in.
   const personRef = db.collection('people').doc();
-  await personRef.set({
+  const batch = db.batch();
+
+  batch.set(personRef, {
     id: personRef.id,
     first_name: firstName,
     last_name: lastName,
@@ -379,11 +562,32 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
     created_via_api_key_id: authContext.key_id,
     created_by_org_id: esoOrgId,
   });
+
+  // Network profile — hidden from public directory until entrepreneur consents.
+  const profileRef = db.collection('network_profiles').doc(personRef.id);
+  batch.set(profileRef, {
+    person_id: personRef.id,
+    display_name: `${firstName} ${lastName}`.trim(),
+    ecosystem_ids: [ecosystemId],
+    directory_status: 'pending_notice',
+    network_directory_consent: false,
+    network_activity_visibility: false,
+    consent_recorded_at: null,
+    consent_updated_at: now,
+    referring_eso_id: esoOrgId,
+  });
+
+  await batch.commit();
   await indexExternalRef(db, ref, 'person', personRef.id);
   await logAudit(db, 'partner_person_created', authContext.organization_id, {
     nexus_id: personRef.id,
     external_ref: ref,
+    send_consent_email: sendConsentEmail,
   });
+
+  if (sendConsentEmail) {
+    await enqueueConsentEmail(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
+  }
 
   res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created' });
 });
@@ -700,6 +904,161 @@ export const partnerRegisterWebhook = onRequest({ invoker: 'public' }, async (re
 });
 
 
+/**
+ * POST /partnerUpsertParticipation
+ *
+ * Creates or updates a participation record for a person by external system
+ * identifier. Designed for any ESO to track structured, date-ranged involvement
+ * — memberships, program enrollments, rentals, residencies, events, services.
+ *
+ * Idempotency: supply participation_external_ref (same source/id as the person
+ * ref but scoped to this participation type) and the same call can be replayed
+ * safely — it will update the existing record rather than create a duplicate.
+ * Recommended ID convention: "{contactId}_{participation_type}", e.g.
+ * source="makehaven_civicrm", id="12345_membership".
+ *
+ * Required header: X-Nexus-API-Key
+ *
+ * Body:
+ *   person_external_ref          { source, id }  — resolves to Nexus person
+ *   participation_external_ref   { source, id }  — idempotency key (optional)
+ *   ecosystem_id                 string
+ *   eso_org_id                   string          — must match API key org
+ *   participation_type           "membership" | "program" | "application" |
+ *                                "residency" | "rental" | "event" | "service"
+ *   name                         string          — human label, e.g. "MakeHaven Membership"
+ *   status                       "active" | "past" | "applied" | "waitlisted"
+ *   start_date                   string          — ISO date, e.g. "2024-03-01"
+ *   end_date?                    string          — ISO date; omit for ongoing
+ *   description?                 string
+ *
+ * Response:
+ *   { ok: true, participation_id: string, action: "created" | "updated" }
+ */
+export const partnerUpsertParticipation = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const db = admin.firestore();
+  const authContext = await requireApiKey(req, res, db);
+  if (!authContext) return;
+
+  const personExtRef = req.body?.person_external_ref as Partial<ExternalRef> | undefined;
+  const partExtRef = req.body?.participation_external_ref as Partial<ExternalRef> | undefined;
+  const ecosystemId = normalize(req.body?.ecosystem_id);
+  const esoOrgId = normalize(req.body?.eso_org_id) || authContext.organization_id;
+  const participationType = normalize(req.body?.participation_type);
+  const name = (req.body?.name || '').toString().trim();
+  const status = normalize(req.body?.status) || 'active';
+  const startDate = (req.body?.start_date || '').toString().trim();
+  const endDate = (req.body?.end_date || '').toString().trim() || undefined;
+  const description = (req.body?.description || '').toString().trim() || undefined;
+
+  if (!personExtRef?.source || !personExtRef?.id) {
+    res.status(400).json({ error: 'person_external_ref.source and person_external_ref.id are required' });
+    return;
+  }
+  if (!ecosystemId || !participationType || !name || !startDate) {
+    res.status(400).json({ error: 'ecosystem_id, participation_type, name, and start_date are required' });
+    return;
+  }
+  if (authContext.organization_id !== esoOrgId) {
+    res.status(403).json({ error: 'API key organization does not match eso_org_id' });
+    return;
+  }
+
+  const validTypes = ['program', 'application', 'membership', 'residency', 'rental', 'event', 'service'];
+  if (!validTypes.includes(participationType)) {
+    res.status(400).json({ error: `Invalid participation_type. Valid values: ${validTypes.join(', ')}` });
+    return;
+  }
+  const validStatuses = ['active', 'past', 'applied', 'waitlisted'];
+  if (!validStatuses.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Valid values: ${validStatuses.join(', ')}` });
+    return;
+  }
+
+  // Resolve person by external ref.
+  const person = await findByExternalRef(db, { source: personExtRef.source, id: personExtRef.id }, 'person');
+  if (!person) {
+    res.status(404).json({ error: 'No person found for the given person_external_ref. Push the person first via partnerUpsertPerson.' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  // Resolve existing participation via participation_external_ref (if provided).
+  let existing: { id: string; data: admin.firestore.DocumentData } | null = null;
+  const pRef: ExternalRef | null = partExtRef?.source && partExtRef?.id
+    ? { source: partExtRef.source, id: partExtRef.id, owner_org_id: esoOrgId }
+    : null;
+
+  if (pRef) {
+    existing = await findParticipationByExternalRef(db, pRef);
+  }
+
+  if (existing) {
+    await db.collection('participations').doc(existing.id).set(
+      {
+        participation_type: participationType,
+        name,
+        status,
+        start_date: startDate,
+        ...(endDate !== undefined && { end_date: endDate }),
+        ...(description !== undefined && { description }),
+        updated_at: now,
+        updated_via_api_key_id: authContext.key_id,
+      },
+      { merge: true }
+    );
+    await logAudit(db, 'partner_participation_updated', authContext.organization_id, {
+      participation_id: existing.id,
+      person_nexus_id: person.id,
+      participation_type: participationType,
+      status,
+    });
+    res.json({ ok: true, participation_id: existing.id, action: 'updated' });
+    return;
+  }
+
+  // Create new participation record.
+  const participationRef = db.collection('participations').doc();
+  await participationRef.set({
+    id: participationRef.id,
+    ecosystem_id: ecosystemId,
+    provider_org_id: esoOrgId,
+    recipient_person_id: person.id,
+    participation_type: participationType,
+    name,
+    status,
+    start_date: startDate,
+    ...(endDate !== undefined && { end_date: endDate }),
+    ...(description !== undefined && { description }),
+    source: 'external_sync',
+    created_at: now,
+    updated_at: now,
+    updated_via_api_key_id: authContext.key_id,
+  });
+
+  if (pRef) {
+    await indexParticipationRef(db, pRef, participationRef.id);
+  }
+
+  await logAudit(db, 'partner_participation_created', authContext.organization_id, {
+    participation_id: participationRef.id,
+    person_nexus_id: person.id,
+    participation_type: participationType,
+    status,
+  });
+
+  res.status(201).json({ ok: true, participation_id: participationRef.id, action: 'created' });
+});
+
 // ─── Firestore triggers — outbound webhook delivery ───────────────────────────
 
 /**
@@ -769,3 +1128,496 @@ export const onReferralWrittenDeliverWebhooks = onDocumentWritten(
     });
   }
 );
+
+
+// ─── Consent acceptance ───────────────────────────────────────────────────────
+
+const consentConfirmHtml = (title: string, body: string, ctaUrl?: string, ctaLabel?: string) => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title} — Entrepreneurship Nexus</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+    .card{background:#fff;border-radius:10px;padding:40px 48px;max-width:480px;width:100%;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+    h1{font-size:22px;color:#1a1a2e;margin:0 0 12px}
+    p{font-size:15px;color:#374151;line-height:1.6;margin:0 0 24px}
+    a{display:inline-block;background:#1a1a2e;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:14px;font-weight:bold}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    <p>${body}</p>
+    ${ctaUrl ? `<a href="${ctaUrl}">${ctaLabel || 'Continue'}</a>` : ''}
+  </div>
+</body>
+</html>`;
+
+/**
+ * GET /consentAccept?token=<raw_token>
+ *
+ * One-click consent acceptance linked from the opt-in email.
+ * Validates the token, marks the entrepreneur's network_profiles entry as
+ * consented, and renders an HTML confirmation page with a link to set up
+ * their Nexus account. No auth required — the token is the credential.
+ */
+export const consentAccept = onRequest({ invoker: 'public' }, async (req, res) => {
+  setCors(res);
+
+  if (req.method !== 'GET') {
+    res.status(405).send('Method not allowed');
+    return;
+  }
+
+  const rawToken = (req.query?.token as string | undefined)?.trim();
+  if (!rawToken || !/^[0-9a-f]{64}$/.test(rawToken)) {
+    res.status(400).send(consentConfirmHtml(
+      'Invalid link',
+      'This consent link is not valid. Please contact your support organization for a new one.',
+    ));
+    return;
+  }
+
+  const db = admin.firestore();
+  const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  const tokenDoc = await db.collection('consent_tokens').doc(tokenHash).get();
+
+  if (!tokenDoc.exists) {
+    res.status(404).send(consentConfirmHtml(
+      'Link not found',
+      'This link was not found or has already been used.',
+    ));
+    return;
+  }
+
+  const tokenData = tokenDoc.data()!;
+
+  if (tokenData.status === 'used') {
+    const baseUrl = process.env.NEXUS_APP_URL?.trim() || 'https://entrepreneurship-nexus.web.app';
+    res.send(consentConfirmHtml(
+      'Already confirmed',
+      "You've already joined the Entrepreneurship Nexus network directory.",
+      baseUrl,
+      'Go to Nexus',
+    ));
+    return;
+  }
+
+  if (tokenData.expires_at && new Date(tokenData.expires_at) < new Date()) {
+    res.status(410).send(consentConfirmHtml(
+      'Link expired',
+      'This consent link has expired. Please contact your support organization for a new one.',
+    ));
+    return;
+  }
+
+  const personId = tokenData.person_id as string;
+  const ecosystemId = tokenData.ecosystem_id as string;
+  const now = new Date().toISOString();
+
+  // Update network_profiles: person is now in the shared directory.
+  await db.collection('network_profiles').doc(personId).set({
+    network_directory_consent: true,
+    network_activity_visibility: true,
+    directory_status: 'active',
+    consent_recorded_at: now,
+    consent_updated_at: now,
+    consent_granted_via: 'email_link',
+  }, { merge: true });
+
+  // Mark token used.
+  await tokenDoc.ref.set({ status: 'used', used_at: now }, { merge: true });
+
+  await logAudit(db, 'consent_accepted', personId, {
+    person_id: personId,
+    ecosystem_id: ecosystemId,
+    via: 'email_link',
+  });
+
+  const baseUrl = process.env.NEXUS_APP_URL?.trim() || 'https://entrepreneurship-nexus.web.app';
+  res.send(consentConfirmHtml(
+    "You're in!",
+    "You've joined the Entrepreneurship Nexus network directory. Set up your account to connect with support organizations and access resources.",
+    `${baseUrl}/?welcome=1`,
+    'Set up your account',
+  ));
+});
+
+
+// ─── OIDC / SSO — multi-provider OAuth ───────────────────────────────────────
+
+/**
+ * POST /partnerRegisterOidcProvider
+ *
+ * Registers an OAuth2/OIDC server for an ESO so their members can use
+ * "Sign in with [ESO name]" on the Nexus frontend.
+ * MakeHaven's Drupal OAuth is just one instance — any standards-compliant
+ * OAuth2 server with a userinfo endpoint works.
+ *
+ * Required header: X-Nexus-API-Key
+ *
+ * Body:
+ *   display_name           string   — e.g. "Sign in with MakeHaven"
+ *   authorization_endpoint string   — e.g. "https://makehaven.org/oauth/authorize"
+ *   token_endpoint         string   — e.g. "https://makehaven.org/oauth/token"
+ *   userinfo_endpoint      string   — e.g. "https://makehaven.org/oauth/userinfo"
+ *   client_id              string
+ *   client_secret          string
+ *   scopes?                string[] — default: ["openid", "email", "profile"]
+ *   logo_url?              string
+ *
+ * Response:
+ *   { ok: true, provider_id: string }
+ */
+export const partnerRegisterOidcProvider = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const db = admin.firestore();
+  const authContext = await requireApiKey(req, res, db);
+  if (!authContext) return;
+
+  const displayName = (req.body?.display_name || '').toString().trim();
+  const authorizationEndpoint = (req.body?.authorization_endpoint || '').toString().trim();
+  const tokenEndpoint = (req.body?.token_endpoint || '').toString().trim();
+  const userinfoEndpoint = (req.body?.userinfo_endpoint || '').toString().trim();
+  const clientId = (req.body?.client_id || '').toString().trim();
+  const clientSecret = (req.body?.client_secret || '').toString().trim();
+  const scopes: string[] = Array.isArray(req.body?.scopes)
+    ? req.body.scopes
+    : ['openid', 'email', 'profile'];
+  const logoUrl = (req.body?.logo_url || '').toString().trim() || undefined;
+
+  if (!displayName || !authorizationEndpoint || !tokenEndpoint || !userinfoEndpoint || !clientId || !clientSecret) {
+    res.status(400).json({
+      error: 'display_name, authorization_endpoint, token_endpoint, userinfo_endpoint, client_id, and client_secret are required',
+    });
+    return;
+  }
+
+  for (const url of [authorizationEndpoint, tokenEndpoint, userinfoEndpoint]) {
+    if (!url.startsWith('https://')) {
+      res.status(400).json({ error: 'All endpoint URLs must use HTTPS' });
+      return;
+    }
+  }
+
+  // Fetch the organization's ecosystem_id for scoping.
+  const orgDoc = await db.collection('organizations').doc(authContext.organization_id).get();
+  const ecosystemId = (orgDoc.get('ecosystem_ids') as string[] | undefined)?.[0] || '';
+
+  const providerId = `oidc_${authContext.organization_id}`;
+  const now = new Date().toISOString();
+
+  const provider: OidcProviderRecord = {
+    id: providerId,
+    organization_id: authContext.organization_id,
+    ecosystem_id: ecosystemId,
+    display_name: displayName,
+    ...(logoUrl && { logo_url: logoUrl }),
+    authorization_endpoint: authorizationEndpoint,
+    token_endpoint: tokenEndpoint,
+    userinfo_endpoint: userinfoEndpoint,
+    client_id: clientId,
+    client_secret: clientSecret,
+    scopes,
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  };
+
+  await db.collection('oidc_providers').doc(providerId).set(provider);
+  await logAudit(db, 'oidc_provider_registered', authContext.organization_id, {
+    provider_id: providerId,
+    display_name: displayName,
+  });
+
+  res.status(201).json({ ok: true, provider_id: providerId });
+});
+
+
+/**
+ * GET /oidcGetProviders?ecosystem_id=<id>
+ *
+ * Returns the list of active OIDC providers for an ecosystem — the info
+ * the frontend needs to render "Sign in with [ESO]" buttons and initiate
+ * the PKCE flow. client_secret is never included.
+ *
+ * No auth required — this is public metadata.
+ */
+export const oidcGetProviders = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const ecosystemId = normalize(req.query?.ecosystem_id as string);
+  if (!ecosystemId) {
+    res.status(400).json({ error: 'ecosystem_id query parameter is required' });
+    return;
+  }
+
+  const db = admin.firestore();
+  const snap = await db.collection('oidc_providers')
+    .where('ecosystem_id', '==', ecosystemId)
+    .where('status', '==', 'active')
+    .get();
+
+  const providers = snap.docs.map(doc => {
+    const d = doc.data() as OidcProviderRecord;
+    return {
+      provider_id: d.id,
+      organization_id: d.organization_id,
+      display_name: d.display_name,
+      logo_url: d.logo_url || null,
+      authorization_endpoint: d.authorization_endpoint,
+      client_id: d.client_id,
+      scopes: d.scopes,
+      // client_secret intentionally excluded
+    };
+  });
+
+  res.json({ ok: true, providers });
+});
+
+
+/**
+ * POST /oidcExchangeToken
+ *
+ * PKCE token exchange: receives an auth code from the ESO's OAuth server,
+ * exchanges it server-side (using the stored client_secret), retrieves the
+ * user's identity from the userinfo endpoint, finds or creates a Nexus person
+ * record, and returns a Firebase custom token for the frontend to call
+ * signInWithCustomToken() with.
+ *
+ * The frontend does standard PKCE (generates code_verifier/code_challenge,
+ * redirects to authorization_endpoint, receives code in callback). It then
+ * sends the code here rather than exchanging it directly — this keeps the
+ * client_secret server-side only.
+ *
+ * No auth required — the auth code + code_verifier is the credential.
+ *
+ * Body:
+ *   provider_id    string  — from oidcGetProviders
+ *   code           string  — authorization code from OAuth server
+ *   code_verifier  string  — PKCE verifier generated by frontend
+ *   redirect_uri   string  — must match what was sent to authorization_endpoint
+ *
+ * Response:
+ *   { ok: true, firebase_token: string, nexus_id: string, is_new_account: boolean }
+ */
+export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const db = admin.firestore();
+  const providerId = (req.body?.provider_id || '').toString().trim();
+  const code = (req.body?.code || '').toString().trim();
+  const codeVerifier = (req.body?.code_verifier || '').toString().trim();
+  const redirectUri = (req.body?.redirect_uri || '').toString().trim();
+
+  if (!providerId || !code || !codeVerifier || !redirectUri) {
+    res.status(400).json({ error: 'provider_id, code, code_verifier, and redirect_uri are required' });
+    return;
+  }
+
+  // Load provider config.
+  const providerDoc = await db.collection('oidc_providers').doc(providerId).get();
+  if (!providerDoc.exists || providerDoc.get('status') !== 'active') {
+    res.status(404).json({ error: 'OIDC provider not found or inactive' });
+    return;
+  }
+  const provider = providerDoc.data() as OidcProviderRecord;
+
+  // Exchange auth code for tokens at the ESO's token endpoint.
+  let accessToken: string;
+  try {
+    const tokenBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: provider.client_id,
+      client_secret: provider.client_secret,
+      code_verifier: codeVerifier,
+    });
+    const tokenRes = await fetch(provider.token_endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+      body: tokenBody.toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text().catch(() => '');
+      console.error(`OIDC token exchange failed (${tokenRes.status}):`, errBody);
+      res.status(502).json({ error: 'Token exchange with OAuth server failed' });
+      return;
+    }
+    const tokenData = await tokenRes.json() as { access_token?: string };
+    if (!tokenData.access_token) {
+      res.status(502).json({ error: 'No access_token in OAuth server response' });
+      return;
+    }
+    accessToken = tokenData.access_token;
+  } catch (err: any) {
+    console.error('OIDC token exchange error:', err?.message);
+    res.status(502).json({ error: 'Could not reach OAuth server' });
+    return;
+  }
+
+  // Fetch user identity from userinfo endpoint.
+  let userEmail: string;
+  let userFirstName: string;
+  let userLastName: string;
+  try {
+    const infoRes = await fetch(provider.userinfo_endpoint, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!infoRes.ok) {
+      res.status(502).json({ error: 'Userinfo endpoint returned an error' });
+      return;
+    }
+    const info = await infoRes.json() as {
+      email?: string; name?: string;
+      given_name?: string; family_name?: string;
+      field_first_name?: string; field_last_name?: string; // Drupal field names
+    };
+
+    userEmail = normalize(info.email);
+    if (!userEmail) {
+      res.status(502).json({ error: 'Userinfo response did not include an email address' });
+      return;
+    }
+    // Support standard OIDC claims and common Drupal field names.
+    userFirstName = (info.given_name || info.field_first_name || '').toString().trim();
+    userLastName = (info.family_name || info.field_last_name || '').toString().trim();
+    if (!userFirstName && info.name) {
+      const parts = info.name.toString().trim().split(/\s+/);
+      userFirstName = parts[0] || '';
+      userLastName = parts.slice(1).join(' ');
+    }
+  } catch (err: any) {
+    console.error('OIDC userinfo error:', err?.message);
+    res.status(502).json({ error: 'Could not retrieve user info from OAuth server' });
+    return;
+  }
+
+  // Find or create person record by email.
+  const emailSnap = await db.collection('people').where('email', '==', userEmail).limit(1).get();
+
+  let personId: string;
+  let authUid: string;
+  let isNewAccount = false;
+
+  if (!emailSnap.empty) {
+    // Existing person — use their Firebase Auth UID (or create one if missing).
+    const personDoc = emailSnap.docs[0];
+    personId = personDoc.id;
+    authUid = personDoc.get('auth_uid') as string || '';
+
+    if (!authUid) {
+      // Partner-created person who hasn't set up Firebase Auth yet — create a user for them.
+      try {
+        const fbUser = await admin.auth().createUser({ email: userEmail, displayName: `${userFirstName} ${userLastName}`.trim() });
+        authUid = fbUser.uid;
+        await personDoc.ref.set({ auth_uid: authUid, updated_at: new Date().toISOString() }, { merge: true });
+        isNewAccount = true;
+      } catch (err: any) {
+        if (err.code === 'auth/email-already-exists') {
+          // Race condition — fetch existing user.
+          const fbUser = await admin.auth().getUserByEmail(userEmail);
+          authUid = fbUser.uid;
+          await personDoc.ref.set({ auth_uid: authUid, updated_at: new Date().toISOString() }, { merge: true });
+        } else {
+          console.error('Firebase user creation failed:', err?.message);
+          res.status(500).json({ error: 'Could not create account' });
+          return;
+        }
+      }
+    }
+  } else {
+    // No person record — create one (they may have been referred before, or this is first contact).
+    let fbUser;
+    try {
+      fbUser = await admin.auth().createUser({
+        email: userEmail,
+        displayName: `${userFirstName} ${userLastName}`.trim(),
+      });
+    } catch (err: any) {
+      if (err.code === 'auth/email-already-exists') {
+        fbUser = await admin.auth().getUserByEmail(userEmail);
+      } else {
+        console.error('Firebase user creation failed:', err?.message);
+        res.status(500).json({ error: 'Could not create account' });
+        return;
+      }
+    }
+
+    authUid = fbUser.uid;
+    const now = new Date().toISOString();
+    const newPersonRef = db.collection('people').doc(authUid);
+    await newPersonRef.set({
+      id: authUid,
+      auth_uid: authUid,
+      first_name: userFirstName,
+      last_name: userLastName,
+      email: userEmail,
+      system_role: 'entrepreneur',
+      organization_id: '',
+      ecosystem_id: provider.ecosystem_id,
+      memberships: [],
+      external_refs: [],
+      tags: [],
+      status: 'active',
+      source: 'oidc',
+      oidc_provider_id: providerId,
+      created_at: now,
+      updated_at: now,
+    });
+
+    // Network profile — they signed in voluntarily so consent is implicit.
+    await db.collection('network_profiles').doc(authUid).set({
+      person_id: authUid,
+      display_name: `${userFirstName} ${userLastName}`.trim(),
+      ecosystem_ids: [provider.ecosystem_id],
+      directory_status: 'active',
+      network_directory_consent: true,
+      network_activity_visibility: true,
+      consent_recorded_at: now,
+      consent_updated_at: now,
+      consent_granted_via: 'oidc_sso',
+    });
+
+    personId = authUid;
+    isNewAccount = true;
+  }
+
+  // Mint Firebase custom token — frontend calls signInWithCustomToken() with this.
+  const firebaseToken = await admin.auth().createCustomToken(authUid, {
+    nexus_person_id: personId,
+    oidc_provider: providerId,
+  });
+
+  await logAudit(db, 'oidc_signin', personId, {
+    provider_id: providerId,
+    organization_id: provider.organization_id,
+    is_new_account: isNewAccount,
+  });
+
+  res.json({ ok: true, firebase_token: firebaseToken, nexus_id: personId, is_new_account: isNewAccount });
+});

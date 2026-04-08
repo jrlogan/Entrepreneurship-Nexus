@@ -1023,7 +1023,8 @@ const App = () => {
             onSave={async (org, esoDomains) => {
                 setAddOrgError(null);
                 try {
-                const newOrg = { ...org, ecosystem_ids: [currentEcosystemId] };
+                const canSetFunctionalRoles = isPlatformAdmin || currentRole === 'ecosystem_manager';
+                const newOrg = { ...org, ecosystem_ids: [currentEcosystemId], roles: canSetFunctionalRoles ? org.roles : [] };
                 await repos.organizations.add(newOrg);
 
                 if (newOrg.roles.includes('eso') && esoDomains.length > 0) {

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Organization, OrganizationType } from '../../domain/types';
 import { SotsService, SotsBusiness, SotsPrincipal } from '../../services/sotsService';
 import { FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS } from '../../shared/ui/Components';
+import { useViewer } from '../../data/AppDataContext';
 
 const generateId = (prefix: string) => `${prefix}_${Date.now().toString(36)}`;
 
@@ -60,6 +61,9 @@ interface SotsPreview {
 }
 
 export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Organization, esoDomains: string[]) => void, onCancel: () => void, saveError?: string | null }) => {
+    const viewer = useViewer();
+    const isAdmin = viewer.role === 'platform_admin' || viewer.role === 'ecosystem_manager';
+
     // Form State
     const [isSaving, setIsSaving] = useState(false);
     const [name, setName] = useState('');
@@ -342,6 +346,7 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
                     </div>
                 </div>
 
+                {isAdmin && (
                 <div>
                     <label className={FORM_LABEL_CLASS}>Functional Roles <span className="font-normal text-gray-400">(select all that apply)</span></label>
                     <div className="flex flex-wrap gap-4 mt-1">
@@ -363,6 +368,7 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
                         ))}
                     </div>
                 </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -405,7 +411,7 @@ export const AddOrgForm = ({ onSave, onCancel, saveError }: { onSave: (org: Orga
                     />
                 </div>
 
-                {roles.includes('eso') && (
+                {isAdmin && roles.includes('eso') && (
                     <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
                         <div>
                             <label className="block text-xs font-bold text-indigo-800 uppercase tracking-wide mb-1">Email Domains</label>

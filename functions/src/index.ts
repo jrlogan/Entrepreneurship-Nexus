@@ -4540,6 +4540,14 @@ export {
   partnerRegisterWebhook,
   onInteractionCreatedDeliverWebhooks,
   onReferralWrittenDeliverWebhooks,
+  // Consent: opt-in email → one-click acceptance
+  consentAccept,
+  // OIDC/SSO: any ESO can register their OAuth server; MakeHaven is just one instance
+  partnerRegisterOidcProvider,
+  oidcGetProviders,
+  oidcExchangeToken,
+  // Participation: track ESO program/membership participation generically
+  partnerUpsertParticipation,
 } from './partnerApi';
 
 // ─── Referral one-click email actions ───────────────────────────────────────
