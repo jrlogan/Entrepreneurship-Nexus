@@ -269,7 +269,11 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
       setSuccess('Account created. Reloading your workspace.');
       window.location.href = '/';
     } catch (err: any) {
-      setError(err?.message || 'Unable to create entrepreneur account.');
+      if (err?.code === 'auth/email-already-in-use') {
+        setError('An account with this email already exists. Use the "Already have an account?" section below — sign in with your password or with Google.');
+      } else {
+        setError(err?.message || 'Unable to create entrepreneur account.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -543,6 +547,14 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                       </div>
                       <button className="mt-3 w-full rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleSignIn} disabled={isSubmitting || isLoadingInvite}>
                         {isLoadingInvite ? 'Loading invite…' : 'Sign in and accept invite'}
+                      </button>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <span className="text-xs text-slate-400">or</span>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+                      <button className="mt-3 w-full rounded border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" onClick={handleGoogleSignIn} disabled={isSubmitting || isLoadingInvite}>
+                        Sign in with Google and accept invite
                       </button>
                     </div>
                   </div>

@@ -231,7 +231,7 @@ export const EditOrgModal = ({ org, isOpen, onClose, onSave }: EditOrgModalProps
                             </select>
                         </div>
                         <div>
-                            <div className="mb-2 font-medium text-gray-900 text-sm">Functional Roles</div>
+                            <div className="mb-1 font-medium text-gray-900 text-sm">Functional Roles <span className="font-normal text-gray-400">(select all that apply)</span></div>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-700">
                                 {([
                                     ['eso', 'ESO (Support Org)'],
