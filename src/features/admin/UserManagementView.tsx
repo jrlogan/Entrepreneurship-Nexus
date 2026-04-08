@@ -145,6 +145,35 @@ export const UserManagementView = ({
   const [inviteResult, setInviteResult] = useState<{ invite_url: string; action?: 'created' | 'resent'; email?: string } | null>(null);
   const [resentInviteIds, setResentInviteIds] = useState<Set<string>>(new Set());
   const [applyingInviteId, setApplyingInviteId] = useState<string | null>(null);
+
+  // Email activity log
+  type EmailLogEntry = {
+    id: string;
+    type: string;
+    to_email: string | null;
+    status: string;
+    created_at: string | null;
+    sent_at: string | null;
+    failed_at: string | null;
+    last_error: string | null;
+    provider_message_id: string | null;
+  };
+  const [emailLog, setEmailLog] = useState<EmailLogEntry[] | null>(null);
+  const [isLoadingEmailLog, setIsLoadingEmailLog] = useState(false);
+  const [emailLogError, setEmailLogError] = useState<string | null>(null);
+
+  const loadEmailLog = async () => {
+    setIsLoadingEmailLog(true);
+    setEmailLogError(null);
+    try {
+      const result = await callHttpFunction<Record<string, unknown>, { entries: EmailLogEntry[] }>('getEmailLog', {});
+      setEmailLog(result.entries);
+    } catch (err: any) {
+      setEmailLogError(err?.message || 'Failed to load email log.');
+    } finally {
+      setIsLoadingEmailLog(false);
+    }
+  };
   const [inviteForm, setInviteForm] = useState<InviteFormState>({
     email: '',
     invited_role: 'eso_coach',
@@ -671,6 +700,78 @@ export const UserManagementView = ({
         canEditOrganization={canEditUsers}
         onSave={handleSaveUser}
       />
+
+      {/* Email Activity Log */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Email Activity Log</h3>
+            <p className="text-sm text-gray-500">Recent outgoing emails — check here if a user reports not receiving an invite or notification.</p>
+          </div>
+          <button
+            onClick={() => void loadEmailLog()}
+            disabled={isLoadingEmailLog}
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {isLoadingEmailLog ? 'Loading…' : emailLog ? 'Refresh' : 'Load Log'}
+          </button>
+        </div>
+
+        {emailLogError && (
+          <div className="px-6 py-3 text-sm text-rose-700 bg-rose-50 border-b border-rose-100">{emailLogError}</div>
+        )}
+
+        {!emailLog && !isLoadingEmailLog && (
+          <div className="px-6 py-8 text-center text-sm text-gray-400">
+            Click "Load Log" to see recent outgoing email activity.
+          </div>
+        )}
+
+        {emailLog && (
+          <div className="overflow-x-auto">
+            {emailLog.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-gray-400">No email activity found.</div>
+            ) : (
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">To</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sent / Failed</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {emailLog.map((entry) => {
+                    const ts = entry.sent_at || entry.failed_at || entry.created_at;
+                    const displayTime = ts ? new Date(ts).toLocaleString() : '—';
+                    const statusColor =
+                      entry.status === 'sent' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+                      entry.status === 'failed' ? 'text-rose-700 bg-rose-50 border-rose-200' :
+                      'text-amber-700 bg-amber-50 border-amber-200';
+                    return (
+                      <tr key={entry.id} className={entry.status === 'failed' ? 'bg-rose-50/30' : 'hover:bg-gray-50'}>
+                        <td className="px-4 py-3 font-mono text-xs text-gray-700 whitespace-nowrap">{entry.type}</td>
+                        <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{entry.to_email || '—'}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-block rounded border px-2 py-0.5 text-xs font-semibold ${statusColor}`}>
+                            {entry.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">{displayTime}</td>
+                        <td className="px-4 py-3 text-rose-700 text-xs max-w-xs">
+                          {entry.last_error || ''}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -50,7 +50,10 @@ export const callHttpFunction = async <TRequest, TResponse>(name: string, payloa
   const json = await response.json().catch(() => null);
   if (!response.ok) {
     const message = json?.error || `Function ${name} failed`;
-    throw new Error(message);
+    const err = new Error(message) as Error & { status: number; reason?: string };
+    err.status = response.status;
+    err.reason = json?.reason;
+    throw err;
   }
 
   return json as TResponse;

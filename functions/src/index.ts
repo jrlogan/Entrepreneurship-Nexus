@@ -998,6 +998,18 @@ const logAudit = async (action: string, actorId: string, details: Record<string,
 const generateInviteToken = () => randomBytes(24).toString('hex');
 const hashInviteToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
+const humanizeRole = (role: string): string => {
+  const labels: Record<string, string> = {
+    platform_admin: 'Platform Admin',
+    ecosystem_manager: 'Ecosystem Manager',
+    eso_admin: 'ESO Admin',
+    eso_staff: 'ESO Staff',
+    eso_coach: 'Coach',
+    entrepreneur: 'Entrepreneur',
+  };
+  return labels[role] || role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 const isExpired = (isoDate?: string | null) => {
   if (!isoDate) {
     return false;
@@ -1129,7 +1141,7 @@ const renderNoticeContent = (notice: FirebaseFirestore.DocumentData) => {
 
   if (notice.type === 'access_invite') {
     const inviteUrl = notice.payload?.invite_url || getAppBaseUrl();
-    const invitedRole = notice.payload?.invited_role || 'member';
+    const invitedRole = humanizeRole(notice.payload?.invited_role || 'member');
     return {
       subject: 'You have been invited to Entrepreneurship Nexus',
       textBody: [
@@ -2738,11 +2750,15 @@ export const createInvite = onRequest({ invoker: 'public' }, async (req, res) =>
     .get();
   if (!existingQuery.empty) {
     const existing = existingQuery.docs[0].data() as InviteRecord;
-    res.status(409).json({
-      error: `A pending invite for ${email} already exists. Use "Resend" to send another email, or revoke the existing invite first.`,
-      invite_id: existing.id,
-    });
-    return;
+    if (!isExpired(existing.expires_at)) {
+      res.status(409).json({
+        error: `A pending invite for ${email} already exists. Use "Resend" to send another email, or revoke the existing invite first.`,
+        invite_id: existing.id,
+      });
+      return;
+    }
+    // Expired invite — mark it so and fall through to create a fresh one.
+    await existingQuery.docs[0].ref.set({ status: 'expired', updated_at: new Date().toISOString() }, { merge: true });
   }
 
   const token = generateInviteToken();
@@ -2915,7 +2931,10 @@ export const getInviteSummary = onRequest({ invoker: 'public' }, async (req, res
 
   const invite = inviteDoc.data() as InviteRecord;
   if (invite.status !== 'pending' || isExpired(invite.expires_at)) {
-    res.status(410).json({ error: 'Invite is no longer valid' });
+    const reason = invite.status === 'accepted' ? 'already_accepted'
+      : invite.status === 'revoked' ? 'revoked'
+      : 'expired';
+    res.status(410).json({ error: 'Invite is no longer valid', reason });
     return;
   }
 
@@ -2970,8 +2989,13 @@ export const acceptInvite = onRequest({ invoker: 'public' }, async (req, res) =>
       return;
     }
     if (invite.status !== 'pending' || isExpired(invite.expires_at)) {
-      await inviteDoc.ref.set({ status: 'expired', updated_at: new Date().toISOString() }, { merge: true });
-      res.status(410).json({ error: 'Invite is no longer valid' });
+      const reason = invite.status === 'accepted' ? 'already_accepted'
+        : invite.status === 'revoked' ? 'revoked'
+        : 'expired';
+      if (reason === 'expired') {
+        await inviteDoc.ref.set({ status: 'expired', updated_at: new Date().toISOString() }, { merge: true });
+      }
+      res.status(410).json({ error: 'Invite is no longer valid', reason });
       return;
     }
 
@@ -3030,11 +3054,20 @@ export const acceptInvite = onRequest({ invoker: 'public' }, async (req, res) =>
     // Update Firebase custom claims so Firestore security rules reflect the new role immediately
     // rather than waiting for the JWT to expire (up to 1 hour).
     const authUid = existingPersonDoc.data()?.auth_uid || decoded.uid;
-    await admin.auth().setCustomUserClaims(authUid, {
-      nexus_role: invite.invited_role,
-      nexus_org_id: invite.organization_id || '',
-      nexus_ecosystem_id: invite.ecosystem_id || '',
-    });
+    try {
+      await admin.auth().setCustomUserClaims(authUid, {
+        nexus_role: invite.invited_role,
+        nexus_org_id: invite.organization_id || '',
+        nexus_ecosystem_id: invite.ecosystem_id || '',
+      });
+    } catch (claimsErr: any) {
+      console.error('setCustomUserClaims failed during acceptInvite:', claimsErr?.message);
+      res.status(500).json({
+        error: 'Your account was set up but the role could not be applied immediately. Please sign out and sign back in, or contact your administrator.',
+        detail: 'claims_update_failed',
+      });
+      return;
+    }
 
     await inviteDoc.ref.set({
       status: 'accepted',
@@ -5420,6 +5453,65 @@ export const recordOnboardingAcknowledgment = onRequest({ invoker: 'public' }, a
     console.error('recordOnboardingAcknowledgment error', err);
     res.status(500).json({ error: err?.message || 'Internal error' });
   }
+});
+
+// ─── Email Activity Log ──────────────────────────────────────────────────────
+// Returns recent notice_queue records for debugging by ESO admins.
+// Does NOT return payload (email body/tokens) — only diagnostic metadata.
+export const getEmailLog = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const token = getBearerToken(req);
+  if (!token) { res.status(401).json({ error: 'Authentication required' }); return; }
+
+  let uid: string;
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    uid = decoded.uid;
+  } catch {
+    res.status(401).json({ error: 'Invalid authentication token' });
+    return;
+  }
+
+  const personSnaps = await db.collection('people').where('auth_uid', '==', uid).limit(1).get();
+  if (personSnaps.empty) {
+    res.status(404).json({ error: 'Person record not found' });
+    return;
+  }
+  const person = personSnaps.docs[0].data();
+  const role: string = person.system_role || 'entrepreneur';
+  const allowedRoles = ['platform_admin', 'ecosystem_manager', 'eso_admin', 'eso_staff'];
+  if (!allowedRoles.includes(role)) {
+    res.status(403).json({ error: 'Insufficient permissions' });
+    return;
+  }
+
+  const limitParam = Number(req.body?.limit) || 75;
+  const limit = Math.min(limitParam, 200);
+
+  const snapshot = await db.collection('notice_queue')
+    .orderBy('created_at', 'desc')
+    .limit(limit)
+    .get();
+
+  const entries = snapshot.docs.map((doc) => {
+    const d = doc.data();
+    return {
+      id: doc.id,
+      type: d.type || 'unknown',
+      to_email: d.to_email || null,
+      status: d.status || 'queued',
+      created_at: d.created_at || null,
+      sent_at: d.sent_at || null,
+      failed_at: d.failed_at || null,
+      last_error: d.last_error || null,
+      provider_message_id: d.provider_message_id || null,
+    };
+  });
+
+  res.json({ ok: true, count: entries.length, entries });
 });
 
 // ─── Referral Intake Form ────────────────────────────────────────────────────

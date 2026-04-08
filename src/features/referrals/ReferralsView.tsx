@@ -6,6 +6,7 @@ import { EnumSelect } from '../../shared/EnumSelect';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Referral, Person } from '../../domain/types';
 import { CreateReferralModal } from './CreateReferralModal';
+import { ReferralFormView } from './ReferralFormView';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 import { queryCollection, whereEquals } from '../../services/firestoreClient';
 import type { InboundRoute } from '../../domain/inbound/types';
@@ -34,6 +35,7 @@ export const ReferralsView = ({
     
     const [activeTab, setActiveTab] = useState<'incoming' | 'outgoing' | 'all'>('incoming');
     const [filterStatus, setFilterStatus] = useState<string>('all');
+    const [showReferralForm, setShowReferralForm] = useState(false);
     
     // Modal & Action States
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -689,13 +691,31 @@ I'd love to learn more about what you're working on and how we can help. [Add yo
         <div className="space-y-6">
              <div className="flex justify-between items-center">
                  <h2 className="text-2xl font-bold text-gray-800">Referrals</h2>
-                 <button
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                 >
-                    New Referral
-                 </button>
+                 <div className="flex items-center gap-2">
+                     <button
+                        onClick={() => { setShowReferralForm(false); setIsCreateModalOpen(true); }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm font-medium"
+                     >
+                        Quick Referral
+                     </button>
+                     <button
+                        onClick={() => setShowReferralForm(v => !v)}
+                        className={`px-4 py-2 rounded text-sm font-medium border transition-colors ${showReferralForm ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                     >
+                        {showReferralForm ? 'Hide Form' : 'Formal Referral Form'}
+                     </button>
+                 </div>
              </div>
+
+             {showReferralForm && (
+                 <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+                     <ReferralFormView
+                         currentUser={currentUser}
+                         organizations={organizations}
+                         onReferralCreated={() => { setShowReferralForm(false); onRefresh?.(); }}
+                     />
+                 </div>
+             )}
 
              {/* Intro Email Template — for ESO staff to copy into their own email client / CRM */}
              {!isSystemAdmin && currentUser.system_role !== 'entrepreneur' && (

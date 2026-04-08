@@ -36,6 +36,18 @@ const humanizeIdentifier = (value: string) => value
   .trim()
   .replace(/\b\w/g, (char) => char.toUpperCase());
 
+const humanizeRole = (role: string): string => {
+  const labels: Record<string, string> = {
+    platform_admin: 'Platform Admin',
+    ecosystem_manager: 'Ecosystem Manager',
+    eso_admin: 'ESO Admin',
+    eso_staff: 'ESO Staff',
+    eso_coach: 'Coach',
+    entrepreneur: 'Entrepreneur',
+  };
+  return labels[role] || humanizeIdentifier(role);
+};
+
 export const AuthGateView: React.FC<AuthGateViewProps> = ({
   status,
   authUserEmail,
@@ -44,6 +56,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
 }) => {
   const [inviteSummary, setInviteSummary] = useState<InviteSummary | null>(null);
   const [isLoadingInvite, setIsLoadingInvite] = useState(false);
+  const [inviteLoadError, setInviteLoadError] = useState<{ message: string; reason?: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -156,6 +169,7 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
 
     let cancelled = false;
     setIsLoadingInvite(true);
+    setInviteLoadError(null);
     const loadInvite = async () => {
       try {
         const summary = await callHttpFunction<{ token: string }, InviteSummary>('getInviteSummary', { token: inviteToken });
@@ -164,8 +178,17 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
         }
       } catch (err: any) {
         if (!cancelled) {
-          // Don't block the page — show a soft warning
-          console.warn('Could not load invite summary:', err?.message);
+          const reason: string | undefined = err?.reason;
+          const message = reason === 'already_accepted'
+            ? 'This invite has already been used. If you have an account, sign in below.'
+            : reason === 'revoked'
+            ? 'This invite has been revoked. Please contact your administrator for a new one.'
+            : reason === 'expired' || err?.status === 410
+            ? 'This invite link has expired. Please contact your administrator for a new one.'
+            : err?.status === 404
+            ? 'This invite link is not valid. It may have already been used or the link is incorrect.'
+            : 'Your invite details could not be loaded. Check your connection, or contact your administrator.';
+          setInviteLoadError({ message, reason });
         }
       } finally {
         if (!cancelled) setIsLoadingInvite(false);
@@ -270,7 +293,12 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
         try {
           await callHttpFunction('acceptInvite', { token: inviteToken });
           try { sessionStorage.removeItem('pending_invite_token'); } catch { /* ignore */ }
-        } catch { /* non-fatal */ }
+        } catch (inviteErr: any) {
+          // Non-fatal but visible — user signed in but may not have their invited role.
+          setError(`Signed in, but your invite could not be applied: ${inviteErr?.message || 'unknown error'}. Please contact your administrator to assign your role.`);
+          setIsSubmitting(false);
+          return;
+        }
       }
       setSuccess('Signed in. Loading your workspace.');
       window.location.href = '/';
@@ -363,9 +391,13 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                   <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">Welcome to the Entrepreneurship Nexus</h1>
                   {isLoadingInvite ? (
                     <p className="max-w-2xl text-lg leading-8 text-slate-300">Loading your invitation details&hellip;</p>
+                  ) : inviteLoadError ? (
+                    <div className="max-w-2xl rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-rose-200">
+                      <span className="font-semibold text-rose-100">Invite issue: </span>{inviteLoadError.message}
+                    </div>
                   ) : inviteSummary ? (
                     <p className="max-w-2xl text-lg leading-8 text-slate-300">
-                      You&rsquo;ve been invited to join as <strong className="text-white">{inviteSummary.invited_role}</strong>
+                      You&rsquo;ve been invited to join as <strong className="text-white">{humanizeRole(inviteSummary.invited_role)}</strong>
                       {inviteSummary.email ? <> for <strong className="text-white">{inviteSummary.email}</strong></> : ''}.
                       {' '}Create your account below to get started, or sign in if you already have one.
                     </p>
