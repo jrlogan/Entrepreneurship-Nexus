@@ -68,6 +68,7 @@ import { MetricsManagerView } from '../features/admin/MetricsManagerView';
 import { InboundIntakeView } from '../features/admin/InboundIntakeView';
 import { PlatformAdminView } from '../features/admin/PlatformAdminView';
 import { AuthGateView } from '../features/auth/AuthGateView';
+import { AgreementGate } from '../shared/ui/AgreementGate';
 import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
 import { VentureScoutView } from '../features/scout/VentureScoutView';
@@ -212,9 +213,8 @@ const App = () => {
     };
   }, [pendingInviteToken]);
 
-  // Onboarding acknowledgment — shown once per entrepreneur per ecosystem
-  const [showAcknowledgmentModal, setShowAcknowledgmentModal] = useState(false);
-  const [isSubmittingAck, setIsSubmittingAck] = useState(false);
+  // Agreement gate — shown to users who have not yet accepted required agreements
+  const [pendingAgreementType, setPendingAgreementType] = useState<import('../domain/agreements/types').AgreementType | null>(null);
 
   // Context Management
   const [currentEcosystemId, setCurrentEcosystemId] = useState<string>(initialRoute.ecosystemId || demoUser.memberships?.[0]?.ecosystem_id || DEFAULT_ECO.id);
@@ -237,6 +237,60 @@ const App = () => {
     || activeOrganizationAffiliations[0]?.organization_id
     || activeUser?.organization_id
     || '';
+
+  const [ecosystemOverrides, setEcosystemOverrides] = useState<Record<string, Partial<Ecosystem>>>(() => {
+    // Seed from localStorage immediately (works in all environments)
+    const initial: Record<string, Partial<Ecosystem>> = {};
+    ALL_ECOSYSTEMS.forEach(eco => {
+      try {
+        const raw = localStorage.getItem(`eco_override_${eco.id}`);
+        if (raw) initial[eco.id] = JSON.parse(raw);
+      } catch {}
+    });
+    return initial;
+  });
+  useEffect(() => {
+    // Overlay with Firestore data when available (production)
+    if (isEmulatorMode) return;
+    ALL_ECOSYSTEMS.forEach(eco => {
+      getDocument('ecosystems', eco.id).then(doc => {
+        if (doc) setEcosystemOverrides(prev => ({ ...prev, [eco.id]: doc as Partial<Ecosystem> }));
+      }).catch(() => {});
+    });
+  }, []);
+
+  const baseEcosystem = ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId) || DEFAULT_ECO;
+  const override = ecosystemOverrides[currentEcosystemId] || {};
+  const currentEcosystem: Ecosystem = {
+    ...baseEcosystem,
+    ...override,
+    settings: {
+      ...baseEcosystem.settings,
+      ...(override.settings || {}),
+      // Deep-merge feature_flags so a partial override doesn't wipe base flags
+      feature_flags: {
+        ...(baseEcosystem.settings.feature_flags || {}),
+        ...(override.settings?.feature_flags || {}),
+      },
+    },
+  };
+  const featureFlags = currentEcosystem.settings.feature_flags || {};
+  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
+  const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
+  const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
+  const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
+  const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
+  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
+  const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
+  const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
+  const isPlatformAdmin = currentRole === 'platform_admin';
+  const canAccessApiConsole = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.api_console === true);
+  const canAccessDataQuality = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_quality === true);
+  const canAccessDataStandards = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_standards === true);
+  const canAccessMetricsManager = (isPlatformAdmin || currentRole === 'ecosystem_manager') && featureFlags.metrics_manager === true;
+  const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
+  const canAccessGrantLab = featureFlags.grant_lab === true;
+  const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
     if (!activeUser) {
@@ -289,10 +343,10 @@ const App = () => {
       return;
     }
 
-    if (currentRole !== 'entrepreneur' && (view === 'dashboard' || view === 'my_ventures')) {
+    if (currentRole !== 'entrepreneur' && (view === 'my_ventures' || (view === 'dashboard' && !canAccessDashboard))) {
       setView('referrals');
     }
-  }, [activeUser, currentRole, view]);
+  }, [activeUser, canAccessDashboard, currentRole, view]);
 
   const viewerContext: ViewerContext | null = useMemo(() => {
     if (!activeUser) {
@@ -351,27 +405,22 @@ const App = () => {
             }
           } catch { /* non-fatal — invite may already be accepted or expired */ }
 
-          // Show onboarding acknowledgment modal for entrepreneurs who haven't seen it yet
-          if (matchedUser.system_role === 'entrepreneur' && !CONFIG.IS_DEMO_MODE) {
+          // Check agreement acceptance for roles that require it
+          if (!CONFIG.IS_DEMO_MODE && isFirebaseEnabled() && session.authUser?.uid) {
             try {
-              const effectiveEcosystemId = matchedUser.memberships?.some((membership) => membership.ecosystem_id === currentEcosystemId)
+              const { REQUIRED_AGREEMENTS } = await import('../domain/agreements/types');
+              const { FirebaseAgreementsRepo } = await import('../data/repos/firebase/agreements');
+              const effectiveEcosystemId = matchedUser.memberships?.some((m) => m.ecosystem_id === currentEcosystemId)
                 ? currentEcosystemId
                 : (matchedUser.memberships?.[0]?.ecosystem_id || currentEcosystemId || 'default');
-              const ackKey = `nexus_ack_${matchedUser.id}_${effectiveEcosystemId}`;
-              let alreadyAcked = Boolean(sessionStorage.getItem(ackKey) || localStorage.getItem(ackKey));
-              if (!alreadyAcked && isFirebaseEnabled()) {
-                const persistedAck = await getDocument<Record<string, unknown>>('consent_events', `ack_${matchedUser.id}_${effectiveEcosystemId}`);
-                if (persistedAck) {
-                  const acknowledgedAt = typeof persistedAck.timestamp === 'string' ? persistedAck.timestamp : new Date().toISOString();
-                  try {
-                    sessionStorage.setItem(ackKey, acknowledgedAt);
-                    localStorage.setItem(ackKey, acknowledgedAt);
-                  } catch { /* ignore storage errors */ }
-                  alreadyAcked = true;
-                }
+              const required = REQUIRED_AGREEMENTS[matchedUser.system_role] || [];
+              if (required.length > 0) {
+                const repo = new FirebaseAgreementsRepo();
+                const accepted = await repo.getAcceptedTypes(session.authUser.uid, effectiveEcosystemId);
+                const missing = required.find((type) => !accepted.has(type));
+                setPendingAgreementType(missing || null);
               }
-              setShowAcknowledgmentModal(!alreadyAcked);
-            } catch { /* ignore storage errors */ }
+            } catch { /* non-fatal — don't block access if check fails */ }
           }
         }
       } finally {
@@ -551,60 +600,6 @@ const App = () => {
       inviteToken: pendingInviteToken || undefined,
     }, 'replace');
   }, [view, selectedOrgId, selectedPersonId, selectedTab, currentEcosystemId, pendingInviteToken]);
-
-  const [ecosystemOverrides, setEcosystemOverrides] = useState<Record<string, Partial<Ecosystem>>>(() => {
-    // Seed from localStorage immediately (works in all environments)
-    const initial: Record<string, Partial<Ecosystem>> = {};
-    ALL_ECOSYSTEMS.forEach(eco => {
-      try {
-        const raw = localStorage.getItem(`eco_override_${eco.id}`);
-        if (raw) initial[eco.id] = JSON.parse(raw);
-      } catch {}
-    });
-    return initial;
-  });
-  useEffect(() => {
-    // Overlay with Firestore data when available (production)
-    if (isEmulatorMode) return;
-    ALL_ECOSYSTEMS.forEach(eco => {
-      getDocument('ecosystems', eco.id).then(doc => {
-        if (doc) setEcosystemOverrides(prev => ({ ...prev, [eco.id]: doc as Partial<Ecosystem> }));
-      }).catch(() => {});
-    });
-  }, []);
-
-  const baseEcosystem = ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId) || DEFAULT_ECO;
-  const override = ecosystemOverrides[currentEcosystemId] || {};
-  const currentEcosystem: Ecosystem = {
-    ...baseEcosystem,
-    ...override,
-    settings: {
-      ...baseEcosystem.settings,
-      ...(override.settings || {}),
-      // Deep-merge feature_flags so a partial override doesn't wipe base flags
-      feature_flags: {
-        ...(baseEcosystem.settings.feature_flags || {}),
-        ...(override.settings?.feature_flags || {}),
-      },
-    },
-  };
-  const featureFlags = currentEcosystem.settings.feature_flags || {};
-  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-  const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
-  const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
-  const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
-  const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
-  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
-  const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
-  const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
-  const isPlatformAdmin = currentRole === 'platform_admin';
-  const canAccessApiConsole = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.api_console === true);
-  const canAccessDataQuality = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_quality === true);
-  const canAccessDataStandards = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_standards === true);
-  const canAccessMetricsManager = (isPlatformAdmin || currentRole === 'ecosystem_manager') && featureFlags.metrics_manager === true;
-  const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
-  const canAccessGrantLab = featureFlags.grant_lab === true;
-  const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
     const viewFeatureBlocked =
@@ -984,50 +979,16 @@ const App = () => {
       </AppShell>
 
       {/* Onboarding Data-Sharing Acknowledgment */}
-      {showAcknowledgmentModal && activeUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
-            <div className="border-b border-gray-100 px-6 py-5">
-              <h2 className="text-lg font-bold text-gray-900">Welcome to {currentEcosystem?.name || 'Entrepreneurship Nexus'}</h2>
-              <p className="mt-1 text-sm text-gray-500">A quick note about your data and privacy</p>
-            </div>
-            <div className="px-6 py-5 space-y-4 text-sm text-gray-700">
-              <p>When you work with organizations in this ecosystem, they may record interactions, referrals, and notes related to your business. Here's what you should know:</p>
-              <ul className="space-y-2 pl-4">
-                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Basic profile</strong> — your name, business, and contact info are visible to organizations you work with in this ecosystem.</span></li>
-                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Interaction records</strong> — each organization only sees their own notes and activity with you by default.</span></li>
-                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Cross-organization sharing</strong> — you control whether partner organizations can see each other's records. You'll be asked to approve any such requests.</span></li>
-                <li className="flex gap-2"><span className="text-indigo-500 font-bold">•</span><span><strong>Your rights</strong> — you can review all sharing activity and request data removal at any time from your business privacy settings.</span></li>
-              </ul>
-              <p className="text-xs text-gray-500 border-t border-gray-100 pt-3">By continuing, you acknowledge that organizations in this ecosystem may record interactions with your business as described above.</p>
-            </div>
-            <div className="flex justify-end gap-3 border-t border-gray-100 px-6 py-4">
-              <button
-                type="button"
-                disabled={isSubmittingAck}
-                onClick={async () => {
-                  setIsSubmittingAck(true);
-                  try {
-                    await callHttpFunction('recordOnboardingAcknowledgment', {
-                      ecosystem_id: currentEcosystemId,
-                      organization_id: currentOrgId || activeUser.organization_id || undefined,
-                    });
-                    const ackKey = `nexus_ack_${activeUser.id}_${currentEcosystemId}`;
-                    try {
-                      const now = new Date().toISOString();
-                      sessionStorage.setItem(ackKey, now);
-                      localStorage.setItem(ackKey, now);
-                    } catch { /* ignore */ }
-                  } catch { /* non-fatal */ }
-                  setIsSubmittingAck(false);
-                  setShowAcknowledgmentModal(false);
-                }}
-                className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {isSubmittingAck ? 'Saving…' : 'I understand, continue'}
-              </button>
-            </div>
-          </div>
+      {pendingAgreementType && activeUser && session.authUser && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <AgreementGate
+            agreementType={pendingAgreementType}
+            authUid={session.authUser.uid}
+            personId={activeUser.id}
+            ecosystemId={currentEcosystemId}
+            ecosystemName={currentEcosystem?.name}
+            onAccepted={() => setPendingAgreementType(null)}
+          />
         </div>
       )}
 

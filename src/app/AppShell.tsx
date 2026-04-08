@@ -201,8 +201,8 @@ export const AppShell: React.FC<AppShellProps> = ({
                     onClick={() => setIsEcoDropdownOpen(!isEcoDropdownOpen)}
                     className="w-full flex items-center justify-between text-left text-xs bg-black/20 hover:bg-black/30 text-white rounded px-2 py-1.5 transition"
                  >
-                     <span className="truncate">{currentEcosystem.name}</span>
-                     {availableEcosystems.length > 1 && <span className="ml-1 text-[10px]">▼</span>}
+                     <span className="truncate" title={currentEcosystem.name}>{currentEcosystem.name}</span>
+                     {availableEcosystems.length > 1 && <svg className="ml-1 w-3 h-3 shrink-0 opacity-70" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>}
                  </button>
                  
                  {isEcoDropdownOpen && availableEcosystems.length > 1 && (
@@ -221,7 +221,7 @@ export const AppShell: React.FC<AppShellProps> = ({
              </div>
 
              {/* Acting As Context */}
-             <div className="mt-3 text-[10px] uppercase tracking-wider text-gray-400 font-bold">
+             <div className="mt-3 text-[10px] uppercase tracking-wider text-gray-300 font-bold">
                  Acting On Behalf Of
              </div>
              <div className="relative mt-1">
@@ -235,10 +235,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                      ) : (
                         <div className="w-6 h-6 rounded bg-white/10 flex items-center justify-center text-[10px] font-bold text-white/80">ORG</div>
                      )}
-                     <div className={`text-sm font-medium ${theme.itemText} truncate flex-1`}>
+                     <div className={`text-sm font-medium ${theme.itemText} truncate flex-1`} title={actingContextLabel}>
                          {actingContextLabel}
                      </div>
-                     {actingOrganizations.length > 1 && <span className={`text-[10px] ${theme.headerSub}`}>▼</span>}
+                     {actingOrganizations.length > 1 && <svg className={`w-3 h-3 shrink-0 opacity-70 ${theme.headerSub}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>}
                  </button>
                  {actingOrganizationId && onSelectOrganization && (
                      <button
@@ -279,10 +279,21 @@ export const AppShell: React.FC<AppShellProps> = ({
              {/* ESO / Admin Common Views */}
              {!isClient && (
                 <>
-                    <SidebarItem 
-                    active={view === 'directory'} 
-                    onClick={() => handleNav('directory')} 
-                    label="Organizations" 
+                    {canAccessDashboard && (
+                      <SidebarItem
+                        active={view === 'dashboard'}
+                        onClick={() => handleNav('dashboard')}
+                        label="Dashboard"
+                        icon={<IconDashboard className={iconClass} />}
+                        textColor={theme.itemText}
+                        iconColor={theme.itemIcon}
+                        hoverClass={theme.itemHover}
+                      />
+                    )}
+                    <SidebarItem
+                    active={view === 'directory'}
+                    onClick={() => handleNav('directory')}
+                    label="Organizations"
                     icon={<IconBuilding className={iconClass} />} 
                     textColor={theme.itemText} 
                     iconColor={theme.itemIcon} 
@@ -322,17 +333,6 @@ export const AppShell: React.FC<AppShellProps> = ({
                    <>
                      {(canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives || canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout) && (
                        <>
-                         {canAccessDashboard && (
-                           <SidebarItem 
-                           active={view === 'dashboard'} 
-                           onClick={() => handleNav('dashboard')} 
-                           label="Dashboard" 
-                           icon={<IconDashboard className={iconClass} />} 
-                           textColor={theme.itemText} 
-                           iconColor={theme.itemIcon} 
-                           hoverClass={theme.itemHover}
-                           />
-                         )}
                          {canAccessTasksAdvice && (
                            <SidebarItem 
                            active={view === 'todos'} 
@@ -595,13 +595,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                >
                  <Avatar src={user.avatar_url} name={`${user.first_name} ${user.last_name}`} size="sm" />
                  <div className="min-w-0 overflow-hidden">
-                   <div className="text-sm font-medium text-white truncate">{user.first_name} {user.last_name}</div>
+                   <div className="text-sm font-medium text-white truncate" title={`${user.first_name} ${user.last_name}`}>{user.first_name} {user.last_name}</div>
                    <div className="flex items-center gap-1">
                      <span className={`inline-block w-2 h-2 rounded-full ${theme.contextColor}`}></span>
                      <div className={`text-xs truncate ${theme.headerSub}`}>{currentRole.replace('_', ' ')}</div>
                    </div>
                  </div>
-                 <div className={`ml-auto text-xs ${theme.headerSub}`}>{isDemoMode ? '⇄' : isAccountMenuOpen ? '▲' : '▼'}</div>
+                 <div className={`ml-auto opacity-70 ${theme.headerSub}`}>
+                   {isDemoMode ? '⇄' : <svg className={`w-3.5 h-3.5 transition-transform ${isAccountMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>}
+                 </div>
                </button>
                {!isDemoMode && isAccountMenuOpen && (
                  <div className="mt-2 rounded-xl border border-white/10 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">

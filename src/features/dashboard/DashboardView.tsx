@@ -11,6 +11,7 @@ import type { Initiative } from '../../domain/pipelines/types';
 import type { Referral } from '../../domain/referrals/types';
 
 import { Ecosystem } from '../../domain/ecosystems/types';
+import { CONFIG } from '../../app/config';
 
 export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) => {
     const repos = useRepos();
@@ -191,6 +192,7 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
     }, [isEntrepreneur, organizations, viewer.orgId]);
 
     const activityTitle = isEntrepreneur ? "My Recent Activity" : isEso ? "My Organization's Activity" : "Recent Network Activity";
+    const isDemoMode = CONFIG.IS_DEMO_MODE;
 
     return (
         <div className="space-y-6">
@@ -203,31 +205,28 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
                 ))}
             </div>
 
-            {/* Ecosystem Impact Card (Admin/ESO only) */}
-            {(isEcoManager || isEso) && (
+            {/* Ecosystem Impact Card (Admin/ESO only) — metrics are mock-only; hide in production */}
+            {isDemoMode && (isEcoManager || isEso) && (
                 <Card title={isEcoManager ? "Ecosystem Impact" : "Portfolio Impact"}>
                     <div className="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-gray-100">
                         <div className="flex-1 p-4 text-center">
                             <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Jobs Created</div>
-                            <div className="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">
+                            <div className="text-3xl font-bold text-gray-900">
                                 {impactStats.totalJobs}
-                                <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded font-medium">↑ 12%</span>
                             </div>
                             <div className="text-xs text-gray-400 mt-1">Full-Time Equivalents</div>
                         </div>
                         <div className="flex-1 p-4 text-center">
                             <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Revenue</div>
-                            <div className="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">
+                            <div className="text-3xl font-bold text-gray-900">
                                 ${(impactStats.totalRevenue / 1000).toFixed(1)}k
-                                <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded font-medium">↑ 5%</span>
                             </div>
                             <div className="text-xs text-gray-400 mt-1">Annual Recurring</div>
                         </div>
                         <div className="flex-1 p-4 text-center">
                             <div className="text-xs font-bold text-gray-500 uppercase mb-1">Capital Raised</div>
-                            <div className="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">
+                            <div className="text-3xl font-bold text-gray-900">
                                 ${(impactStats.totalCapital / 1000).toFixed(1)}k
-                                <span className="text-xs text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded font-medium">-</span>
                             </div>
                             <div className="text-xs text-gray-400 mt-1">Equity & Grants</div>
                         </div>
@@ -280,10 +279,7 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-center py-4">
-                                <p className="text-gray-500 text-sm italic">You are not currently connected to any support organizations.</p>
-                                <button className="mt-2 text-indigo-600 text-sm font-medium hover:underline">Browse Directory</button>
-                            </div>
+                            <p className="text-gray-500 text-sm italic">You are not currently connected to any support organizations.</p>
                         )}
                     </Card>
                 </div>
@@ -320,7 +316,7 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
                                         {int.notes.length > 80 ? int.notes.substring(0, 80) + '...' : int.notes}
                                     </p>
                                     <p className="text-xs text-gray-500 mt-1">
-                                        {int.date} • {organizations.find(o => o.id === int.organization_id)?.name} • Recorded by {int.recorded_by}
+                                        {new Date(int.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • {organizations.find(o => o.id === int.organization_id)?.name}{int.recorded_by ? ` • Recorded by ${int.recorded_by}` : ''}
                                     </p>
                                 </div>
                             </div>

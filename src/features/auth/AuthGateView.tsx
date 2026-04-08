@@ -6,6 +6,12 @@ import { getDocument } from '../../services/firestoreClient';
 import { isEmulatorMode } from '../../services/firebaseConfig';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 import { CONFIG } from '../../app/config';
+import { AgreementCheckbox } from '../../shared/ui/AgreementGate';
+import { FirebaseAgreementsRepo } from '../../data/repos/firebase/agreements';
+import type { AgreementType } from '../../domain/agreements/types';
+import { isFirebaseEnabled } from '../../services/firebaseApp';
+
+const agreementsRepo = new FirebaseAgreementsRepo();
 
 interface AuthGateViewProps {
   status: 'loading' | 'unauthenticated' | 'needs_profile';
@@ -86,6 +92,11 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
   const inviteEcosystem = inviteSummary?.ecosystem_id
     ? displayEcosystems.find((ecosystem) => ecosystem.id === inviteSummary.ecosystem_id) || null
     : null;
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const ESO_ROLES = new Set(['eso_staff', 'eso_admin', 'eso_coach']);
+  const requiredAgreementType: AgreementType = inviteSummary && ESO_ROLES.has(inviteSummary.invited_role)
+    ? 'data_usage_agreement'
+    : 'privacy_policy';
   const [showVentureFields, setShowVentureFields] = useState(false);
   const [signupForm, setSignupForm] = useState<SignupFormState>({
     first_name: '',
@@ -241,9 +252,22 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
         }
       }
 
+      // Record agreement acceptance now that the person record exists
+      if (isFirebaseEnabled() && credential?.user?.uid) {
+        const ecosystemId = inviteEcosystemId || signupForm.ecosystem_id;
+        try {
+          await agreementsRepo.recordAcceptance(
+            credential.user.uid,
+            credential.user.uid,
+            ecosystemId,
+            requiredAgreementType,
+            inviteToken ? 'invite' : 'signup'
+          );
+        } catch { /* non-fatal — post-login gate will catch if needed */ }
+      }
+
       setSuccess('Account created. Reloading your workspace.');
       window.location.href = '/';
-      void credential;
     } catch (err: any) {
       setError(err?.message || 'Unable to create entrepreneur account.');
     } finally {
@@ -485,7 +509,14 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                         <div className="mt-1">{inviteEcosystem?.name || effectiveEcosystemId}</div>
                       </div>
                     </div>
-                    <button className="mt-4 w-full rounded bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting || isLoadingInvite}>
+                    <div className="mt-4">
+                      <AgreementCheckbox
+                        agreementType={requiredAgreementType}
+                        checked={agreedToTerms}
+                        onChange={setAgreedToTerms}
+                      />
+                    </div>
+                    <button className="mt-3 w-full rounded bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting || isLoadingInvite || !agreedToTerms}>
                       {isLoadingInvite ? 'Loading invite…' : 'Create account and accept invite'}
                     </button>
                     <div className="mt-5 flex items-center gap-3">
@@ -525,20 +556,34 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                   </div>
                   <div className="grid gap-3">
                     <button
-                      className={`rounded-2xl border px-4 py-4 text-left transition ${genericAuthMode === 'signin' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-50'}`}
+                      className={`rounded-2xl border-2 px-4 py-4 text-left transition cursor-pointer ${genericAuthMode === 'signin' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-900 hover:border-slate-400 hover:bg-slate-50'}`}
                       onClick={() => setGenericAuthMode('signin')}
                       disabled={isSubmitting}
                     >
-                      <div className="text-base font-semibold">Sign in</div>
-                      <div className={`mt-1 text-sm ${genericAuthMode === 'signin' ? 'text-slate-200' : 'text-slate-500'}`}>Use your existing account to get back to your workspace.</div>
+                      <div className="flex items-center gap-3">
+                        <div className={`h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${genericAuthMode === 'signin' ? 'border-white' : 'border-slate-400'}`}>
+                          {genericAuthMode === 'signin' && <div className="h-2 w-2 rounded-full bg-white" />}
+                        </div>
+                        <div>
+                          <div className="text-base font-semibold">Sign in</div>
+                          <div className={`mt-0.5 text-sm ${genericAuthMode === 'signin' ? 'text-slate-200' : 'text-slate-500'}`}>Use your existing account to get back to your workspace.</div>
+                        </div>
+                      </div>
                     </button>
                     <button
-                      className={`rounded-2xl border px-4 py-4 text-left transition ${genericAuthMode === 'signup' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-50'}`}
+                      className={`rounded-2xl border-2 px-4 py-4 text-left transition cursor-pointer ${genericAuthMode === 'signup' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-900 hover:border-indigo-300 hover:bg-indigo-50'}`}
                       onClick={() => setGenericAuthMode('signup')}
                       disabled={isSubmitting}
                     >
-                      <div className="text-base font-semibold">Create entrepreneur account</div>
-                      <div className={`mt-1 text-sm ${genericAuthMode === 'signup' ? 'text-indigo-100' : 'text-slate-500'}`}>Join the network to connect with programs, organizations, and resources.</div>
+                      <div className="flex items-center gap-3">
+                        <div className={`h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${genericAuthMode === 'signup' ? 'border-white' : 'border-slate-400'}`}>
+                          {genericAuthMode === 'signup' && <div className="h-2 w-2 rounded-full bg-white" />}
+                        </div>
+                        <div>
+                          <div className="text-base font-semibold">Create entrepreneur account</div>
+                          <div className={`mt-0.5 text-sm ${genericAuthMode === 'signup' ? 'text-indigo-100' : 'text-slate-500'}`}>Join the network to connect with programs, organizations, and resources.</div>
+                        </div>
+                      </div>
                     </button>
                   </div>
                   {genericAuthMode === 'signin' && (
@@ -623,7 +668,14 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                           </button>
                         </div>
                       )}
-                      <button className="mt-4 rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting}>
+                      <div className="mt-4">
+                        <AgreementCheckbox
+                          agreementType="privacy_policy"
+                          checked={agreedToTerms}
+                          onChange={setAgreedToTerms}
+                        />
+                      </div>
+                      <button className="mt-3 rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50" onClick={handleCreateEntrepreneurAccount} disabled={isSubmitting || !agreedToTerms}>
                         Create entrepreneur account
                       </button>
                     </div>

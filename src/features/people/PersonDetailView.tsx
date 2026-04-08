@@ -864,7 +864,7 @@ export const PersonDetailView = ({
         </>
       )}
 
-      <Modal isOpen={showEditProfile} onClose={() => setShowEditProfile(false)} title="Edit My Profile">
+      <Modal isOpen={showEditProfile} onClose={() => setShowEditProfile(false)} title="Edit My Profile" wide>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>

@@ -323,7 +323,7 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
     const esoOptions = organizations.filter(o => o.roles.includes('eso') && o.id !== viewer.orgId);
 
     return (
-        <Modal isOpen={isOpen} onClose={() => { stopLiveSession(); onClose(); }} title="Log Interaction & Next Steps">
+        <Modal isOpen={isOpen} onClose={() => { stopLiveSession(); onClose(); }} title="Log Interaction & Next Steps" wide>
             <div className="space-y-4">
                 {/* 1. Core Details */}
                 <div className="grid grid-cols-2 gap-4">

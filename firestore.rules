@@ -249,6 +249,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Agreement acceptances — each user can create and read their own records only.
+    // Documents are immutable once written (no update/delete).
+    match /agreement_acceptances/{acceptanceId} {
+      allow read: if isAuthenticated() && (
+        resource.data.auth_uid == request.auth.uid || isPlatformAdmin()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.auth_uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // Partner API lookup index — written exclusively by Cloud Functions (Admin SDK).
     // No client-side access needed; deny all to prevent enumeration.
     match /external_ref_index/{indexId} {

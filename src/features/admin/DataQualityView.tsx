@@ -23,7 +23,7 @@ const MergeReviewModal = ({ orgA, orgB, confidence, onClose, onMerge }: MergeRev
     const newRefsCount = loser.external_refs.filter(r => !winner.external_refs.some(wr => wr.source === r.source && wr.id === r.id)).length;
 
     return (
-        <Modal isOpen={true} onClose={onClose} title="Review Duplicate Record">
+        <Modal isOpen={true} onClose={onClose} title="Review Duplicate Record" wide>
             <div className="space-y-6">
                 <div className="bg-yellow-50 p-4 rounded border border-yellow-200 text-sm text-yellow-800 flex gap-3">
                     <span className="text-xl">⚠️</span>
