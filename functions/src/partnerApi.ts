@@ -48,6 +48,7 @@ interface ApiKeyRecord {
   id: string;
   label: string;
   prefix: string;
+  hash: string; // SHA-256 hex of full key — validation is by hash match
   status: 'active' | 'revoked';
 }
 
@@ -110,22 +111,31 @@ const handlePreflight = (req: any, res: any): boolean => {
 };
 
 /**
- * Validates an API key against the organizations collection.
- * Note: Uses a full collection scan (same MVP pattern as index.ts validateApiKey).
- * A proper implementation should use a hashed lookup in a separate collection.
+ * Validates an API key against the organizations collection by comparing
+ * SHA-256(incoming) to the stored `hash` field on each api_keys entry.
+ *
+ * Previous versions of this function validated via a prefix-startsWith
+ * comparison against the stored display prefix, which let anyone who could
+ * read an org doc (i.e. any authenticated user) forge a valid key from the
+ * last few characters of the prefix. Hash-based validation removes that
+ * attack surface: the hash is one-way and storing it discloses nothing
+ * that helps an attacker forge a key.
+ *
+ * Keys without a `hash` field (e.g. legacy records from before this
+ * refactor) are ignored. Generate a new key via generatePartnerApiKey
+ * to produce a record with a valid hash.
  */
 const validateApiKey = async (
   db: FirebaseFirestore.Firestore,
   apiKey: string
 ): Promise<ApiKeyAuthContext | null> => {
   if (!apiKey) return null;
+  const incomingHash = createHash('sha256').update(apiKey).digest('hex');
   const snapshot = await db.collection('organizations').get();
   for (const doc of snapshot.docs) {
     const keys = (doc.get('api_keys') || []) as ApiKeyRecord[];
     const match = keys.find(
-      k =>
-        k.status === 'active' &&
-        (k.prefix === apiKey || apiKey.startsWith(k.prefix.replace('...', '')))
+      k => k.status === 'active' && !!k.hash && k.hash === incomingHash
     );
     if (match) {
       return {

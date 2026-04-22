@@ -226,14 +226,18 @@ const getBearerToken = (req: any) => {
 
 const validateApiKey = async (apiKey: string) => {
   if (!apiKey) return null;
-  
-  // In a real system, we might use a hash or a separate collection for performance.
-  // For the MVP, we scan organizations for the matching key prefix.
-  // Note: This is simplified. Proper implementation should use a hashed lookup.
+
+  // Validate by comparing SHA-256(incoming) to the stored `hash` on each
+  // api_keys entry. Previous prefix-startsWith validation was forgeable
+  // from the last few chars of the stored display prefix (which is readable
+  // by any authenticated user via the org doc). Hash-based validation
+  // removes that attack surface. Legacy records without a `hash` are
+  // ignored; re-issue them via the generatePartnerApiKey callable.
+  const incomingHash = createHash('sha256').update(apiKey).digest('hex');
   const snapshot = await db.collection('organizations').get();
   for (const doc of snapshot.docs) {
     const apiKeys = (doc.get('api_keys') || []) as any[];
-    const match = apiKeys.find(k => k.status === 'active' && (k.prefix === apiKey || apiKey.startsWith(k.prefix.replace('...', ''))));
+    const match = apiKeys.find(k => k.status === 'active' && !!k.hash && k.hash === incomingHash);
     if (match) {
       return {
         organization_id: doc.id,
@@ -4050,6 +4054,13 @@ export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (re
     pipelines: [],
   }, { merge: true });
 
+  // Seed a deterministic test API key for the Partner API integration tests.
+  // The full key stays known ("test-api-key-abc123") so tests can authenticate,
+  // but what's persisted is only the SHA-256 hash — matching the production
+  // storage format. Production keys are minted via generatePartnerApiKey.
+  const testKeyFull = 'test-api-key-abc123';
+  const testKeyHash = createHash('sha256').update(testKeyFull).digest('hex');
+
   await db.collection('organizations').doc('org_makehaven').set({
     id: 'org_makehaven',
     name: 'MakeHaven',
@@ -4062,6 +4073,14 @@ export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (re
     ecosystem_ids: ['eco_new_haven'],
     version: 1,
     status: 'active',
+    api_keys: [{
+      id: 'key_test_local_001',
+      label: 'Local integration test key',
+      prefix: 'test-api-key-...c123',
+      hash: testKeyHash,
+      created_at: now,
+      status: 'active',
+    }],
     created_at: now,
     updated_at: now,
   }, { merge: true });
@@ -4687,6 +4706,88 @@ export const referralEmailAction = onRequest({ invoker: 'public' }, async (req, 
     'This action link is not recognized.',
     manageUrl,
   ));
+});
+
+// ─── Partner API Keys — server-side generation ──────────────────────────────
+/**
+ * Mints a new Partner API key for the given organization and returns the
+ * full key value to the caller exactly once. Only the SHA-256 hash and a
+ * display prefix are persisted — the full key is never stored in Firestore.
+ *
+ * Authorization: platform admin, OR an ESO operator (eso_admin / eso_staff /
+ * eso_coach) whose own organization_id matches the target orgId.
+ *
+ * This replaces the prior client-side generator that used Math.random() and
+ * stored the truncated display prefix as the validation target (which was
+ * forgeable from any readable org doc).
+ */
+export const generatePartnerApiKey = onCall(async (request) => {
+  const { auth } = request;
+  if (!auth) {
+    throw new HttpsError('unauthenticated', 'The function must be called while authenticated.');
+  }
+  const { orgId, label } = (request.data || {}) as { orgId?: string; label?: string };
+  if (!orgId || typeof orgId !== 'string') {
+    throw new HttpsError('invalid-argument', 'orgId is required');
+  }
+  const cleanLabel = (label || '').trim() || 'Partner API key';
+
+  // Authorize caller.
+  const personSnap = await db.collection('people').doc(auth.uid).get();
+  if (!personSnap.exists) {
+    throw new HttpsError('permission-denied', 'No Nexus person record.');
+  }
+  const person = personSnap.data() as any;
+  const role = person.system_role;
+  const callerOrgId = person.organization_id || person.primary_organization_id;
+  const isPlatform = role === 'platform_admin';
+  const isEsoOperatorAtOrg = (role === 'eso_admin' || role === 'eso_staff' || role === 'eso_coach')
+    && callerOrgId === orgId;
+  if (!isPlatform && !isEsoOperatorAtOrg) {
+    throw new HttpsError('permission-denied', 'Not authorized to create API keys for this organization.');
+  }
+
+  const orgRef = db.collection('organizations').doc(orgId);
+  const orgSnap = await orgRef.get();
+  if (!orgSnap.exists) {
+    throw new HttpsError('not-found', 'Organization not found.');
+  }
+
+  // 32 bytes → 64 hex chars of entropy. Never touches disk.
+  const keyMaterial = randomBytes(32).toString('hex');
+  const fullKey = `sk_live_${keyMaterial}`;
+  const hash = createHash('sha256').update(fullKey).digest('hex');
+  const prefix = `sk_live_${keyMaterial.substring(0, 4)}...${keyMaterial.substring(keyMaterial.length - 4)}`;
+
+  const newKey = {
+    id: `key_${Date.now()}_${randomBytes(4).toString('hex')}`,
+    label: cleanLabel,
+    prefix,
+    hash,
+    created_at: new Date().toISOString(),
+    status: 'active' as const,
+  };
+
+  const existing = (orgSnap.get('api_keys') || []) as any[];
+  await orgRef.set(
+    { api_keys: [...existing, newKey], updated_at: new Date().toISOString() },
+    { merge: true }
+  );
+
+  await logAudit('partner_api_key_generated', auth.uid, {
+    org_id: orgId,
+    key_id: newKey.id,
+    label: cleanLabel,
+  });
+
+  return {
+    id: newKey.id,
+    label: newKey.label,
+    prefix: newKey.prefix,
+    created_at: newKey.created_at,
+    status: newKey.status,
+    full_key: fullKey,
+  };
 });
 
 // ─── Grant Lab — AI Analysis ────────────────────────────────────────────────

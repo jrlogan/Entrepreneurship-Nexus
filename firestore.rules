@@ -107,9 +107,27 @@ service cloud.firestore {
       ]);
     }
 
+    // At create time, a user may not set their own system_role to any
+    // elevated value (platform/ecosystem admin, eso operator). Elevated
+    // roles are assigned by a network admin after onboarding. Server-side
+    // creation via Cloud Functions bypasses these rules with the Admin SDK.
+    function personCreateHasElevatedRole() {
+      return request.resource.data.keys().hasAny(['system_role']) &&
+        request.resource.data.system_role in [
+          'platform_admin',
+          'ecosystem_manager',
+          'eso_admin',
+          'eso_staff',
+          'eso_coach'
+        ];
+    }
+
     match /people/{personId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.auth_uid == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        personId == request.auth.uid &&
+        request.resource.data.auth_uid == request.auth.uid &&
+        !personCreateHasElevatedRole();
       allow update: if isNetworkAdmin() || (
         isSelf(personId) && !personPrivilegedFieldsChanged()
       );

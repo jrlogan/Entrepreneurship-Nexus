@@ -1,6 +1,7 @@
 import { queryCollection, whereEquals, whereNotEquals, getDocument, setDocument, updateDocument, deleteDocument, whereIn } from '../../../services/firestoreClient';
 import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import { getFirestoreDb } from '../../../services/firebaseApp';
+import { callFunction } from '../../../services/functionsClient';
 import type { Organization, ApiKey, Webhook, OwnerCharacteristic } from '../../../domain/organizations/types';
 import type { ViewerContext } from '../../../domain/access/policy';
 import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/access/policy';
@@ -134,30 +135,30 @@ export class FirebaseOrganizationsRepo {
   }
 
   async generateApiKey(orgId: string, label: string): Promise<ApiKey | null> {
-    const org = await this.getById(orgId);
-    if (!org) {
-      return null;
-    }
+    // Delegates to the generatePartnerApiKey Callable Function. The full key
+    // is generated server-side with crypto.randomBytes; only its SHA-256 hash
+    // and a display prefix are persisted. The full key is returned here
+    // exactly once (embedded in the `prefix` field of the returned ApiKey,
+    // matching the one-time-reveal contract the UI expects).
+    const result = await callFunction<
+      { orgId: string; label: string },
+      {
+        id: string;
+        label: string;
+        prefix: string;
+        created_at: string;
+        status: 'active' | 'revoked';
+        full_key: string;
+      }
+    >('generatePartnerApiKey', { orgId, label });
 
-    const existingKeys = Array.isArray(org.api_keys) ? org.api_keys : [];
-    const randomPart = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    const fullKey = `sk_live_${randomPart}`;
-    const redactedPrefix = `sk_live_...${randomPart.substring(randomPart.length - 4)}`;
-
-    const newKey: ApiKey = {
-      id: `key_${Date.now()}`,
-      label,
-      prefix: redactedPrefix,
-      created_at: new Date().toISOString(),
-      status: 'active',
+    return {
+      id: result.id,
+      label: result.label,
+      prefix: result.full_key, // UI reveals full_key once then discards.
+      created_at: result.created_at,
+      status: result.status,
     };
-
-    await updateDocument('organizations', orgId, {
-      api_keys: [...existingKeys, newKey],
-      updated_at: new Date().toISOString(),
-    } as any);
-
-    return { ...newKey, prefix: fullKey };
   }
 
   async revokeApiKey(orgId: string, keyId: string): Promise<void> {

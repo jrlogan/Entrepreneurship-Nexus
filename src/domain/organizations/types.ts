@@ -49,7 +49,13 @@ export interface Consent {
 export interface ApiKey {
   id: string;
   label: string;
-  prefix: string; // e.g. "sk_live_..."
+  // Display prefix only (e.g. "sk_live_1234...wxyz"). Safe to expose —
+  // server validation is by hash, not by prefix match.
+  prefix: string;
+  // SHA-256 hex of the full key. Server uses this to validate incoming
+  // keys. One-way hash — storing it exposes nothing that lets an attacker
+  // forge a key. Optional so in-memory mock fixtures can omit it.
+  hash?: string;
   created_at: string;
   last_used?: string;
   status: 'active' | 'revoked';
