@@ -19,7 +19,6 @@ const makeOrg = (overrides: Partial<Organization> & { id: string; name: string }
   version: 1,
   ecosystem_ids: ['eco_test'],
   api_keys: [],
-  webhooks: [],
   tags: [],
   external_ids: {},
   ...overrides,

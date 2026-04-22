@@ -110,7 +110,9 @@ export interface Organization {
   // API & Integration
   version: number; // For Optimistic Concurrency Control (prevents overwrite of newer data)
   api_keys?: ApiKey[]; // Only visible to admins of this org
-  webhooks?: Webhook[]; // New: Webhook subscriptions
+  // NOTE: webhooks live in the /organizations/{orgId}/webhooks subcollection
+  // so the signing secret is not readable via a doc-level read. Access the
+  // list via organizationsRepo.getWebhooks(orgId).
 
   // Multi-tenancy
   ecosystem_ids: string[]; // Organizations can participate in multiple ecosystems

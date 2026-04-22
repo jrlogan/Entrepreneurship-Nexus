@@ -157,6 +157,16 @@ service cloud.firestore {
       allow create: if isPlatformAdmin() || isEsoOperator();
       allow update: if isPlatformAdmin() || canEsoOperatorUpdateOrg();
       allow delete: if isPlatformAdmin();
+
+      // Webhooks live here (not on the org doc) so the signing secret is
+      // only readable by callers who manage this org. An ESO operator can
+      // only access webhooks for their own org (currentOrgId() must match
+      // the organizationId on the path).
+      match /webhooks/{webhookId} {
+        allow read, write: if isPlatformAdmin() || (
+          isEsoOperator() && currentOrgId() == organizationId
+        );
+      }
     }
 
     match /network_profiles/{profileId} {

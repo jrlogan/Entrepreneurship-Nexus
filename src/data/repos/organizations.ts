@@ -108,8 +108,9 @@ export class OrganizationsRepo {
       if (access.level === 'basic') {
           safeOrg = redactOrganization(org);
       } else {
-          // Even if detailed, never return API keys or webhooks in a list view
-          safeOrg = { ...org, api_keys: [], webhooks: [] };
+          // Even if detailed, never return API keys in a list view
+          // (webhooks now live in a subcollection, never on the org doc)
+          safeOrg = { ...org, api_keys: [] };
       }
 
       return { ...safeOrg, _access: access };
@@ -131,7 +132,7 @@ export class OrganizationsRepo {
           if (viewer.orgId === org.id || viewer.role === 'platform_admin') {
               return org;
           }
-          return { ...org, api_keys: [], webhooks: [] };
+          return { ...org, api_keys: [] };
       }
 
       // Restricted View
@@ -336,16 +337,19 @@ export class OrganizationsRepo {
   }
 
   // Webhook Management
+  // In the real Firestore repo these live in /organizations/{orgId}/webhooks
+  // (a subcollection) so signing secrets are not readable via an org doc read.
+  // The in-memory repo stores them in a parallel Map keyed by orgId.
+  private webhooksByOrg = new Map<string, Webhook[]>();
+
   async getWebhooks(orgId: string): Promise<Webhook[]> {
-    const org = await this.getById(orgId);
-    return Promise.resolve(org?.webhooks || []);
+    return Promise.resolve([...(this.webhooksByOrg.get(orgId) || [])]);
   }
 
   async addWebhook(orgId: string, webhook: Omit<Webhook, 'id' | 'created_at' | 'status' | 'secret'>): Promise<Webhook | null> {
     const org = await this.getById(orgId);
     if (!org) return Promise.resolve(null);
-    if (!org.webhooks) org.webhooks = [];
-    
+
     const newWebhook: Webhook = {
         id: `wh_${Date.now()}`,
         created_at: new Date().toISOString(),
@@ -353,14 +357,16 @@ export class OrganizationsRepo {
         secret: 'whsec_' + Math.random().toString(36).substr(2, 20),
         ...webhook
     };
-    org.webhooks.push(newWebhook);
+    const list = this.webhooksByOrg.get(orgId) || [];
+    list.push(newWebhook);
+    this.webhooksByOrg.set(orgId, list);
     return Promise.resolve(newWebhook);
   }
 
   async deleteWebhook(orgId: string, webhookId: string): Promise<void> {
-      const org = await this.getById(orgId);
-      if (org && org.webhooks) {
-          org.webhooks = org.webhooks.filter(w => w.id !== webhookId);
+      const list = this.webhooksByOrg.get(orgId);
+      if (list) {
+          this.webhooksByOrg.set(orgId, list.filter(w => w.id !== webhookId));
       }
       return Promise.resolve();
   }

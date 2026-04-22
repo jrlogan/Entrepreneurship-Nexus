@@ -247,31 +247,9 @@ export const MAKEHAVEN: Organization = {
   authorized_eso_ids: [],
   support_offerings: ['resource', 'product_development', 'business_coaching', 'networking'],
   ecosystem_ids: ['eco_new_haven', 'eco_ct_makers'],
-  // New: Example Webhooks for API Demo
-  webhooks: [
-    {
-        id: 'wh_civicrm_01',
-        url: 'https://civicrm.makehaven.org/api/hooks/nexus',
-        description: 'Sync Member & Donor Data to CiviCRM',
-        events: ['organization.created', 'organization.updated', 'referral.received'],
-        secret: 'whsec_MhCivi_2024_Alpha',
-        status: 'active',
-        created_at: '2023-02-10T09:00:00Z',
-        last_delivery: '2023-11-28T14:30:00Z',
-        payload_format: 'full_resource'
-    },
-    {
-        id: 'wh_airtable_02',
-        url: 'https://hooks.airtable.com/workflows/v1/appClimateHaven/sync',
-        description: 'Climate Haven Portfolio Sync (Airtable)',
-        events: ['initiative.created', 'metric.logged'],
-        secret: 'whsec_AirTable_CH_Sync_9988',
-        status: 'active',
-        created_at: '2023-06-20T09:15:00Z',
-        last_delivery: '2023-11-29T08:45:00Z',
-        payload_format: 'delta'
-    }
-  ]
+  // Example webhooks used to live on this doc; they now live in the
+  // /organizations/{orgId}/webhooks subcollection and are seeded via the
+  // repo (not via this mock object) if a demo needs them.
 };
 
 // 0.5 CT Innovations (Another ESO)

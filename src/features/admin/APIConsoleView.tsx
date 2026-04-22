@@ -280,32 +280,30 @@ export const APIConsoleView = () => {
             return [];
         }
 
+        // NOTE: webhook counts used to be derived from org.webhooks here, but
+        // webhooks were moved to a subcollection so they're no longer readable
+        // in a bulk list query. The per-org detail view still shows the full
+        // webhook list when an org is selected.
         return organizations
             .filter(org => org.roles.includes('eso'))
             .map(org => {
                 const apiKeysForOrg = Array.isArray(org.api_keys) ? org.api_keys : [];
-                const webhooksForOrg = Array.isArray(org.webhooks) ? org.webhooks : [];
                 const activeApiKeys = apiKeysForOrg.filter(key => key.status === 'active').length;
-                const activeWebhooks = webhooksForOrg.filter(hook => hook.status === 'active').length;
+                const activeWebhooks = 0;
                 const syncedSources = new Set((org.external_refs || []).map(ref => ref.source)).size;
-                const lastWebhookDelivery = webhooksForOrg
-                    .map(hook => hook.last_delivery)
-                    .filter(Boolean)
-                    .sort()
-                    .reverse()[0];
 
                 return {
                     org,
                     activeApiKeys,
                     activeWebhooks,
                     syncedSources,
-                    activityLabel: activeApiKeys > 0 || activeWebhooks > 0 || syncedSources > 0 ? 'Active' : 'Not configured',
-                    lastActivity: lastWebhookDelivery || null,
+                    activityLabel: activeApiKeys > 0 || syncedSources > 0 ? 'Active' : 'Not configured',
+                    lastActivity: null as string | null,
                 };
             })
             .sort((a, b) => {
-                const aScore = a.activeApiKeys + a.activeWebhooks + a.syncedSources;
-                const bScore = b.activeApiKeys + b.activeWebhooks + b.syncedSources;
+                const aScore = a.activeApiKeys + a.syncedSources;
+                const bScore = b.activeApiKeys + b.syncedSources;
                 return bScore - aScore;
             });
     }, [organizations, viewer.role]);

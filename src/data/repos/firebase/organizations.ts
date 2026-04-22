@@ -1,4 +1,6 @@
 import { queryCollection, whereEquals, whereNotEquals, getDocument, setDocument, updateDocument, deleteDocument, whereIn } from '../../../services/firestoreClient';
+import { collection, doc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
+import { getFirestoreDb } from '../../../services/firebaseApp';
 import type { Organization, ApiKey, Webhook, OwnerCharacteristic } from '../../../domain/organizations/types';
 import type { ViewerContext } from '../../../domain/access/policy';
 import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/access/policy';
@@ -36,7 +38,7 @@ const normalizeOrganization = (org: Organization & { demographics?: { minority_o
   version: org.version || 1,
   ecosystem_ids: Array.isArray(org.ecosystem_ids) ? org.ecosystem_ids : [],
   api_keys: Array.isArray(org.api_keys) ? org.api_keys : [],
-  webhooks: Array.isArray(org.webhooks) ? org.webhooks : [],
+  // webhooks moved to /organizations/{orgId}/webhooks subcollection
   tags: Array.isArray(org.tags) ? org.tags : [],
   external_ids: org.external_ids || {},
   };
@@ -65,7 +67,7 @@ export class FirebaseOrganizationsRepo {
           safeOrg = redactOrganization(org);
       } else {
           // Strip sensitive keys from list view
-          safeOrg = { ...org, api_keys: [], webhooks: [] };
+          safeOrg = { ...org, api_keys: [] };
       }
 
       return { ...safeOrg, _access: access };
@@ -82,7 +84,7 @@ export class FirebaseOrganizationsRepo {
           if (viewer.orgId === org.id || viewer.role === 'platform_admin') {
               return org;
           }
-          return { ...org, api_keys: [], webhooks: [] };
+          return { ...org, api_keys: [] };
       }
 
       return redactOrganization(org);
@@ -174,16 +176,21 @@ export class FirebaseOrganizationsRepo {
     } as any);
   }
 
+  // Webhooks are stored in a subcollection at /organizations/{orgId}/webhooks
+  // (not on the org doc) so the signing secret is only accessible to callers
+  // allowed by the subcollection rules — platform admin or ESO operators of
+  // this org. Any authenticated user reading the org doc no longer sees them.
+
   async getWebhooks(orgId: string): Promise<Webhook[]> {
-    const org = await this.getById(orgId);
-    return org?.webhooks || [];
+    const db = getFirestoreDb();
+    if (!db) return [];
+    const snap = await getDocs(collection(db, 'organizations', orgId, 'webhooks'));
+    return snap.docs.map((d) => d.data() as Webhook);
   }
 
   async addWebhook(orgId: string, webhook: Omit<Webhook, 'id' | 'created_at' | 'status' | 'secret'>): Promise<Webhook | null> {
-    const org = await this.getById(orgId);
-    if (!org) {
-      return null;
-    }
+    const db = getFirestoreDb();
+    if (!db) return null;
 
     const nextWebhook: Webhook = {
       id: `wh_${Date.now()}`,
@@ -193,23 +200,13 @@ export class FirebaseOrganizationsRepo {
       ...webhook,
     };
 
-    await updateDocument('organizations', orgId, {
-      webhooks: [...(org.webhooks || []), nextWebhook],
-      updated_at: new Date().toISOString(),
-    } as any);
-
+    await setDoc(doc(db, 'organizations', orgId, 'webhooks', nextWebhook.id), nextWebhook);
     return nextWebhook;
   }
 
   async deleteWebhook(orgId: string, webhookId: string): Promise<void> {
-    const org = await this.getById(orgId);
-    if (!org) {
-      return;
-    }
-
-    await updateDocument('organizations', orgId, {
-      webhooks: (org.webhooks || []).filter((hook) => hook.id !== webhookId),
-      updated_at: new Date().toISOString(),
-    } as any);
+    const db = getFirestoreDb();
+    if (!db) return;
+    await deleteDoc(doc(db, 'organizations', orgId, 'webhooks', webhookId));
   }
 }

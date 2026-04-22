@@ -271,11 +271,11 @@ const deliverWebhooksForOrg = async (
   event: string,
   data: Record<string, unknown>
 ) => {
-  const orgDoc = await db.collection('organizations').doc(orgId).get();
-  if (!orgDoc.exists) return;
-  const webhooks = (orgDoc.get('webhooks') || []) as WebhookRecord[];
-  if (webhooks.length === 0) return;
-
+  // Webhooks live in the /organizations/{orgId}/webhooks subcollection so
+  // their signing secrets are not readable via an org doc read.
+  const snap = await db.collection('organizations').doc(orgId).collection('webhooks').get();
+  if (snap.empty) return;
+  const webhooks = snap.docs.map(d => d.data() as WebhookRecord);
   await Promise.allSettled(webhooks.map(wh => deliverToWebhook(wh, event, data)));
 };
 
@@ -891,8 +891,8 @@ export const partnerRegisterWebhook = onRequest({ invoker: 'public' }, async (re
     created_at: now,
   };
 
-  const existingWebhooks = (orgDoc.get('webhooks') || []) as WebhookRecord[];
-  await orgRef.set({ webhooks: [...existingWebhooks, newWebhook] }, { merge: true });
+  // Webhooks live in the /organizations/{orgId}/webhooks subcollection.
+  await orgRef.collection('webhooks').doc(webhookId).set(newWebhook);
 
   await logAudit(db, 'partner_webhook_registered', authContext.organization_id, {
     webhook_id: webhookId,
