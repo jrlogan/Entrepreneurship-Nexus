@@ -23,6 +23,11 @@ service firebase.storage {
         callerPerson().organization_id == orgId;
     }
 
+    function isAllowedImageUpload() {
+      return request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(png|jpeg|webp)');
+    }
+
     // Authenticated users can read any file.
     match /{allPaths=**} {
       allow read: if isAuthenticated();
@@ -31,7 +36,13 @@ service firebase.storage {
     // Avatars: a user can only write to their own avatar path. Platform
     // admins can write any avatar (e.g. to remove inappropriate images).
     match /people/{personId}/avatar/{fileName} {
-      allow write: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() &&
+        isAllowedImageUpload() &&
+        (
+          request.auth.uid == personId ||
+          isPlatformAdmin()
+        );
+      allow delete: if isAuthenticated() && (
         request.auth.uid == personId ||
         isPlatformAdmin()
       );
@@ -40,7 +51,13 @@ service firebase.storage {
     // Org logos: platform admin, or an ESO operator whose own organization
     // is the one being edited.
     match /organizations/{orgId}/logo/{fileName} {
-      allow write: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() &&
+        isAllowedImageUpload() &&
+        (
+          isPlatformAdmin() ||
+          isEsoOperatorAtOrg(orgId)
+        );
+      allow delete: if isAuthenticated() && (
         isPlatformAdmin() ||
         isEsoOperatorAtOrg(orgId)
       );

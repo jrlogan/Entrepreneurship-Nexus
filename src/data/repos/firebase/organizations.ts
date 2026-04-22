@@ -38,8 +38,7 @@ const normalizeOrganization = (org: Organization & { demographics?: { minority_o
   support_offerings: Array.isArray(org.support_offerings) ? org.support_offerings : [],
   version: org.version || 1,
   ecosystem_ids: Array.isArray(org.ecosystem_ids) ? org.ecosystem_ids : [],
-  api_keys: Array.isArray(org.api_keys) ? org.api_keys : [],
-  // webhooks moved to /organizations/{orgId}/webhooks subcollection
+  // api_keys and webhooks moved to subcollections to prevent broad enumeration
   tags: Array.isArray(org.tags) ? org.tags : [],
   external_ids: org.external_ids || {},
   };
@@ -67,8 +66,7 @@ export class FirebaseOrganizationsRepo {
       if (access.level === 'basic') {
           safeOrg = redactOrganization(org);
       } else {
-          // Strip sensitive keys from list view
-          safeOrg = { ...org, api_keys: [] };
+          // Sensitive keys are now in a subcollection, no longer on the org doc.
       }
 
       return { ...safeOrg, _access: access };
@@ -82,10 +80,7 @@ export class FirebaseOrganizationsRepo {
       const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
 
       if (canViewOperationalDetails(viewer, org, hasConsent)) {
-          if (viewer.orgId === org.id || viewer.role === 'platform_admin') {
-              return org;
-          }
-          return { ...org, api_keys: [] };
+          return org;
       }
 
       return redactOrganization(org);
@@ -129,17 +124,18 @@ export class FirebaseOrganizationsRepo {
     await updateDocument('organizations', id, updateDoc);
   }
 
+  // API keys are stored in /organizations/{orgId}/api_keys subcollection
   async getApiKeys(orgId: string): Promise<ApiKey[]> {
-    const org = await this.getById(orgId);
-    return org?.api_keys || [];
+    const db = getFirestoreDb();
+    if (!db) return [];
+    const snap = await getDocs(collection(db, 'organizations', orgId, 'api_keys'));
+    return snap.docs.map((d) => d.data() as ApiKey);
   }
 
   async generateApiKey(orgId: string, label: string): Promise<ApiKey | null> {
     // Delegates to the generatePartnerApiKey Callable Function. The full key
     // is generated server-side with crypto.randomBytes; only its SHA-256 hash
-    // and a display prefix are persisted. The full key is returned here
-    // exactly once (embedded in the `prefix` field of the returned ApiKey,
-    // matching the one-time-reveal contract the UI expects).
+    // and a display prefix are persisted in the /api_keys subcollection.
     const result = await callFunction<
       { orgId: string; label: string },
       {
@@ -162,17 +158,10 @@ export class FirebaseOrganizationsRepo {
   }
 
   async revokeApiKey(orgId: string, keyId: string): Promise<void> {
-    const org = await this.getById(orgId);
-    if (!org) {
-      return;
-    }
-
-    const nextKeys = (org.api_keys || []).map((key) => (
-      key.id === keyId ? { ...key, status: 'revoked' as const } : key
-    ));
-
-    await updateDocument('organizations', orgId, {
-      api_keys: nextKeys,
+    const db = getFirestoreDb();
+    if (!db) return;
+    await updateDocument(`organizations/${orgId}/api_keys`, keyId, {
+      status: 'revoked',
       updated_at: new Date().toISOString(),
     } as any);
   }

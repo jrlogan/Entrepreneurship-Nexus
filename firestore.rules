@@ -107,27 +107,28 @@ service cloud.firestore {
       ]);
     }
 
-    // At create time, a user may not set their own system_role to any
-    // elevated value (platform/ecosystem admin, eso operator). Elevated
-    // roles are assigned by a network admin after onboarding. Server-side
-    // creation via Cloud Functions bypasses these rules with the Admin SDK.
-    function personCreateHasElevatedRole() {
-      return request.resource.data.keys().hasAny(['system_role']) &&
-        request.resource.data.system_role in [
-          'platform_admin',
-          'ecosystem_manager',
-          'eso_admin',
-          'eso_staff',
-          'eso_coach'
-        ];
+    // At create time, clients may not set role/org fields at all. Otherwise
+    // a new user could org-hop by creating their own person doc with another
+    // organization's ID. Server-side onboarding/invite functions use the Admin
+    // SDK and bypass these rules when assigning trusted role/org fields.
+    function personCreateHasPrivilegedFields() {
+      return request.resource.data.keys().hasAny([
+        'system_role',
+        'organization_id',
+        'primary_organization_id',
+        'ecosystem_id',
+        'memberships',
+        'secondary_profile',
+        'status'
+      ]);
     }
 
     match /people/{personId} {
-      allow read: if isAuthenticated();
+      allow read: if isNetworkAdmin() || isSelf(personId);
       allow create: if isAuthenticated() &&
         personId == request.auth.uid &&
         request.resource.data.auth_uid == request.auth.uid &&
-        !personCreateHasElevatedRole();
+        !personCreateHasPrivilegedFields();
       allow update: if isNetworkAdmin() || (
         isSelf(personId) && !personPrivilegedFieldsChanged()
       );
@@ -135,7 +136,9 @@ service cloud.firestore {
     }
 
     match /person_memberships/{membershipId} {
-      allow read: if isAuthenticated();
+      allow read: if isNetworkAdmin() || (
+        isAuthenticated() && resource.data.person_id == request.auth.uid
+      );
       allow create, update, delete: if isPlatformAdmin();
     }
 
@@ -168,19 +171,25 @@ service cloud.firestore {
     }
 
     match /organizations/{organizationId} {
+      // Basic read is open to all authenticated users (directory view).
+      // Detailed fields like private notes or operational visibility
+      // should be filtered by the application or moved to subcollections.
       allow read: if isAuthenticated();
-      // Create stays permissive for now; the privilege-escalation bug was on
-      // update (ESO operator at Org A could modify any other org). Creating
-      // a fresh org doesn't grant retroactive control over others.
+
       allow create: if isPlatformAdmin() || isEsoOperator();
       allow update: if isPlatformAdmin() || canEsoOperatorUpdateOrg();
       allow delete: if isPlatformAdmin();
 
       // Webhooks live here (not on the org doc) so the signing secret is
-      // only readable by callers who manage this org. An ESO operator can
-      // only access webhooks for their own org (currentOrgId() must match
-      // the organizationId on the path).
+      // only readable by callers who manage this org.
       match /webhooks/{webhookId} {
+        allow read, write: if isPlatformAdmin() || (
+          isEsoOperator() && currentOrgId() == organizationId
+        );
+      }
+
+      // API keys metadata (hashes/prefixes) moved here to prevent broad enumeration.
+      match /api_keys/{keyId} {
         allow read, write: if isPlatformAdmin() || (
           isEsoOperator() && currentOrgId() == organizationId
         );

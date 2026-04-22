@@ -131,18 +131,22 @@ const validateApiKey = async (
 ): Promise<ApiKeyAuthContext | null> => {
   if (!apiKey) return null;
   const incomingHash = createHash('sha256').update(apiKey).digest('hex');
-  const snapshot = await db.collection('organizations').get();
-  for (const doc of snapshot.docs) {
-    const keys = (doc.get('api_keys') || []) as ApiKeyRecord[];
-    const match = keys.find(
-      k => k.status === 'active' && !!k.hash && k.hash === incomingHash
-    );
-    if (match) {
+  
+  const snapshot = await db.collectionGroup('api_keys')
+    .where('hash', '==', incomingHash)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  if (!snapshot.empty) {
+    const keyDoc = snapshot.docs[0];
+    const organizationId = keyDoc.ref.parent.parent?.id;
+    if (organizationId) {
       return {
         type: 'api_key',
-        organization_id: doc.id,
-        key_id: match.id,
-        label: match.label,
+        organization_id: organizationId,
+        key_id: keyDoc.id,
+        label: keyDoc.get('label'),
       };
     }
   }

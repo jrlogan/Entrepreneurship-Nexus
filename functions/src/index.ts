@@ -227,22 +227,24 @@ const getBearerToken = (req: any) => {
 const validateApiKey = async (apiKey: string) => {
   if (!apiKey) return null;
 
-  // Validate by comparing SHA-256(incoming) to the stored `hash` on each
-  // api_keys entry. Previous prefix-startsWith validation was forgeable
-  // from the last few chars of the stored display prefix (which is readable
-  // by any authenticated user via the org doc). Hash-based validation
-  // removes that attack surface. Legacy records without a `hash` are
-  // ignored; re-issue them via the generatePartnerApiKey callable.
   const incomingHash = createHash('sha256').update(apiKey).digest('hex');
-  const snapshot = await db.collection('organizations').get();
-  for (const doc of snapshot.docs) {
-    const apiKeys = (doc.get('api_keys') || []) as any[];
-    const match = apiKeys.find(k => k.status === 'active' && !!k.hash && k.hash === incomingHash);
-    if (match) {
+  
+  // Search for the key in the subcollections. 
+  // collectionGroup('api_keys') allows searching across all organizations.
+  const snapshot = await db.collectionGroup('api_keys')
+    .where('hash', '==', incomingHash)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  if (!snapshot.empty) {
+    const keyDoc = snapshot.docs[0];
+    const organizationId = keyDoc.ref.parent.parent?.id;
+    if (organizationId) {
       return {
-        organization_id: doc.id,
-        key_id: match.id,
-        label: match.label
+        organization_id: organizationId,
+        key_id: keyDoc.id,
+        label: keyDoc.get('label')
       };
     }
   }
@@ -4768,11 +4770,8 @@ export const generatePartnerApiKey = onCall(async (request) => {
     status: 'active' as const,
   };
 
-  const existing = (orgSnap.get('api_keys') || []) as any[];
-  await orgRef.set(
-    { api_keys: [...existing, newKey], updated_at: new Date().toISOString() },
-    { merge: true }
-  );
+  await orgRef.collection('api_keys').doc(newKey.id).set(newKey);
+  await orgRef.update({ updated_at: new Date().toISOString() });
 
   await logAudit('partner_api_key_generated', auth.uid, {
     org_id: orgId,
