@@ -272,6 +272,13 @@ export const TodosView = () => {
     };
 
     const startLiveSession = async () => {
+        // AI voice advisor is disabled until the Gemini call is proxied through
+        // a Cloud Function with ephemeral auth tokens. Direct client use of the
+        // Gemini API key was removed to prevent key exposure in the bundle.
+        setLiveSessionError("Voice advisor is temporarily unavailable.");
+        setTimeout(() => setLiveSessionError(''), 5000);
+        return;
+        // eslint-disable-next-line no-unreachable
         try {
             const contextText = getContext();
 
@@ -281,7 +288,7 @@ export const TodosView = () => {
             nextStartTimeRef.current = audioCtx.currentTime;
 
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
-            
+
             // Connect to Gemini
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
             
@@ -385,10 +392,17 @@ export const TodosView = () => {
 
     const handleSendText = async () => {
         if (!inputText.trim()) return;
-        
+
         const userMsg = inputText;
         setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
         setInputText('');
+
+        // AI text chat is disabled until the Gemini call is proxied through a
+        // Cloud Function. Direct client use of the Gemini API key was removed
+        // to prevent key exposure in the bundle.
+        setChatMessages(prev => [...prev, { role: 'model', text: "The advisor is temporarily unavailable." }]);
+        return;
+        // eslint-disable-next-line no-unreachable
         setIsTextLoading(true);
 
         try {

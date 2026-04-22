@@ -23,7 +23,6 @@ jobs:
       VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
       VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
       VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +33,13 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - run: echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> functions/.env.prod
-      - run: echo "FUNCTIONS_BASE_URL=${{ secrets.FUNCTIONS_BASE_URL }}" >> functions/.env.prod
+      - name: Write functions/.env.prod
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FUNCTIONS_BASE_URL: ${{ secrets.FUNCTIONS_BASE_URL }}
+        run: |
+          echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> functions/.env.prod
+          echo "FUNCTIONS_BASE_URL=$FUNCTIONS_BASE_URL" >> functions/.env.prod
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:

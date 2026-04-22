@@ -103,11 +103,17 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
 
     // Live API Implementation
     const startLiveSession = async () => {
+        // AI voice assist is disabled until the Gemini call is proxied through
+        // a Cloud Function with ephemeral auth tokens. Direct client use of the
+        // Gemini API key was removed to prevent key exposure in the bundle.
+        setMicError("Voice assist is temporarily unavailable.");
+        return;
+        // eslint-disable-next-line no-unreachable
         try {
             const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
             audioContextRef.current = audioCtx;
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
-            
+
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
             const orgNames = organizations.map(o => o.name).join(', ');
 
