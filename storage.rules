@@ -1,19 +1,49 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Authenticated users can read any file
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function callerPerson() {
+      return firestore.get(
+        /databases/(default)/documents/people/$(request.auth.uid)
+      ).data;
+    }
+
+    function isPlatformAdmin() {
+      return isAuthenticated() &&
+        callerPerson().system_role == 'platform_admin';
+    }
+
+    function isEsoOperatorAtOrg(orgId) {
+      return isAuthenticated() &&
+        callerPerson().system_role in ['eso_admin', 'eso_staff', 'eso_coach'] &&
+        callerPerson().organization_id == orgId;
+    }
+
+    // Authenticated users can read any file.
     match /{allPaths=**} {
-      allow read: if request.auth != null;
+      allow read: if isAuthenticated();
     }
 
-    // People can upload their own avatar; admins can upload for any person
+    // Avatars: a user can only write to their own avatar path. Platform
+    // admins can write any avatar (e.g. to remove inappropriate images).
     match /people/{personId}/avatar/{fileName} {
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated() && (
+        request.auth.uid == personId ||
+        isPlatformAdmin()
+      );
     }
 
-    // Org logos
+    // Org logos: platform admin, or an ESO operator whose own organization
+    // is the one being edited.
     match /organizations/{orgId}/logo/{fileName} {
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated() && (
+        isPlatformAdmin() ||
+        isEsoOperatorAtOrg(orgId)
+      );
     }
   }
 }

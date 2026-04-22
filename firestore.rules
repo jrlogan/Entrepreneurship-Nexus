@@ -92,10 +92,27 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == requestId;
     }
 
+    // Fields on a Person document that a user cannot modify on themselves.
+    // Only platform admins / ecosystem managers can change these. Self-update
+    // of any of these would allow privilege escalation or org-hopping.
+    function personPrivilegedFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'system_role',
+        'organization_id',
+        'primary_organization_id',
+        'ecosystem_id',
+        'auth_uid',
+        'memberships',
+        'secondary_profile'
+      ]);
+    }
+
     match /people/{personId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && request.resource.data.auth_uid == request.auth.uid;
-      allow update: if isSelf(personId) || isNetworkAdmin();
+      allow update: if isNetworkAdmin() || (
+        isSelf(personId) && !personPrivilegedFieldsChanged()
+      );
       allow delete: if isPlatformAdmin();
     }
 
@@ -122,9 +139,23 @@ service cloud.firestore {
       allow delete: if isPlatformAdmin();
     }
 
+    // ESO operators may only update organizations where their own org is
+    // listed in managed_by_ids, and may not change managed_by_ids themselves
+    // (otherwise they could grant themselves management of any other org).
+    function canEsoOperatorUpdateOrg() {
+      return isEsoOperator() &&
+        currentOrgId() != null &&
+        (currentOrgId() in resource.data.managed_by_ids) &&
+        request.resource.data.managed_by_ids == resource.data.managed_by_ids;
+    }
+
     match /organizations/{organizationId} {
       allow read: if isAuthenticated();
-      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      // Create stays permissive for now; the privilege-escalation bug was on
+      // update (ESO operator at Org A could modify any other org). Creating
+      // a fresh org doesn't grant retroactive control over others.
+      allow create: if isPlatformAdmin() || isEsoOperator();
+      allow update: if isPlatformAdmin() || canEsoOperatorUpdateOrg();
       allow delete: if isPlatformAdmin();
     }
 
