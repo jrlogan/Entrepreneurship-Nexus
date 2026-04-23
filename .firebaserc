@@ -4,5 +4,24 @@
     "local": "entrepreneurship-nexus-local",
     "prod": "entrepreneurship-nexus",
     "staging": "entrepreneurship-nexus-staging"
+  },
+  "targets": {
+    "entrepreneurship-nexus": {
+      "hosting": {
+        "prod": [
+          "entrepreneurship-nexus"
+        ],
+        "demo": [
+          "entrepreneurship-nexus-demo"
+        ]
+      }
+    },
+    "entrepreneurship-nexus-staging": {
+      "hosting": {
+        "prod": [
+          "entrepreneurship-nexus-staging"
+        ]
+      }
+    }
   }
 }
