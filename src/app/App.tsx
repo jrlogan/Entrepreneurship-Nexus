@@ -267,11 +267,30 @@ const App = () => {
     settings: {
       ...baseEcosystem.settings,
       ...(override.settings || {}),
-      // Deep-merge feature_flags so a partial override doesn't wipe base flags
-      feature_flags: {
-        ...(baseEcosystem.settings.feature_flags || {}),
-        ...(override.settings?.feature_flags || {}),
-      },
+      // Deep-merge feature_flags so a partial override doesn't wipe base flags.
+      // In demo mode every flag is forced on so visitors can explore the full surface area.
+      feature_flags: CONFIG.IS_DEMO_MODE
+        ? {
+            advanced_workflows: true,
+            dashboard: true,
+            tasks_advice: true,
+            initiatives: true,
+            processes: true,
+            interactions: true,
+            reports: true,
+            venture_scout: true,
+            api_console: true,
+            data_quality: true,
+            data_standards: true,
+            metrics_manager: true,
+            inbound_intake: true,
+            notify_entrepreneurs: true,
+            grant_lab: true,
+          }
+        : {
+            ...(baseEcosystem.settings.feature_flags || {}),
+            ...(override.settings?.feature_flags || {}),
+          },
     },
   };
   const featureFlags = currentEcosystem.settings.feature_flags || {};

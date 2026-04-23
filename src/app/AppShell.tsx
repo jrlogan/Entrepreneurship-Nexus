@@ -659,8 +659,8 @@ export const AppShell: React.FC<AppShellProps> = ({
         {/* Global Privacy Legend (Fixed Position) */}
         <PrivacyLegend />
 
-        {/* Feedback Widget */}
-        {feedbackContext && <FeedbackWidget context={feedbackContext} />}
+        {/* Feedback Widget — hidden in demo mode since there's no backend to persist submissions */}
+        {feedbackContext && !CONFIG.IS_DEMO_MODE && <FeedbackWidget context={feedbackContext} />}
       </div>
     </div>
   );
