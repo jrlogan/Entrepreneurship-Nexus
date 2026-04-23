@@ -1,6 +1,12 @@
 
 # Entrepreneurship Nexus
 
+<p>
+  <a href="https://demo.entrepreneurship.nexus">
+    <img alt="Open live demo" src="https://img.shields.io/badge/Open%20Live%20Demo-demo.entrepreneurship.nexus-0f766e?style=for-the-badge">
+  </a>
+</p>
+
 Entrepreneurship Nexus is an open-source platform for coordinating regional entrepreneurial ecosystems across founders, entrepreneur support organizations, funders, and ecosystem administrators.
 
 It is intended for ecosystem operators and higher-level conveners, such as foundations, state agencies, regional economic development groups, and backbone organizations, that support multiple programs or ecosystems and need a shared data layer.
@@ -55,6 +61,8 @@ The value proposition is a shared operational and data layer: reduce duplicate d
 - Data model concepts aligned with Human Services Data Specification (HSDS)
 
 ## Quickstart
+
+Want to inspect the app before running it locally? Open the [live demo](https://demo.entrepreneurship.nexus).
 
 Install dependencies and run the app in demo mode:
 

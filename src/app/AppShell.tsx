@@ -30,6 +30,8 @@ import {
     IconMenu,
     IconX
 } from '../shared/ui/Icons';
+const GITHUB_REPOSITORY_URL = 'https://github.com/jrlogan/Entrepreneurship-Nexus';
+
 interface AppShellProps {
   user: Person;
   actingOrganizationName?: string | null;
@@ -634,9 +636,20 @@ export const AppShell: React.FC<AppShellProps> = ({
                )}
              </div>
              {isDemoMode && (
-               <button onClick={onStartDemo} className="mt-3 w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded shadow-sm transition-colors">
-                 Start Demo Tour
-                </button>
+               <div className="mt-3 space-y-2">
+                 <button onClick={onStartDemo} className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded shadow-sm transition-colors">
+                   Start Demo Tour
+                  </button>
+                 <a
+                   href={GITHUB_REPOSITORY_URL}
+                   target="_blank"
+                   rel="noreferrer"
+                   className={`flex w-full items-center justify-center gap-1.5 rounded border border-white/10 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white/10 ${theme.headerSub}`}
+                 >
+                   <IconExternalLink className="h-3.5 w-3.5" />
+                   View source on GitHub
+                 </a>
+               </div>
              )}
              {!isDemoMode && accountError && (
                <div className="mt-3 rounded border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
