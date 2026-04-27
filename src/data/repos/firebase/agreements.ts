@@ -15,11 +15,12 @@ export class FirebaseAgreementsRepo {
     personId: string,
     ecosystemId: string,
     type: AgreementType,
-    via: AgreementAcceptance['accepted_via']
+    via: AgreementAcceptance['accepted_via'],
+    textHash?: string,
   ): Promise<void> {
     const id = docId(authUid, ecosystemId, type);
     const now = new Date().toISOString();
-    await setDocument(COLLECTION, id, {
+    const record: Record<string, unknown> = {
       auth_uid: authUid,
       person_id: personId,
       ecosystem_id: ecosystemId,
@@ -27,7 +28,9 @@ export class FirebaseAgreementsRepo {
       version: AGREEMENT_VERSIONS[type],
       accepted_at: now,
       accepted_via: via,
-    });
+    };
+    if (textHash) record.text_hash = textHash;
+    await setDocument(COLLECTION, id, record);
   }
 
   async hasAccepted(authUid: string, ecosystemId: string, type: AgreementType): Promise<boolean> {

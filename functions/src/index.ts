@@ -4566,7 +4566,9 @@ export {
   // OIDC/SSO: any ESO can register their OAuth server; MakeHaven is just one instance
   partnerRegisterOidcProvider,
   oidcGetProviders,
+  oidcGetProvider,
   oidcExchangeToken,
+  oidcLinkAccount,
   // Participation: track ESO program/membership participation generically
   partnerUpsertParticipation,
 } from './partnerApi';

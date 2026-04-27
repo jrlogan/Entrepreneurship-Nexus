@@ -339,32 +339,32 @@ export const DemoWalkthrough = ({
   // --- 0. Splash Screen (Intro) ---
   if (showIntro) {
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-sm p-4">
-            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-500 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-sm p-2 sm:p-4">
+            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-500 relative max-h-[95vh] overflow-y-auto">
                 {/* Hero Section */}
-                <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-8 text-center relative overflow-hidden">
+                <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 sm:p-8 text-center relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-repeat" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='1' fill-rule='evenodd'%3E%3Ccircle cx='3' cy='3' r='3'/%3E%3Ccircle cx='13' cy='13' r='3'/%3E%3C/g%3E%3C/svg%3E")` }}></div>
-                    
+
                     {/* Skip Button (Top Right) */}
-                    <button 
+                    <button
                         onClick={onClose}
-                        className="absolute top-4 right-4 text-slate-400 hover:text-white text-sm font-medium transition-colors bg-white/10 hover:bg-white/20 px-3 py-1 rounded-full"
+                        className="absolute top-3 right-3 sm:top-4 sm:right-4 text-slate-400 hover:text-white text-xs sm:text-sm font-medium transition-colors bg-white/10 hover:bg-white/20 px-3 py-1 rounded-full"
                     >
                         Skip &times;
                     </button>
 
-                    <div className="relative z-10 mt-2">
-                        <h1 className="text-3xl font-extrabold tracking-tight mb-2">
+                    <div className="relative z-10 mt-6 sm:mt-2">
+                        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2">
                             Entrepreneurship <span className="text-indigo-400">Nexus</span>
                         </h1>
-                        <p className="text-slate-300 text-base max-w-lg mx-auto">
+                        <p className="text-slate-300 text-sm sm:text-base max-w-lg mx-auto">
                             Prototype: AI-Driven Ecosystem Orchestration
                         </p>
                     </div>
                 </div>
 
                 {/* Content */}
-                <div className="p-8 space-y-6">
+                <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
                     <div className="text-sm text-gray-600 leading-relaxed space-y-4">
                         <p>
                             The underlying motive of this prototype is to <strong>explore the data structure</strong> and how it might exist if we followed the Agency Specification. It serves as a tool to better understand our requirements and rapidly iterate on potential solutions.
@@ -374,7 +374,7 @@ export const DemoWalkthrough = ({
                         </p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
                             <div className="text-xl mb-2">🔌</div>
                             <h3 className="font-bold text-indigo-900 text-sm">API-First Architecture</h3>
@@ -391,9 +391,9 @@ export const DemoWalkthrough = ({
                         </div>
                     </div>
 
-                    <button 
+                    <button
                         onClick={() => setShowIntro(false)}
-                        className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white text-lg font-bold rounded-xl shadow-lg transform transition hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white text-base sm:text-lg font-bold rounded-xl shadow-lg transform transition hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2"
                     >
                         Explore the Demos <span>→</span>
                     </button>
@@ -412,39 +412,39 @@ export const DemoWalkthrough = ({
   // --- 1. Role Selection Screen ---
   if (!activeScenario) {
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-2 sm:p-4">
             <div className="bg-white w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300 max-h-[95vh] overflow-y-auto">
-                <div className="bg-slate-900 text-white p-8 text-center relative">
-                    <button 
+                <div className="bg-slate-900 text-white p-5 sm:p-8 text-center relative">
+                    <button
                         onClick={onClose}
-                        className="absolute top-4 right-4 text-slate-400 hover:text-white"
+                        className="absolute top-3 right-3 sm:top-4 sm:right-4 text-slate-400 hover:text-white"
                     >
                         <span className="sr-only">Close</span>
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
-                    <h2 className="text-3xl font-bold mb-2">Welcome to Entrepreneurship Nexus</h2>
-                    <p className="text-slate-300">Select a guided tour to explore specific capabilities.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold mb-2 pr-8 sm:pr-0">Welcome to Entrepreneurship Nexus</h2>
+                    <p className="text-slate-300 text-sm sm:text-base">Select a guided tour to explore specific capabilities.</p>
                 </div>
 
                 {/* Featured Tour */}
-                <div className="p-8 pb-0">
-                    <div 
-                        className="w-full group p-4 border-2 border-indigo-100 bg-indigo-50 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col sm:flex-row items-center gap-6 relative overflow-hidden cursor-pointer"
+                <div className="p-4 sm:p-8 pb-0 sm:pb-0">
+                    <div
+                        className="w-full group p-4 border-2 border-indigo-100 bg-indigo-50 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col sm:flex-row items-center gap-4 sm:gap-6 relative overflow-hidden cursor-pointer"
                     >
                         <div className="absolute right-0 top-0 bg-indigo-200 text-indigo-800 text-[10px] font-bold px-2 py-1 rounded-bl uppercase">Start Here</div>
                         <div className="text-4xl group-hover:scale-110 transition-transform">🏛️</div>
-                        <div className="flex-1">
+                        <div className="flex-1 text-center sm:text-left">
                             <h3 className="font-bold text-indigo-900 text-lg">Committee Walkthrough</h3>
                             <p className="text-sm text-indigo-700 mt-1">A high-level tour of the EcosystemOS value proposition: From fragmentation to unified impact.</p>
                         </div>
-                        <div className="flex gap-2">
-                            <button 
+                        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                            <button
                                 onClick={() => startScenario(COMMITTEE_TOUR, true)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg shadow-sm transition-transform active:scale-95 flex items-center gap-2"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold px-4 py-2 rounded-lg shadow-sm transition-transform active:scale-95 flex items-center justify-center gap-2"
                             >
                                 <span>▶</span> Auto-Play Demo
                             </button>
-                            <button 
+                            <button
                                 onClick={() => startScenario(COMMITTEE_TOUR, false)}
                                 className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm font-bold px-4 py-2 rounded-lg shadow-sm transition-transform active:scale-95"
                             >
@@ -454,7 +454,7 @@ export const DemoWalkthrough = ({
                     </div>
                 </div>
 
-                <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                     <button 
                         onClick={() => startScenario(ENTREPRENEUR_TOUR)}
                         className="group p-6 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col"
@@ -497,12 +497,12 @@ export const DemoWalkthrough = ({
                 </div>
                 
                 {/* Secondary row for Privacy tour to keep grid balanced */}
-                <div className="px-8 pb-8 flex justify-center">
-                    <button 
+                <div className="px-4 sm:px-8 pb-4 sm:pb-8 flex justify-center">
+                    <button
                         onClick={() => startScenario(PRIVACY_TOUR)}
-                        className="w-full max-w-2xl group p-4 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex items-center gap-6"
+                        className="w-full max-w-2xl group p-4 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex items-center gap-4 sm:gap-6"
                     >
-                        <div className="text-3xl group-hover:scale-110 transition-transform">🔒</div>
+                        <div className="text-3xl group-hover:scale-110 transition-transform shrink-0">🔒</div>
                         <div>
                             <h3 className="font-bold text-gray-900 text-lg">Privacy & Trust Model</h3>
                             <p className="text-sm text-gray-500 mt-1">See how our Tiered Privacy Model protects sensitive data while maintaining ecosystem awareness.</p>
@@ -510,9 +510,9 @@ export const DemoWalkthrough = ({
                     </button>
                 </div>
 
-                <div className="bg-gray-50 p-4 text-center border-t border-gray-100 flex justify-between items-center px-8">
+                <div className="bg-gray-50 p-4 sm:px-8 border-t border-gray-100 flex flex-col sm:flex-row gap-3 justify-between items-center text-center sm:text-left">
                     <span className="text-xs text-indigo-600 font-medium">💡 Tip: You can switch users anytime by clicking the profile picture in the sidebar to explore different roles.</span>
-                    <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-800 font-medium underline decoration-dotted">Skip Tour</button>
+                    <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-800 font-medium underline decoration-dotted shrink-0">Skip Tour</button>
                 </div>
             </div>
         </div>
@@ -522,16 +522,16 @@ export const DemoWalkthrough = ({
   // --- 2. Summary Slide ---
   if (showSummary) {
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 backdrop-blur-sm p-4">
-            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
-                <div className="bg-indigo-900 text-white p-8 text-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 backdrop-blur-sm p-2 sm:p-4">
+            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300 max-h-[95vh] overflow-y-auto">
+                <div className="bg-indigo-900 text-white p-5 sm:p-8 text-center">
                     <div className="text-5xl mb-4">✨</div>
-                    <h2 className="text-3xl font-bold mb-2">Demo Complete</h2>
-                    <p className="text-indigo-200">You've seen the core capabilities of Entrepreneurship Nexus.</p>
+                    <h2 className="text-2xl sm:text-3xl font-bold mb-2">Demo Complete</h2>
+                    <p className="text-indigo-200 text-sm sm:text-base">You've seen the core capabilities of Entrepreneurship Nexus.</p>
                 </div>
-                <div className="p-8">
+                <div className="p-5 sm:p-8">
                     <h3 className="font-bold text-gray-800 mb-4 uppercase text-xs tracking-wide">Key Takeaways</h3>
-                    <div className="grid grid-cols-2 gap-4 mb-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                         <div className="p-4 bg-gray-50 rounded border border-gray-200">
                             <div className="font-bold text-indigo-600 mb-1">Federated Data</div>
                             <p className="text-sm text-gray-600">Single source of truth syncing State Registry, CRMs, and Partners.</p>
@@ -566,7 +566,7 @@ export const DemoWalkthrough = ({
                         </button>
                     </div>
 
-                    <div className="flex gap-4 justify-center border-t border-gray-100 pt-6">
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center border-t border-gray-100 pt-6">
                         <button onClick={() => startScenario(COMMITTEE_TOUR, true)} className="px-6 py-2 bg-indigo-50 text-indigo-700 font-bold rounded hover:bg-indigo-100 transition-colors">
                             Replay Main Tour
                         </button>
@@ -594,8 +594,8 @@ export const DemoWalkthrough = ({
   const positionClass = positionMap[step.position || 'bottom-right'];
 
   return (
-    <div className={`fixed inset-0 z-50 flex ${positionClass} pointer-events-none p-4 sm:p-6`}>
-      <div className="bg-white w-full max-w-md rounded-xl shadow-2xl pointer-events-auto border-2 border-indigo-600 overflow-hidden relative transform transition-all animate-in fade-in slide-in-from-right-8 duration-300">
+    <div className={`fixed inset-0 z-50 flex ${positionClass} pointer-events-none p-3 sm:p-6`}>
+      <div className="bg-white w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl pointer-events-auto border-2 border-indigo-600 relative transform transition-all animate-in fade-in slide-in-from-right-8 duration-300">
         
         {/* Progress Bar for Auto-Play */}
         {isAutoPlay && (

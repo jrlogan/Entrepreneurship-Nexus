@@ -35,6 +35,13 @@ import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { createHmac, createHash, randomBytes } from 'crypto';
+import {
+  matchPerson,
+  matchOrganization,
+  attachExternalRef,
+  flagPossibleDuplicate,
+  type ExternalRef as FedExternalRef,
+} from './federationDedup';
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -73,6 +80,18 @@ interface WebhookRecord {
 /**
  * OIDC provider config stored in `oidc_providers/{provider_id}`.
  * client_secret is server-side only — never returned via API.
+ *
+ * `ref_sources` maps a userinfo response key (e.g. `drupal_uid`,
+ * `civi_contact_id`) to the `external_ref.source` string Nexus should use
+ * when storing that identifier on a person/org record. This lets a provider
+ * align with external_ref conventions already in use by other integrations
+ * (e.g. `entrepreneur_nexus_bridge` on MakeHaven's Drupal side writes its
+ * pushes with `source: "makehaven_civicrm"` — to dedup reliably against
+ * those writes, MakeHaven's OIDC provider should register with
+ * `ref_sources: { civi_contact_id: "makehaven_civicrm" }`).
+ * If a key is not configured here, oidcExchangeToken falls back to a
+ * provider-namespaced default (`<provider_id>:<key>`) so dedup still works
+ * within the SSO path alone.
  */
 interface OidcProviderRecord {
   id: string;
@@ -86,6 +105,7 @@ interface OidcProviderRecord {
   client_id: string;
   client_secret: string;
   scopes: string[];        // e.g. ['openid', 'email', 'profile']
+  ref_sources?: Record<string, string>;
   status: 'active' | 'disabled';
   created_at: string;
   updated_at: string;
@@ -377,7 +397,7 @@ const enqueueConsentEmail = async (
   // Resolve the ESO's display name for the referral attribution line.
   let esoName = 'your support organization';
   try {
-    const orgDoc = await db.collection('organizations').doc(esoOrgId).get();
+    const orgDoc = await db.collection('organizations').doc(referringEsoId).get();
     if (orgDoc.exists && orgDoc.get('name')) {
       esoName = orgDoc.get('name') as string;
     }
@@ -1281,6 +1301,20 @@ export const consentAccept = onRequest({ invoker: 'public' }, async (req, res) =
  *   client_secret          string
  *   scopes?                string[] — default: ["openid", "email", "profile"]
  *   logo_url?              string
+ *   ref_sources?           { [userinfo_key: string]: string }
+ *                          — Maps userinfo response keys (e.g. "drupal_uid",
+ *                            "civi_contact_id") to the external_ref.source
+ *                            string Nexus should use when storing that
+ *                            identifier on a person/org. Lets this provider
+ *                            align with other integrations writing the same
+ *                            underlying ids (e.g. the entrepreneur_nexus_bridge
+ *                            module on MakeHaven's Drupal writes CiviCRM
+ *                            pushes with source "makehaven_civicrm" —
+ *                            register with { civi_contact_id: "makehaven_civicrm" }
+ *                            so SSO-provisioned and bridge-pushed records
+ *                            dedup to the same Nexus person).
+ *                          Values must be non-empty strings. Unspecified keys
+ *                          fall back to "<provider_id>:<userinfo_key>".
  *
  * Response:
  *   { ok: true, provider_id: string }
@@ -1309,9 +1343,33 @@ export const partnerRegisterOidcProvider = onRequest({ invoker: 'public' }, asyn
     : ['openid', 'email', 'profile'];
   const logoUrl = (req.body?.logo_url || '').toString().trim() || undefined;
 
-  if (!displayName || !authorizationEndpoint || !tokenEndpoint || !userinfoEndpoint || !clientId || !clientSecret) {
+  // ref_sources: validate as a flat string-to-non-empty-string map. Reject
+  // nested / non-string values rather than silently coercing — this field
+  // drives dedup correctness and we want loud failure on malformed input.
+  let refSources: Record<string, string> | undefined;
+  const refSourcesRaw = req.body?.ref_sources;
+  if (refSourcesRaw !== undefined && refSourcesRaw !== null) {
+    if (typeof refSourcesRaw !== 'object' || Array.isArray(refSourcesRaw)) {
+      res.status(400).json({ error: 'ref_sources must be a flat object of string-to-string pairs' });
+      return;
+    }
+    const validated: Record<string, string> = {};
+    for (const [k, v] of Object.entries(refSourcesRaw as Record<string, unknown>)) {
+      if (typeof v !== 'string' || !v.trim()) {
+        res.status(400).json({ error: `ref_sources.${k} must be a non-empty string` });
+        return;
+      }
+      validated[k] = v.trim();
+    }
+    if (Object.keys(validated).length > 0) refSources = validated;
+  }
+
+  // client_secret is optional: public PKCE clients (confidential=0 in the
+  // simple_oauth consumer) don't have one. When omitted, the token endpoint
+  // exchange relies on PKCE + client_id only.
+  if (!displayName || !authorizationEndpoint || !tokenEndpoint || !userinfoEndpoint || !clientId) {
     res.status(400).json({
-      error: 'display_name, authorization_endpoint, token_endpoint, userinfo_endpoint, client_id, and client_secret are required',
+      error: 'display_name, authorization_endpoint, token_endpoint, userinfo_endpoint, and client_id are required',
     });
     return;
   }
@@ -1342,6 +1400,7 @@ export const partnerRegisterOidcProvider = onRequest({ invoker: 'public' }, asyn
     client_id: clientId,
     client_secret: clientSecret,
     scopes,
+    ...(refSources && { ref_sources: refSources }),
     status: 'active',
     created_at: now,
     updated_at: now,
@@ -1397,11 +1456,64 @@ export const oidcGetProviders = onRequest({ invoker: 'public' }, async (req, res
       authorization_endpoint: d.authorization_endpoint,
       client_id: d.client_id,
       scopes: d.scopes,
+      ref_sources: d.ref_sources || {},
       // client_secret intentionally excluded
     };
   });
 
   res.json({ ok: true, providers });
+});
+
+
+/**
+ * GET /oidcGetProvider?provider_id=<id>
+ *
+ * Returns a single active OIDC provider's public config — the info the
+ * frontend needs to initiate PKCE against a specific provider without
+ * knowing the ecosystem in advance (i.e. when a partner site deep-links
+ * the user to /sso/:providerId).
+ *
+ * client_secret is never included. No auth required — this is public
+ * metadata, the same shape returned by oidcGetProviders.
+ */
+export const oidcGetProvider = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const providerId = ((req.query?.provider_id as string) || '').trim();
+  if (!providerId) {
+    res.status(400).json({ error: 'provider_id query parameter is required' });
+    return;
+  }
+
+  const db = admin.firestore();
+  const doc = await db.collection('oidc_providers').doc(providerId).get();
+  if (!doc.exists || doc.get('status') !== 'active') {
+    res.status(404).json({ error: 'OIDC provider not found or inactive' });
+    return;
+  }
+
+  const d = doc.data() as OidcProviderRecord;
+  res.json({
+    ok: true,
+    provider: {
+      provider_id: d.id,
+      organization_id: d.organization_id,
+      ecosystem_id: d.ecosystem_id,
+      display_name: d.display_name,
+      logo_url: d.logo_url || null,
+      authorization_endpoint: d.authorization_endpoint,
+      client_id: d.client_id,
+      scopes: d.scopes,
+      ref_sources: d.ref_sources || {},
+      // client_secret intentionally excluded
+    },
+  });
 });
 
 
@@ -1461,14 +1573,16 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
   // Exchange auth code for tokens at the ESO's token endpoint.
   let accessToken: string;
   try {
-    const tokenBody = new URLSearchParams({
+    const tokenBodyParams: Record<string, string> = {
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
       client_id: provider.client_id,
-      client_secret: provider.client_secret,
       code_verifier: codeVerifier,
-    });
+    };
+    // Public PKCE clients have no client_secret; only include when set.
+    if (provider.client_secret) tokenBodyParams.client_secret = provider.client_secret;
+    const tokenBody = new URLSearchParams(tokenBodyParams);
     const tokenRes = await fetch(provider.token_endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
@@ -1493,10 +1607,18 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
     return;
   }
 
-  // Fetch user identity from userinfo endpoint.
+  // Fetch user identity from userinfo endpoint. Supports both:
+  //   (a) standard OIDC claims (email, given_name, family_name, name)
+  //   (b) the "entrepreneurship" profile shape served by the federated
+  //       entrepreneurship_api Drupal module (drupal_uid, display_name,
+  //       civi_contact_id, employer_org). See docs/makehaven-sso-plan.md.
+  // Parsers tolerate missing fields from either shape.
   let userEmail: string;
   let userFirstName: string;
   let userLastName: string;
+  let providerSubject: string = '';
+  let providerCiviContactId: string = '';
+  let employerInfo: { id?: string; name?: string; website?: string; domain?: string } | null = null;
   try {
     const infoRes = await fetch(provider.userinfo_endpoint, {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
@@ -1507,9 +1629,12 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       return;
     }
     const info = await infoRes.json() as {
-      email?: string; name?: string;
+      email?: string; name?: string; display_name?: string;
       given_name?: string; family_name?: string;
       field_first_name?: string; field_last_name?: string; // Drupal field names
+      sub?: string; drupal_uid?: string | number;
+      civi_contact_id?: string | number | null;
+      employer_org?: { id?: string | number; name?: string; website?: string | null; domain?: string | null } | null;
     };
 
     userEmail = normalize(info.email);
@@ -1517,13 +1642,31 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       res.status(502).json({ error: 'Userinfo response did not include an email address' });
       return;
     }
-    // Support standard OIDC claims and common Drupal field names.
+
+    // Resolve name: prefer OIDC claims, then Drupal field names, then split
+    // a single `name` / `display_name` string.
     userFirstName = (info.given_name || info.field_first_name || '').toString().trim();
     userLastName = (info.family_name || info.field_last_name || '').toString().trim();
-    if (!userFirstName && info.name) {
-      const parts = info.name.toString().trim().split(/\s+/);
+    const combinedName = (info.display_name || info.name || '').toString().trim();
+    if (!userFirstName && combinedName) {
+      const parts = combinedName.split(/\s+/);
       userFirstName = parts[0] || '';
       userLastName = parts.slice(1).join(' ');
+    }
+
+    // A stable provider-side subject identifier. Prefer `drupal_uid` (what
+    // the entrepreneurship_api module emits), fall back to standard OIDC
+    // `sub`, fall back to empty (falls through to email-based dedup).
+    providerSubject = (info.drupal_uid ?? info.sub ?? '').toString().trim();
+    providerCiviContactId = (info.civi_contact_id ?? '').toString().trim();
+
+    if (info.employer_org && (info.employer_org.id || info.employer_org.name)) {
+      employerInfo = {
+        id: info.employer_org.id != null ? info.employer_org.id.toString() : undefined,
+        name: info.employer_org.name || undefined,
+        website: info.employer_org.website || undefined,
+        domain: info.employer_org.domain || undefined,
+      };
     }
   } catch (err: any) {
     console.error('OIDC userinfo error:', err?.message);
@@ -1531,41 +1674,97 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
     return;
   }
 
-  // Find or create person record by email.
-  const emailSnap = await db.collection('people').where('email', '==', userEmail).limit(1).get();
+  // Build external_refs carried by this identity. Each userinfo key maps to
+  // an `external_ref.source` via provider.ref_sources (admin-configured at
+  // registration time) so the SSO path writes the same source strings as
+  // other integrations pushing the same underlying ids — e.g. MakeHaven's
+  // entrepreneur_nexus_bridge writes with source "makehaven_civicrm" and
+  // MakeHaven's provider should register with
+  // `ref_sources: { civi_contact_id: "makehaven_civicrm" }` so dedup hits
+  // Tier 1. If a key is not mapped, we fall back to a provider-namespaced
+  // default so SSO-only dedup still works.
+  const refSourceFor = (userinfoKey: string): string =>
+    provider.ref_sources?.[userinfoKey] || `${providerId}:${userinfoKey}`;
 
-  let personId: string;
-  let authUid: string;
+  const providerRefs: FedExternalRef[] = [];
+  if (providerSubject) {
+    providerRefs.push({ source: refSourceFor('drupal_uid'), id: providerSubject });
+  }
+  if (providerCiviContactId) {
+    providerRefs.push({ source: refSourceFor('civi_contact_id'), id: providerCiviContactId });
+  }
+
+  // Resolve the person via cross-source dedup. Tier 1 (external_ref) wins
+  // silently; Tier 2 (exact email) wins silently and back-fills the missing
+  // external_ref; Tier 3 (weak signal) is recorded for admin review but does
+  // not block — we create a new record so the sign-in flow keeps moving.
+  const personMatch = await matchPerson(db, {
+    external_refs: providerRefs,
+    email: userEmail,
+    display_name: `${userFirstName} ${userLastName}`.trim(),
+  });
+
+  let personId = '';
+  let authUid = '';
   let isNewAccount = false;
 
-  if (!emailSnap.empty) {
-    // Existing person — use their Firebase Auth UID (or create one if missing).
-    const personDoc = emailSnap.docs[0];
-    personId = personDoc.id;
-    authUid = personDoc.get('auth_uid') as string || '';
-
-    if (!authUid) {
-      // Partner-created person who hasn't set up Firebase Auth yet — create a user for them.
+  const ensureAuthUidForExistingPerson = async (
+    personDoc: admin.firestore.DocumentSnapshot
+  ): Promise<{ authUid: string; isNew: boolean }> => {
+    let existingUid = (personDoc.get('auth_uid') as string) || '';
+    let createdNew = false;
+    if (!existingUid) {
       try {
-        const fbUser = await admin.auth().createUser({ email: userEmail, displayName: `${userFirstName} ${userLastName}`.trim() });
-        authUid = fbUser.uid;
-        await personDoc.ref.set({ auth_uid: authUid, updated_at: new Date().toISOString() }, { merge: true });
-        isNewAccount = true;
+        const fbUser = await admin.auth().createUser({
+          email: userEmail,
+          displayName: `${userFirstName} ${userLastName}`.trim(),
+        });
+        existingUid = fbUser.uid;
+        createdNew = true;
       } catch (err: any) {
         if (err.code === 'auth/email-already-exists') {
-          // Race condition — fetch existing user.
           const fbUser = await admin.auth().getUserByEmail(userEmail);
-          authUid = fbUser.uid;
-          await personDoc.ref.set({ auth_uid: authUid, updated_at: new Date().toISOString() }, { merge: true });
+          existingUid = fbUser.uid;
         } else {
-          console.error('Firebase user creation failed:', err?.message);
-          res.status(500).json({ error: 'Could not create account' });
-          return;
+          throw err;
         }
       }
+      await personDoc.ref.set(
+        { auth_uid: existingUid, updated_at: new Date().toISOString() },
+        { merge: true }
+      );
     }
-  } else {
-    // No person record — create one (they may have been referred before, or this is first contact).
+    return { authUid: existingUid, isNew: createdNew };
+  };
+
+  if (personMatch.tier === 'external_ref' || personMatch.tier === 'email_exact') {
+    // Silent auto-link to the existing record.
+    const personRef = db.collection('people').doc(personMatch.person_id);
+    const personDoc = await personRef.get();
+    if (!personDoc.exists) {
+      // Index drift — the external_ref_index pointed at a deleted record.
+      // Fall through to creation by treating this as a miss.
+      console.warn('dedup pointed at missing person, creating fresh:', personMatch);
+    } else {
+      personId = personDoc.id;
+      try {
+        ({ authUid, isNew: isNewAccount } = await ensureAuthUidForExistingPerson(personDoc));
+      } catch (err: any) {
+        console.error('Firebase user creation failed for existing person:', err?.message);
+        res.status(500).json({ error: 'Could not create account' });
+        return;
+      }
+      // Back-fill any of our provider external_refs that aren't already on the record.
+      for (const ref of providerRefs) {
+        await attachExternalRef(db, 'person', personId, ref);
+      }
+    }
+  }
+
+  if (!personId) {
+    // Either no match, a weak-signal match, or a stale-index miss — create a
+    // fresh person record. Weak-signal matches are flagged for admin review
+    // after creation (id only known post-write).
     let fbUser;
     try {
       fbUser = await admin.auth().createUser({
@@ -1595,7 +1794,7 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       organization_id: '',
       ecosystem_id: provider.ecosystem_id,
       memberships: [],
-      external_refs: [],
+      external_refs: providerRefs,
       tags: [],
       status: 'active',
       source: 'oidc',
@@ -1603,6 +1802,11 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       created_at: now,
       updated_at: now,
     });
+
+    // Register external_refs in the index so future logins hit Tier 1.
+    for (const ref of providerRefs) {
+      await attachExternalRef(db, 'person', authUid, ref);
+    }
 
     // Network profile — they signed in voluntarily so consent is implicit.
     await db.collection('network_profiles').doc(authUid).set({
@@ -1619,6 +1823,95 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
 
     personId = authUid;
     isNewAccount = true;
+
+    if (personMatch.tier === 'weak_signal') {
+      await flagPossibleDuplicate(db, {
+        entity_type: 'person',
+        new_entity_id: personId,
+        candidate_entity_id: personMatch.candidate_person_id,
+        confidence: personMatch.confidence,
+        reason: personMatch.reason,
+        source: `oidc:${providerId}`,
+        ecosystem_id: provider.ecosystem_id,
+      });
+    }
+  }
+
+  // If the provider surfaced an employer organization, provision (or link to)
+  // a shell record for it and attach the person. This is the "one click also
+  // provisions their company" behavior described in the SSO plan.
+  if (employerInfo) {
+    const orgRefs: FedExternalRef[] = [];
+    if (employerInfo.id) {
+      orgRefs.push({ source: refSourceFor('employer_org_id'), id: employerInfo.id });
+    }
+    const orgMatch = await matchOrganization(db, {
+      external_refs: orgRefs,
+      name: employerInfo.name,
+      domain: employerInfo.domain,
+      website: employerInfo.website,
+    });
+
+    let resolvedOrgId: string | null = null;
+
+    if (orgMatch.tier === 'external_ref' || orgMatch.tier === 'domain_exact') {
+      resolvedOrgId = orgMatch.org_id;
+      for (const ref of orgRefs) {
+        await attachExternalRef(db, 'organization', resolvedOrgId, ref);
+      }
+    } else if (employerInfo.name) {
+      // Create a shell record. Minimal fields: enough to search and dedup;
+      // detail enrichment can happen on the next sync from the source.
+      const now = new Date().toISOString();
+      const newOrgRef = db.collection('organizations').doc();
+      const orgDoc = {
+        id: newOrgRef.id,
+        name: employerInfo.name,
+        description: '',
+        email: '',
+        url: employerInfo.website || '',
+        domain: employerInfo.domain || '',
+        tax_status: '',
+        external_refs: orgRefs,
+        managed_by_ids: [],
+        operational_visibility: 'restricted',
+        ecosystem_ids: [provider.ecosystem_id],
+        authorized_eso_ids: [],
+        status: 'active',
+        source: 'oidc_shell',
+        source_authority: `oidc:${providerId}`,
+        created_at: now,
+        updated_at: now,
+      };
+      await newOrgRef.set(orgDoc);
+      for (const ref of orgRefs) {
+        await attachExternalRef(db, 'organization', newOrgRef.id, ref);
+      }
+      resolvedOrgId = newOrgRef.id;
+
+      if (orgMatch.tier === 'weak_signal') {
+        await flagPossibleDuplicate(db, {
+          entity_type: 'organization',
+          new_entity_id: resolvedOrgId,
+          candidate_entity_id: orgMatch.candidate_org_id,
+          confidence: orgMatch.confidence,
+          reason: orgMatch.reason,
+          source: `oidc:${providerId}`,
+          ecosystem_id: provider.ecosystem_id,
+        });
+      }
+    }
+
+    if (resolvedOrgId) {
+      // Link the person to the org by setting their organization_id if it
+      // is empty. We don't overwrite an existing assignment — admin or the
+      // user can change that via explicit action.
+      const personRef = db.collection('people').doc(personId);
+      const currentOrg = ((await personRef.get()).get('organization_id') as string) || '';
+      if (!currentOrg) {
+        await personRef.update({ organization_id: resolvedOrgId, updated_at: new Date().toISOString() });
+      }
+    }
   }
 
   // Mint Firebase custom token — frontend calls signInWithCustomToken() with this.
@@ -1634,4 +1927,196 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
   });
 
   res.json({ ok: true, firebase_token: firebaseToken, nexus_id: personId, is_new_account: isNewAccount });
+});
+
+
+/**
+ * POST /oidcLinkAccount
+ *
+ * Attaches a provider's identity to the already-authenticated Nexus user,
+ * without creating a new person record. Used when a user signed up via
+ * another path (email, Google) and wants to link their [Provider] account
+ * after the fact so future SSO sign-ins resolve to the same record and
+ * cross-lane dedup works.
+ *
+ * Requires a Firebase ID token in the Authorization header (the caller is
+ * the user being linked). PKCE flow is identical to oidcExchangeToken; the
+ * only differences are:
+ *   - we use the caller's existing authUid/personId instead of dedup,
+ *   - we reject if any of the provider refs is already linked to a DIFFERENT
+ *     Nexus person,
+ *   - we do NOT provision an employer org — linking is an identity action,
+ *     not a profile/data import. (Users can set their org separately.)
+ *
+ * Body:
+ *   provider_id, code, code_verifier, redirect_uri
+ *
+ * Response:
+ *   { ok: true, linked_refs: [{ source, id }, ...] }
+ *
+ * Errors:
+ *   401  — no/invalid Firebase ID token
+ *   404  — provider not found or inactive
+ *   409  — provider identity is already linked to a different Nexus person
+ *   502  — provider-side OAuth/userinfo failure
+ */
+export const oidcLinkAccount = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const db = admin.firestore();
+
+  // Verify the caller is an authenticated Nexus user.
+  const authHeader = (req.get('Authorization') || '').trim();
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  if (!bearerToken) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+  let callerUid: string;
+  try {
+    const decoded = await admin.auth().verifyIdToken(bearerToken);
+    callerUid = decoded.uid;
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired authentication token' });
+    return;
+  }
+
+  // Locate the caller's person record. Persons are keyed by authUid for
+  // OIDC-provisioned users; for users created via email/Google, the person
+  // doc may have a different id but carry auth_uid as a field. Try both.
+  let personDoc = await db.collection('people').doc(callerUid).get();
+  if (!personDoc.exists) {
+    const snap = await db.collection('people').where('auth_uid', '==', callerUid).limit(1).get();
+    if (snap.empty) {
+      res.status(404).json({ error: 'No Nexus profile is linked to this session' });
+      return;
+    }
+    personDoc = snap.docs[0];
+  }
+  const personId = personDoc.id;
+
+  const providerId = (req.body?.provider_id || '').toString().trim();
+  const code = (req.body?.code || '').toString().trim();
+  const codeVerifier = (req.body?.code_verifier || '').toString().trim();
+  const redirectUri = (req.body?.redirect_uri || '').toString().trim();
+  if (!providerId || !code || !codeVerifier || !redirectUri) {
+    res.status(400).json({ error: 'provider_id, code, code_verifier, and redirect_uri are required' });
+    return;
+  }
+
+  const providerDoc = await db.collection('oidc_providers').doc(providerId).get();
+  if (!providerDoc.exists || providerDoc.get('status') !== 'active') {
+    res.status(404).json({ error: 'OIDC provider not found or inactive' });
+    return;
+  }
+  const provider = providerDoc.data() as OidcProviderRecord;
+
+  // Exchange auth code for access token (same as oidcExchangeToken).
+  let accessToken: string;
+  try {
+    const tokenBodyParams: Record<string, string> = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: provider.client_id,
+      code_verifier: codeVerifier,
+    };
+    // Public PKCE clients have no client_secret; only include when set.
+    if (provider.client_secret) tokenBodyParams.client_secret = provider.client_secret;
+    const tokenBody = new URLSearchParams(tokenBodyParams);
+    const tokenRes = await fetch(provider.token_endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+      body: tokenBody.toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!tokenRes.ok) {
+      res.status(502).json({ error: 'Token exchange with OAuth server failed' });
+      return;
+    }
+    const tokenData = await tokenRes.json() as { access_token?: string };
+    if (!tokenData.access_token) {
+      res.status(502).json({ error: 'No access_token in OAuth server response' });
+      return;
+    }
+    accessToken = tokenData.access_token;
+  } catch {
+    res.status(502).json({ error: 'Could not reach OAuth server' });
+    return;
+  }
+
+  // Fetch userinfo. We only need the identifier fields; display_name and
+  // employer_org are ignored here because linking does not touch the
+  // profile or org assignment.
+  let providerSubject = '';
+  let providerCiviContactId = '';
+  try {
+    const infoRes = await fetch(provider.userinfo_endpoint, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!infoRes.ok) {
+      res.status(502).json({ error: 'Userinfo endpoint returned an error' });
+      return;
+    }
+    const info = await infoRes.json() as {
+      sub?: string;
+      drupal_uid?: string | number;
+      civi_contact_id?: string | number | null;
+    };
+    providerSubject = (info.drupal_uid ?? info.sub ?? '').toString().trim();
+    providerCiviContactId = (info.civi_contact_id ?? '').toString().trim();
+  } catch {
+    res.status(502).json({ error: 'Could not retrieve user info from OAuth server' });
+    return;
+  }
+
+  // Build refs using the provider's ref_sources map (same convention as
+  // oidcExchangeToken) so link and login converge on identical sources.
+  const refSourceFor = (userinfoKey: string): string =>
+    provider.ref_sources?.[userinfoKey] || `${providerId}:${userinfoKey}`;
+  const newRefs: FedExternalRef[] = [];
+  if (providerSubject) newRefs.push({ source: refSourceFor('drupal_uid'), id: providerSubject });
+  if (providerCiviContactId) newRefs.push({ source: refSourceFor('civi_contact_id'), id: providerCiviContactId });
+
+  if (newRefs.length === 0) {
+    res.status(502).json({ error: 'Provider did not return any identifier suitable for linking' });
+    return;
+  }
+
+  // Conflict check: if any ref is already in the external_ref_index for a
+  // DIFFERENT person, reject. A ref already on the caller's own record is
+  // fine (idempotent re-link).
+  for (const ref of newRefs) {
+    const indexDoc = await db.collection('external_ref_index').doc(`person:${ref.source}:${ref.id}`).get();
+    if (indexDoc.exists) {
+      const linkedTo = indexDoc.get('entity_id') as string;
+      if (linkedTo && linkedTo !== personId) {
+        res.status(409).json({
+          error: 'This account is already linked to a different Nexus profile.',
+          reason: 'linked_elsewhere',
+          conflicting_ref: ref,
+        });
+        return;
+      }
+    }
+  }
+
+  for (const ref of newRefs) {
+    await attachExternalRef(db, 'person', personId, ref);
+  }
+
+  await logAudit(db, 'oidc_account_linked', personId, {
+    provider_id: providerId,
+    organization_id: provider.organization_id,
+    refs_added: newRefs.length,
+  });
+
+  res.json({ ok: true, linked_refs: newRefs });
 });

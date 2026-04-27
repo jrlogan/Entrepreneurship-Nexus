@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.submitReferralForm = exports.getEmailLog = exports.recordOnboardingAcknowledgment = exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = exports.extractGrantData = exports.referralEmailAction = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.applyPendingInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = exports.extractGrantData = exports.generatePartnerApiKey = exports.referralEmailAction = exports.partnerUpsertParticipation = exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.consentAccept = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.applyPendingInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.submitReferralForm = exports.getEmailLog = exports.recordOnboardingAcknowledgment = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -125,18 +126,22 @@ const getBearerToken = (req) => {
 const validateApiKey = async (apiKey) => {
     if (!apiKey)
         return null;
-    // In a real system, we might use a hash or a separate collection for performance.
-    // For the MVP, we scan organizations for the matching key prefix.
-    // Note: This is simplified. Proper implementation should use a hashed lookup.
-    const snapshot = await db.collection('organizations').get();
-    for (const doc of snapshot.docs) {
-        const apiKeys = (doc.get('api_keys') || []);
-        const match = apiKeys.find(k => k.status === 'active' && (k.prefix === apiKey || apiKey.startsWith(k.prefix.replace('...', ''))));
-        if (match) {
+    const incomingHash = (0, crypto_1.createHash)('sha256').update(apiKey).digest('hex');
+    // Search for the key in the subcollections. 
+    // collectionGroup('api_keys') allows searching across all organizations.
+    const snapshot = await db.collectionGroup('api_keys')
+        .where('hash', '==', incomingHash)
+        .where('status', '==', 'active')
+        .limit(1)
+        .get();
+    if (!snapshot.empty) {
+        const keyDoc = snapshot.docs[0];
+        const organizationId = keyDoc.ref.parent.parent?.id;
+        if (organizationId) {
             return {
-                organization_id: doc.id,
-                key_id: match.id,
-                label: match.label
+                organization_id: organizationId,
+                key_id: keyDoc.id,
+                label: keyDoc.get('label')
             };
         }
     }
@@ -3467,6 +3472,12 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, a
         },
         pipelines: [],
     }, { merge: true });
+    // Seed a deterministic test API key for the Partner API integration tests.
+    // The full key stays known ("test-api-key-abc123") so tests can authenticate,
+    // but what's persisted is only the SHA-256 hash — matching the production
+    // storage format. Production keys are minted via generatePartnerApiKey.
+    const testKeyFull = 'test-api-key-abc123';
+    const testKeyHash = (0, crypto_1.createHash)('sha256').update(testKeyFull).digest('hex');
     await db.collection('organizations').doc('org_makehaven').set({
         id: 'org_makehaven',
         name: 'MakeHaven',
@@ -3479,6 +3490,14 @@ exports.seedLocalReferenceData = (0, https_1.onRequest)({ invoker: 'public' }, a
         ecosystem_ids: ['eco_new_haven'],
         version: 1,
         status: 'active',
+        api_keys: [{
+                id: 'key_test_local_001',
+                label: 'Local integration test key',
+                prefix: 'test-api-key-...c123',
+                hash: testKeyHash,
+                created_at: now,
+                status: 'active',
+            }],
         created_at: now,
         updated_at: now,
     }, { merge: true });
@@ -3934,6 +3953,16 @@ Object.defineProperty(exports, "partnerGetPerson", { enumerable: true, get: func
 Object.defineProperty(exports, "partnerRegisterWebhook", { enumerable: true, get: function () { return partnerApi_1.partnerRegisterWebhook; } });
 Object.defineProperty(exports, "onInteractionCreatedDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onInteractionCreatedDeliverWebhooks; } });
 Object.defineProperty(exports, "onReferralWrittenDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onReferralWrittenDeliverWebhooks; } });
+// Consent: opt-in email → one-click acceptance
+Object.defineProperty(exports, "consentAccept", { enumerable: true, get: function () { return partnerApi_1.consentAccept; } });
+// OIDC/SSO: any ESO can register their OAuth server; MakeHaven is just one instance
+Object.defineProperty(exports, "partnerRegisterOidcProvider", { enumerable: true, get: function () { return partnerApi_1.partnerRegisterOidcProvider; } });
+Object.defineProperty(exports, "oidcGetProviders", { enumerable: true, get: function () { return partnerApi_1.oidcGetProviders; } });
+Object.defineProperty(exports, "oidcGetProvider", { enumerable: true, get: function () { return partnerApi_1.oidcGetProvider; } });
+Object.defineProperty(exports, "oidcExchangeToken", { enumerable: true, get: function () { return partnerApi_1.oidcExchangeToken; } });
+Object.defineProperty(exports, "oidcLinkAccount", { enumerable: true, get: function () { return partnerApi_1.oidcLinkAccount; } });
+// Participation: track ESO program/membership participation generically
+Object.defineProperty(exports, "partnerUpsertParticipation", { enumerable: true, get: function () { return partnerApi_1.partnerUpsertParticipation; } });
 // ─── Referral one-click email actions ───────────────────────────────────────
 const actionConfirmHtml = (title, body, manageUrl) => `<!DOCTYPE html>
 <html lang="en">
@@ -4017,6 +4046,77 @@ exports.referralEmailAction = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         return;
     }
     res.status(400).send(actionConfirmHtml('Unknown action', 'This action link is not recognized.', manageUrl));
+});
+// ─── Partner API Keys — server-side generation ──────────────────────────────
+/**
+ * Mints a new Partner API key for the given organization and returns the
+ * full key value to the caller exactly once. Only the SHA-256 hash and a
+ * display prefix are persisted — the full key is never stored in Firestore.
+ *
+ * Authorization: platform admin, OR an ESO operator (eso_admin / eso_staff /
+ * eso_coach) whose own organization_id matches the target orgId.
+ *
+ * This replaces the prior client-side generator that used Math.random() and
+ * stored the truncated display prefix as the validation target (which was
+ * forgeable from any readable org doc).
+ */
+exports.generatePartnerApiKey = (0, https_1.onCall)(async (request) => {
+    const { auth } = request;
+    if (!auth) {
+        throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const { orgId, label } = (request.data || {});
+    if (!orgId || typeof orgId !== 'string') {
+        throw new https_1.HttpsError('invalid-argument', 'orgId is required');
+    }
+    const cleanLabel = (label || '').trim() || 'Partner API key';
+    // Authorize caller.
+    const personSnap = await db.collection('people').doc(auth.uid).get();
+    if (!personSnap.exists) {
+        throw new https_1.HttpsError('permission-denied', 'No Nexus person record.');
+    }
+    const person = personSnap.data();
+    const role = person.system_role;
+    const callerOrgId = person.organization_id || person.primary_organization_id;
+    const isPlatform = role === 'platform_admin';
+    const isEsoOperatorAtOrg = (role === 'eso_admin' || role === 'eso_staff' || role === 'eso_coach')
+        && callerOrgId === orgId;
+    if (!isPlatform && !isEsoOperatorAtOrg) {
+        throw new https_1.HttpsError('permission-denied', 'Not authorized to create API keys for this organization.');
+    }
+    const orgRef = db.collection('organizations').doc(orgId);
+    const orgSnap = await orgRef.get();
+    if (!orgSnap.exists) {
+        throw new https_1.HttpsError('not-found', 'Organization not found.');
+    }
+    // 32 bytes → 64 hex chars of entropy. Never touches disk.
+    const keyMaterial = (0, crypto_1.randomBytes)(32).toString('hex');
+    const fullKey = `sk_live_${keyMaterial}`;
+    const hash = (0, crypto_1.createHash)('sha256').update(fullKey).digest('hex');
+    const prefix = `sk_live_${keyMaterial.substring(0, 4)}...${keyMaterial.substring(keyMaterial.length - 4)}`;
+    const newKey = {
+        id: `key_${Date.now()}_${(0, crypto_1.randomBytes)(4).toString('hex')}`,
+        label: cleanLabel,
+        prefix,
+        hash,
+        created_at: new Date().toISOString(),
+        status: 'active',
+    };
+    await orgRef.collection('api_keys').doc(newKey.id).set(newKey);
+    await orgRef.update({ updated_at: new Date().toISOString() });
+    await logAudit('partner_api_key_generated', auth.uid, {
+        org_id: orgId,
+        key_id: newKey.id,
+        label: cleanLabel,
+    });
+    return {
+        id: newKey.id,
+        label: newKey.label,
+        prefix: newKey.prefix,
+        created_at: newKey.created_at,
+        status: newKey.status,
+        full_key: fullKey,
+    };
 });
 // ─── Grant Lab — AI Analysis ────────────────────────────────────────────────
 exports.extractGrantData = (0, https_1.onCall)({ timeoutSeconds: 120 }, async (request) => {

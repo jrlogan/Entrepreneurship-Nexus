@@ -69,6 +69,7 @@ import { InboundIntakeView } from '../features/admin/InboundIntakeView';
 import { PlatformAdminView } from '../features/admin/PlatformAdminView';
 import { AuthGateView } from '../features/auth/AuthGateView';
 import { AgreementGate } from '../shared/ui/AgreementGate';
+import { LinkedAccountBanner } from '../features/sso/LinkedAccountBanner';
 import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
 import { VentureScoutView } from '../features/scout/VentureScoutView';
@@ -768,6 +769,14 @@ const App = () => {
           currentView: view,
         }}
       >
+           {!CONFIG.IS_DEMO_MODE && (
+             <div className="mb-3">
+               <LinkedAccountBanner
+                 ecosystemId={currentEcosystemId}
+                 personRefs={activeUser.external_refs || []}
+               />
+             </div>
+           )}
            {view === 'dashboard' && (
                canAccessDashboard ? (
                <DashboardView ecosystem={currentEcosystem} />
@@ -997,7 +1006,10 @@ const App = () => {
            )}
       </AppShell>
 
-      {/* Onboarding Data-Sharing Acknowledgment */}
+      {/* Onboarding Data-Sharing Acknowledgment. onAccepted re-checks the
+          required list so users with multiple missing agreements (e.g. an
+          entrepreneur who needs both privacy_policy and federation_compact)
+          see them serially without a page refresh. */}
       {pendingAgreementType && activeUser && session.authUser && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <AgreementGate
@@ -1006,7 +1018,29 @@ const App = () => {
             personId={activeUser.id}
             ecosystemId={currentEcosystemId}
             ecosystemName={currentEcosystem?.name}
-            onAccepted={() => setPendingAgreementType(null)}
+            onAccepted={async () => {
+              if (!activeUser || !session.authUser?.uid) {
+                setPendingAgreementType(null);
+                return;
+              }
+              try {
+                const { REQUIRED_AGREEMENTS } = await import('../domain/agreements/types');
+                const { FirebaseAgreementsRepo } = await import('../data/repos/firebase/agreements');
+                const required = REQUIRED_AGREEMENTS[activeUser.system_role] || [];
+                if (required.length === 0) {
+                  setPendingAgreementType(null);
+                  return;
+                }
+                const repo = new FirebaseAgreementsRepo();
+                const accepted = await repo.getAcceptedTypes(session.authUser.uid, currentEcosystemId);
+                const nextMissing = required.find((t) => !accepted.has(t));
+                setPendingAgreementType(nextMissing || null);
+              } catch {
+                // If the re-check fails, fall through to closing the gate
+                // rather than blocking the user forever.
+                setPendingAgreementType(null);
+              }
+            }}
           />
         </div>
       )}

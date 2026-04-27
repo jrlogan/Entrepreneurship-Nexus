@@ -12,6 +12,7 @@ import { ENUMS } from '../../domain/standards/enums';
 import { uploadImageFile } from '../../services/storageUploads';
 import { callHttpFunction } from '../../services/httpFunctionClient';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
+import { LinkedAccountsSection } from '../sso/LinkedAccountsSection';
 
 interface PersonDetailViewProps {
   person: Person;
@@ -605,6 +606,18 @@ export const PersonDetailView = ({
                     </p>
                   )}
                 </div>
+              </Card>
+            )}
+            {isOwnProfile && (
+              <Card title="Linked Accounts">
+                <p className="text-sm text-gray-600 mb-3">
+                  Connect an external sign-in provider so future sign-ins use one click and your
+                  profile stays connected across the network.
+                </p>
+                <LinkedAccountsSection
+                  ecosystemId={person.ecosystem_id || viewer.ecosystemId}
+                  personRefs={person.external_refs || []}
+                />
               </Card>
             )}
             {isOwnProfile && viewer.role !== 'entrepreneur' && <Card title="My Email Templates">

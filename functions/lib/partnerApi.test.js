@@ -95,6 +95,10 @@ const getDoc = async (collection, id) => {
     const snap = await db.collection(collection).doc(id).get();
     return snap.exists ? snap.data() : null;
 };
+const getOrgWebhooks = async (orgId) => {
+    const snap = await db.collection('organizations').doc(orgId).collection('webhooks').get();
+    return snap.docs.map(d => d.data());
+};
 // ─── Seed data constants ──────────────────────────────────────────────────────
 const MAKEHAVEN_ORG_ID = 'org_makehaven';
 const ECO_ID = 'eco_new_haven';
@@ -423,24 +427,19 @@ const seed = async () => {
         webhookId = body.webhook_id;
         signingSecret = body.signing_secret;
     });
-    (0, node_test_1.it)('stores webhook on the organization document', async () => {
-        const org = await getDoc('organizations', MAKEHAVEN_ORG_ID);
-        const webhooks = org.webhooks;
+    (0, node_test_1.it)('stores webhook in the organization webhooks subcollection', async () => {
+        const webhooks = await getOrgWebhooks(MAKEHAVEN_ORG_ID);
         const stored = webhooks.find(wh => wh.id === webhookId);
-        assert.ok(stored, 'Webhook should be stored on the org');
+        assert.ok(stored, 'Webhook should be stored in the org webhooks subcollection');
         assert.equal(stored.url, 'https://makehaven.org/nexus/webhook');
         assert.deepEqual(stored.events, ['interaction.logged', 'referral.received']);
         assert.equal(stored.status, 'active');
     });
-    (0, node_test_1.it)('signing_secret is not shown in subsequent calls (one-time reveal)', async () => {
-        // The secret is stored in Firestore but not returned by any GET endpoint —
-        // verify by calling getPerson or listing orgs doesn't expose it. Here we
-        // simply assert the org doc stores the secret (for delivery) but it is
-        // not part of any public API response.
-        const org = await getDoc('organizations', MAKEHAVEN_ORG_ID);
-        const webhooks = org.webhooks;
-        const stored = webhooks.find((wh) => wh.id === webhookId);
-        // The secret is stored for outbound signing — this confirms it was persisted.
+    (0, node_test_1.it)('signing_secret is persisted in the subcollection for outbound signing', async () => {
+        // The secret is stored in the webhooks subcollection (not on the org doc)
+        // so it's only readable by platform admins or the org's own ESO operators.
+        const webhooks = await getOrgWebhooks(MAKEHAVEN_ORG_ID);
+        const stored = webhooks.find(wh => wh.id === webhookId);
         assert.ok(stored.secret.startsWith('whsec_'));
     });
     (0, node_test_1.it)('returns 400 for non-HTTPS url', async () => {

@@ -4,6 +4,7 @@ import {
   User,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -71,4 +72,13 @@ export const sendPasswordReset = async (email: string) => {
   }
 
   return sendPasswordResetEmail(auth, email);
+};
+
+export const signInWithCustomFirebaseToken = async (token: string) => {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error('Firebase auth is not configured.');
+  }
+
+  return signInWithCustomToken(auth, token);
 };

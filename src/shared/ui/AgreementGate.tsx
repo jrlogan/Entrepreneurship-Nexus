@@ -5,9 +5,34 @@ import { FirebaseAgreementsRepo } from '../../data/repos/firebase/agreements';
 
 const agreementsRepo = new FirebaseAgreementsRepo();
 
+/**
+ * SHA-256 hex of a stable serialization of the content so the acceptance
+ * record can later detect that the text presented to the user has changed.
+ * Whitespace / key order are canonicalized via JSON.stringify of a plain
+ * object of the fields that matter to the user (title + section text).
+ */
+const computeTextHash = async (content: AgreementContent): Promise<string> => {
+  const canonical = JSON.stringify({
+    title: content.title,
+    sections: content.sections.map((s) => ({ heading: s.heading, body: s.body })),
+  });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+};
+
 // ─── Agreement content ────────────────────────────────────────────────────────
 
-const PRIVACY_POLICY_CONTENT = {
+type AgreementContent = {
+  title: string;
+  badge: string;
+  badgeColor: string;
+  checkLabel: string;
+  sections: { heading: string; body: string }[];
+};
+
+const PRIVACY_POLICY_CONTENT: AgreementContent = {
   title: 'Entrepreneur Data & Privacy Notice',
   badge: 'Privacy Policy',
   badgeColor: 'bg-emerald-400/10 border-emerald-400/30 text-emerald-300',
@@ -36,7 +61,7 @@ const PRIVACY_POLICY_CONTENT = {
   ],
 };
 
-const DUA_CONTENT = {
+const DUA_CONTENT: AgreementContent = {
   title: 'Data Access & Responsibility Agreement',
   badge: 'Data Usage Agreement',
   badgeColor: 'bg-indigo-400/10 border-indigo-400/30 text-indigo-300',
@@ -69,8 +94,43 @@ const DUA_CONTENT = {
   ],
 };
 
-function getContent(type: AgreementType) {
-  return type === 'privacy_policy' ? PRIVACY_POLICY_CONTENT : DUA_CONTENT;
+// The federation compact. Draft text — a brainstorm until it is published
+// as a signed legal document. Updating this text in place during the draft
+// phase is intentional (no re-prompt on change); see AGREEMENT_VERSIONS
+// for when versioned re-prompting gets turned on.
+const FEDERATION_COMPACT_CONTENT: AgreementContent = {
+  title: 'Joining a shared entrepreneurship network',
+  badge: 'Network Compact',
+  badgeColor: 'bg-amber-400/10 border-amber-400/30 text-amber-300',
+  checkLabel: 'I understand and agree to join this federated network',
+  sections: [
+    {
+      heading: 'You are joining something shared by design',
+      body: 'This system is part of a federated network of independent entrepreneurship-support organizations. Each organization runs its own tools and keeps control of its own data, and organizations that have signed the shared privacy and standards compact can exchange information about the entrepreneurs they support — with your consent.',
+    },
+    {
+      heading: 'What becomes visible across organizations',
+      body: 'Your core directory information — name, contact, venture name, and a short description — becomes visible to organizations in this ecosystem so they can find and support you. Deeper data (interaction notes, program details, financials) stays with the organization that recorded it unless you explicitly approve cross-organization sharing.',
+    },
+    {
+      heading: 'You stay in control of what moves',
+      body: 'Data sharing between specific organizations requires your consent each time a new organization asks for access. You can revoke access at any time from your privacy settings. Revoking your participation here does not affect your membership or relationship with any individual organization.',
+    },
+    {
+      heading: 'Why this is better than a central database',
+      body: 'No single organization holds everyone\'s data. Each ecosystem participant keeps control of its own records, and we agree on shared standards so your information can move between organizations with your permission rather than being duplicated or locked behind one system.',
+    },
+    {
+      heading: 'What this organization will not do',
+      body: 'We do not sell your data, we do not share it outside the compact without your consent, and we do not use it for purposes unrelated to entrepreneurship support. Organizations violating the compact can be removed from the network.',
+    },
+  ],
+};
+
+function getContent(type: AgreementType): AgreementContent {
+  if (type === 'privacy_policy') return PRIVACY_POLICY_CONTENT;
+  if (type === 'data_usage_agreement') return DUA_CONTENT;
+  return FEDERATION_COMPACT_CONTENT;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -102,7 +162,15 @@ export const AgreementGate: React.FC<AgreementGateProps> = ({
     setIsSubmitting(true);
     setError(null);
     try {
-      await agreementsRepo.recordAcceptance(authUid, personId, ecosystemId, agreementType, 'post_login_gate');
+      const textHash = await computeTextHash(content);
+      await agreementsRepo.recordAcceptance(
+        authUid,
+        personId,
+        ecosystemId,
+        agreementType,
+        'post_login_gate',
+        textHash,
+      );
       onAccepted();
     } catch {
       setError('Unable to record your acceptance. Please check your connection and try again.');
