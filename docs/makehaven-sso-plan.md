@@ -156,6 +156,41 @@ End-to-end test cases (task #9):
 - Custom scope `entrepreneurship` installed via config import after the module is deployed.
 - Environment variables: `VITE_OAUTH_REDIRECT_URI` for the Nexus client, plus a provider-config Firestore record seeded with MakeHaven's endpoints, scope, and client_id.
 
+## Deploying the provider-side Drupal module (MakeHaven)
+
+The MakeHaven Drupal site is a Pantheon site named **`makehaven-website`**
+(domain `www.makehaven.org`). Its `web/modules/` directory is gitignored;
+custom modules live in their own GitHub repos under `github.com/makehaven/*`
+and are pulled in by Composer at build time. **Cloning a module into the local
+`web/modules/custom/` is not enough** — the main site's `composer.json` must
+reference it or it never lands on `dev`/`test`/`live`.
+
+A first-time module deploy goes:
+
+1. Push the module to its own GitHub repo (`makehaven/<module_name>`) with a
+   `composer.json` declaring `type: drupal-custom-module` and
+   `name: makehaven/<module_name>`.
+2. Add a `repositories` entry **and** a `require` entry to
+   `dev.makehaven-website/composer.json`, following the pattern of the existing
+   `makehaven/*` modules.
+3. `composer update makehaven/<module_name> --no-install --ignore-platform-req=ext-intl`
+   (locally, to update `composer.lock`).
+4. Commit `composer.json` + `composer.lock` and push to Pantheon `master`
+   (lands on `dev`).
+5. Promote: `terminus env:deploy makehaven-website.test && terminus env:deploy makehaven-website.live`.
+6. Enable: `terminus drush makehaven-website.live -- en <module_name> -y`.
+
+Diagnostic: if a module appears in your local checkout but is missing from
+`/admin/modules` on live, check
+`terminus drush makehaven-website.live -- ev "echo file_exists(DRUPAL_ROOT . '/modules/custom/<module_name>/<module_name>.info.yml') ? 'YES' : 'NO';"`.
+A `NO` means Composer never saw it — usually because the `composer.json`
+registration step (#2) was skipped.
+
+For the SSO-specific module (`entrepreneurship_api`), see its README at
+`web/modules/custom/entrepreneurship_api/README.md` for the full set of
+provider-side install steps after deploy (scope verification, OAuth consumer
+registration).
+
 ## Risks
 
 - **Provider userinfo contract drift.** If `/api/entrepreneurship/me` changes shape without coordinating, Nexus ingest silently mis-populates. Mitigation: validate response shape, log + alert on unexpected fields, small smoke-test script that calls the endpoint and checks required keys.
