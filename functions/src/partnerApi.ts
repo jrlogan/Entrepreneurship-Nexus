@@ -1620,6 +1620,8 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
   let providerSubject: string = '';
   let providerCiviContactId: string = '';
   let employerInfo: { id?: string; name?: string; website?: string; domain?: string } | null = null;
+  type VentureInfo = { id?: string; name: string; website?: string; domain?: string; description?: string; founded_year?: number };
+  let ventures: VentureInfo[] = [];
   try {
     const infoRes = await fetch(provider.userinfo_endpoint, {
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json' },
@@ -1636,6 +1638,11 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       sub?: string; drupal_uid?: string | number;
       civi_contact_id?: string | number | null;
       employer_org?: { id?: string | number; name?: string; website?: string | null; domain?: string | null } | null;
+      ventures?: Array<{
+        id?: string | number; name?: string;
+        website?: string | null; domain?: string | null;
+        description?: string | null; founded_year?: number | null;
+      }> | null;
     };
 
     userEmail = normalize(info.email);
@@ -1668,6 +1675,28 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
         website: info.employer_org.website || undefined,
         domain: info.employer_org.domain || undefined,
       };
+    }
+
+    // Entrepreneur-native: a list of ventures the user has at the provider.
+    // Distinct from employer_org (which is the CRM "Employee of" relationship)
+    // because an entrepreneur's own startup may have no employer record but
+    // be very much their primary venture. We provision a shell for each, run
+    // each through the same matchOrganization dedup, and attach the person
+    // to all of them via organization_affiliations. employer_org and ventures
+    // can both be present — they're independent signals.
+    if (Array.isArray(info.ventures)) {
+      for (const v of info.ventures) {
+        const name = (v?.name || '').toString().trim();
+        if (!name) continue;
+        ventures.push({
+          id: v.id != null ? v.id.toString() : undefined,
+          name,
+          website: v.website || undefined,
+          domain: v.domain || undefined,
+          description: v.description || undefined,
+          founded_year: typeof v.founded_year === 'number' ? v.founded_year : undefined,
+        });
+      }
     }
   } catch (err: any) {
     console.error('OIDC userinfo error:', err?.message);
@@ -1921,6 +1950,110 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       if (!currentOrg) {
         await personRef.update({ organization_id: resolvedOrgId, updated_at: new Date().toISOString() });
       }
+    }
+  }
+
+  // Provision the user's ventures (MakeHaven Business nodes). Distinct from
+  // employer_org: these are entrepreneur-owned, and a user can have several.
+  // For each venture name we run matchOrganization (Tier 1 external_ref →
+  // Tier 2 domain → Tier 3 weak signal). Resolved org ids are folded into the
+  // person's organization_affiliations as 'founder'-type entries. If no
+  // primary organization_id is set yet, the first resolved venture takes that
+  // slot too (preserves the prior "first SSO sets primary org" behavior).
+  if (ventures.length > 0) {
+    const resolvedVentureOrgIds: string[] = [];
+    for (const venture of ventures) {
+      const ventureRefs: FedExternalRef[] = [];
+      if (venture.id) {
+        ventureRefs.push({ source: refSourceFor('venture_id'), id: venture.id });
+      }
+      const ventureMatch = await matchOrganization(db, {
+        external_refs: ventureRefs,
+        name: venture.name,
+        domain: venture.domain,
+        website: venture.website,
+      });
+
+      let ventureOrgId: string | null = null;
+      if (ventureMatch.tier === 'external_ref' || ventureMatch.tier === 'domain_exact') {
+        ventureOrgId = ventureMatch.org_id;
+        for (const ref of ventureRefs) {
+          await attachExternalRef(db, 'organization', ventureOrgId, ref);
+        }
+      } else {
+        const now = new Date().toISOString();
+        const newOrgRef = db.collection('organizations').doc();
+        await newOrgRef.set({
+          id: newOrgRef.id,
+          name: venture.name,
+          description: venture.description || '',
+          email: '',
+          url: venture.website || '',
+          domain: venture.domain || '',
+          tax_status: '',
+          founded_year: venture.founded_year ?? null,
+          external_refs: ventureRefs,
+          managed_by_ids: [],
+          operational_visibility: 'restricted',
+          ecosystem_ids: [provider.ecosystem_id],
+          authorized_eso_ids: [],
+          status: 'active',
+          source: 'oidc_shell',
+          source_authority: `oidc:${providerId}`,
+          source_kind: 'venture',
+          created_at: now,
+          updated_at: now,
+        });
+        for (const ref of ventureRefs) {
+          await attachExternalRef(db, 'organization', newOrgRef.id, ref);
+        }
+        ventureOrgId = newOrgRef.id;
+
+        if (ventureMatch.tier === 'weak_signal') {
+          await flagPossibleDuplicate(db, {
+            entity_type: 'organization',
+            new_entity_id: ventureOrgId,
+            candidate_entity_id: ventureMatch.candidate_org_id,
+            confidence: ventureMatch.confidence,
+            reason: ventureMatch.reason,
+            source: `oidc:${providerId}`,
+            ecosystem_id: provider.ecosystem_id,
+          });
+        }
+      }
+
+      if (ventureOrgId) {
+        resolvedVentureOrgIds.push(ventureOrgId);
+      }
+    }
+
+    if (resolvedVentureOrgIds.length > 0) {
+      const personRef = db.collection('people').doc(personId);
+      const personSnap = await personRef.get();
+      const existingAffiliations: Array<{ organization_id: string; [k: string]: unknown }> =
+        (personSnap.get('organization_affiliations') as any[]) || [];
+      const existingIds = new Set(existingAffiliations.map(a => a.organization_id));
+      const additions = resolvedVentureOrgIds
+        .filter(id => !existingIds.has(id))
+        .map(id => ({
+          organization_id: id,
+          relationship_type: 'founder' as const,
+          status: 'active' as const,
+          ecosystem_ids: [provider.ecosystem_id],
+          joined_at: new Date().toISOString(),
+        }));
+
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (additions.length > 0) {
+        updates.organization_affiliations = [...existingAffiliations, ...additions];
+      }
+      // Set primary organization_id to the first venture if none was set above
+      // by the employer_org branch. Doesn't overwrite an existing assignment.
+      const currentPrimary = (personSnap.get('organization_id') as string) || '';
+      if (!currentPrimary) {
+        updates.organization_id = resolvedVentureOrgIds[0];
+      }
+      await personRef.update(updates);
     }
   }
 
