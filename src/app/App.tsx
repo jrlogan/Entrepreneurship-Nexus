@@ -399,14 +399,18 @@ const App = () => {
           return;
         }
 
-        const fallbackMockPeople = session.authUser?.email
-          ? await repos.people.getAll()
-          : [];
-        const fallbackMockPerson = session.authUser?.email
-          ? fallbackMockPeople.find(person => person.email.toLowerCase() === session.authUser.email!.toLowerCase())
-          : undefined;
-
-        const matchedUser = resolvedFirebasePerson || fallbackMockPerson;
+        // Mock-data fallback: only meaningful in demo/non-Firebase mode.
+        // Calling repos.people.getAll() against Firestore lists the whole
+        // /people collection, which the security rules deny for any non-admin
+        // user — and that throw used to escape this try (no catch, only a
+        // finally), preventing setResolvedAuthPerson from running and leaving
+        // every entrepreneur stuck on the "Complete Your Profile" screen.
+        let matchedUser = resolvedFirebasePerson;
+        if (!matchedUser && (CONFIG.IS_DEMO_MODE || !isFirebaseEnabled()) && session.authUser?.email) {
+          const fallbackMockPeople = await repos.people.getAll();
+          const target = session.authUser.email.toLowerCase();
+          matchedUser = fallbackMockPeople.find(person => person.email.toLowerCase() === target) || null;
+        }
         setResolvedAuthPerson(matchedUser || null);
         if (matchedUser?.memberships?.length) {
           setCurrentEcosystemId(prev => (
