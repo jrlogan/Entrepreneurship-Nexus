@@ -278,12 +278,12 @@ export const attachExternalRef = async (
   entityType: 'person' | 'organization',
   entityId: string,
   ref: ExternalRef
-): Promise<void> => {
-  if (!ref.source || !ref.id) return;
+): Promise<{ added: boolean }> => {
+  if (!ref.source || !ref.id) return { added: false };
   const collection = entityType === 'person' ? 'people' : 'organizations';
   const ref_doc = db.collection(collection).doc(entityId);
   const snap = await ref_doc.get();
-  if (!snap.exists) return;
+  if (!snap.exists) return { added: false };
 
   const existing = (snap.get('external_refs') || []) as ExternalRef[];
   const already = existing.some(r => r.source === ref.source && r.id === ref.id);
@@ -303,6 +303,8 @@ export const attachExternalRef = async (
     entity_id: entityId,
     indexed_at: new Date().toISOString(),
   });
+
+  return { added: !already };
 };
 
 /**

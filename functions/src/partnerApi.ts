@@ -853,7 +853,7 @@ export const partnerGetPerson = onRequest({ invoker: 'public' }, async (req, res
  *
  * Valid events:
  *   interaction.logged, referral.received, referral.updated,
- *   organization.created, organization.updated
+ *   organization.created, organization.updated, person.linked
  *
  * Response:
  *   { ok: true, webhook_id: string, signing_secret: string }
@@ -891,6 +891,7 @@ export const partnerRegisterWebhook = onRequest({ invoker: 'public' }, async (re
     'referral.updated',
     'organization.created',
     'organization.updated',
+    'person.linked',
   ];
   if (events.length === 0) {
     res.status(400).json({ error: `events is required. Valid values: ${validEvents.join(', ')}, *` });
@@ -1707,6 +1708,11 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
   let personId = '';
   let authUid = '';
   let isNewAccount = false;
+  // Tracks whether *any* of the provider's identity refs were newly attached
+  // to the resolved person record on this call. Used to fire person.linked
+  // exactly once per provider-per-person — first SSO sign-in, not subsequent
+  // re-authentications. New accounts always count as "newly linked".
+  let newlyLinkedToProvider = false;
 
   const ensureAuthUidForExistingPerson = async (
     personDoc: admin.firestore.DocumentSnapshot
@@ -1756,7 +1762,10 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       }
       // Back-fill any of our provider external_refs that aren't already on the record.
       for (const ref of providerRefs) {
-        await attachExternalRef(db, 'person', personId, ref);
+        const result = await attachExternalRef(db, 'person', personId, ref);
+        if (result.added) {
+          newlyLinkedToProvider = true;
+        }
       }
     }
   }
@@ -1823,6 +1832,7 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
 
     personId = authUid;
     isNewAccount = true;
+    newlyLinkedToProvider = true;
 
     if (personMatch.tier === 'weak_signal') {
       await flagPossibleDuplicate(db, {
@@ -1925,6 +1935,22 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
     organization_id: provider.organization_id,
     is_new_account: isNewAccount,
   });
+
+  // Fire person.linked exactly on first attachment of this provider to this
+  // record. Subsequent re-auths from the same provider are silent. Delivered
+  // to webhooks registered on the provider's own organization so the upstream
+  // ESO (e.g., MakeHaven Drupal) can flip a "connected" UI flag for the user.
+  if (newlyLinkedToProvider) {
+    await deliverWebhooksForOrg(db, provider.organization_id, 'person.linked', {
+      person_id: personId,
+      provider_id: providerId,
+      organization_id: provider.organization_id,
+      ecosystem_id: provider.ecosystem_id,
+      external_refs: providerRefs,
+      is_new_account: isNewAccount,
+      linked_at: new Date().toISOString(),
+    });
+  }
 
   res.json({ ok: true, firebase_token: firebaseToken, nexus_id: personId, is_new_account: isNewAccount });
 });
