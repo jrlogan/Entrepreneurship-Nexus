@@ -219,12 +219,12 @@ exports.matchOrganization = matchOrganization;
  */
 const attachExternalRef = async (db, entityType, entityId, ref) => {
     if (!ref.source || !ref.id)
-        return;
+        return { added: false };
     const collection = entityType === 'person' ? 'people' : 'organizations';
     const ref_doc = db.collection(collection).doc(entityId);
     const snap = await ref_doc.get();
     if (!snap.exists)
-        return;
+        return { added: false };
     const existing = (snap.get('external_refs') || []);
     const already = existing.some(r => r.source === ref.source && r.id === ref.id);
     if (!already) {
@@ -242,6 +242,7 @@ const attachExternalRef = async (db, entityType, entityId, ref) => {
         entity_id: entityId,
         indexed_at: new Date().toISOString(),
     });
+    return { added: !already };
 };
 exports.attachExternalRef = attachExternalRef;
 /**
