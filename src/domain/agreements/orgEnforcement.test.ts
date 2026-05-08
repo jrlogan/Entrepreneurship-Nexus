@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  classifySignature,
   computeSignatureStatus,
   isDraftPhaseForVersions,
   isHardEnforcementActive,
   isHardEnforcementForVersions,
+  selectBannerTone,
 } from './orgEnforcement';
 import {
   AGREEMENT_VERSIONS,
@@ -154,5 +156,64 @@ describe('isHardEnforcementActive (live constants)', () => {
     // 1.0, this assertion will need to flip — and that's the moment to
     // also wire the actual signature check into canViewOperationalDetails.
     expect(isHardEnforcementActive()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifySignature
+// ---------------------------------------------------------------------------
+describe('classifySignature', () => {
+  it('returns "missing" for null/undefined', () => {
+    expect(classifySignature(null, '1.0')).toBe('missing');
+    expect(classifySignature(undefined, '1.0')).toBe('missing');
+  });
+
+  it('returns "missing" for revoked signatures even at the right version', () => {
+    expect(classifySignature(sig({ version: '1.0', revoked_at: '2026-05-02T00:00:00.000Z' }), '1.0')).toBe('missing');
+  });
+
+  it('returns "stale" when the version differs', () => {
+    expect(classifySignature(sig({ version: '0.1-draft' }), '1.0')).toBe('stale');
+  });
+
+  it('returns "signed" when current and active', () => {
+    expect(classifySignature(sig({ version: '1.0' }), '1.0')).toBe('signed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectBannerTone
+// ---------------------------------------------------------------------------
+describe('selectBannerTone', () => {
+  it('returns blocking (rose) when there is a gap AND enforcement is active', () => {
+    const tone = selectBannerTone({ signed: false, hasGap: true, isDraft: false, enforcementActive: true });
+    expect(tone.toneClasses).toMatch(/rose/);
+    expect(tone.badge?.label).toBe('Compact signature required');
+  });
+
+  it('returns advisory (amber) when there is a gap during draft phase', () => {
+    const tone = selectBannerTone({ signed: false, hasGap: true, isDraft: true, enforcementActive: false });
+    expect(tone.toneClasses).toMatch(/amber/);
+    expect(tone.badge?.label).toBe('Compact unsigned (advisory)');
+  });
+
+  it('prefers blocking over advisory when both could apply', () => {
+    // hasGap=true, enforcementActive=true, isDraft=true (theoretical edge:
+    // someone marked enforcement active despite a draft slipping in)
+    const tone = selectBannerTone({ signed: false, hasGap: true, isDraft: true, enforcementActive: true });
+    expect(tone.toneClasses).toMatch(/rose/);
+  });
+
+  it('returns neutral indigo with a "Compact signed" badge when fully signed', () => {
+    const tone = selectBannerTone({ signed: true, hasGap: false, isDraft: false, enforcementActive: true });
+    expect(tone.toneClasses).toMatch(/indigo/);
+    expect(tone.badge?.label).toBe('Compact signed');
+    expect(tone.badge?.classes).toMatch(/emerald/);
+  });
+
+  it('returns neutral with no badge when status is unknown (loading)', () => {
+    const tone = selectBannerTone({ signed: false, hasGap: false, isDraft: true, enforcementActive: false });
+    expect(tone.toneClasses).toMatch(/indigo/);
+    expect(tone.badge).toBeNull();
   });
 });

@@ -342,6 +342,68 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Org-level compact signatures (tier-2 of the privacy model).
+    // Signed by an ESO admin on behalf of the org for a specific ecosystem.
+    // Re-signing is permitted (overwrite) but only by an authorized signer of
+    // the SAME org+ecosystem+type; the scope keys are immutable on update.
+    function isAuthorizedSignerForOrg(orgIdInDoc) {
+      return isPlatformAdmin() || (
+        isEsoOperator() &&
+        currentOrgId() != null &&
+        currentOrgId() == orgIdInDoc &&
+        request.resource.data.signed_by_uid == request.auth.uid
+      );
+    }
+
+    match /org_agreement_acceptances/{acceptanceId} {
+      // Read: platform/ecosystem admins, or ESO operators viewing their own
+      // org's signatures (Settings tab + tier-2 banner). Other ESOs cannot
+      // enumerate peer signatures — tier-2 self-checks happen at the viewer
+      // org level, not by reading the peer's record.
+      allow read: if isAuthenticated() && (
+        isNetworkAdmin() ||
+        (isEsoOperator() && currentOrgId() != null && resource.data.org_id == currentOrgId())
+      );
+
+      allow create: if isAuthorizedSignerForOrg(request.resource.data.org_id);
+
+      // Update is used to add revoked_* fields and to re-sign at a new
+      // version. The scope keys (org_id, ecosystem_id, agreement_type)
+      // cannot change — that prevents an attacker from "renaming" an
+      // existing signature to belong to a different org or ecosystem.
+      allow update: if isAuthorizedSignerForOrg(resource.data.org_id) &&
+        request.resource.data.org_id == resource.data.org_id &&
+        request.resource.data.ecosystem_id == resource.data.ecosystem_id &&
+        request.resource.data.agreement_type == resource.data.agreement_type;
+
+      allow delete: if false;
+    }
+
+    // Tier-5 admin read audit. Every platform/ecosystem-admin read of data
+    // they don't own gets logged from the client — these rules enforce that
+    // the client cannot forge entries for other actors or tamper with
+    // existing rows. (For stronger guarantees against a malicious admin
+    // suppressing their own writes, mirror this through a Cloud Function.)
+    function isWritingOwnAdminAuditEntry() {
+      return isAuthenticated() &&
+        request.resource.data.actor_auth_uid == request.auth.uid &&
+        request.resource.data.actor_role in ['platform_admin', 'ecosystem_manager'] &&
+        currentSystemRole() in ['platform_admin', 'ecosystem_manager'];
+    }
+
+    match /admin_audit_logs/{logId} {
+      // Read: platform admin sees all; ecosystem manager sees their ecosystem.
+      // ESO operators / entrepreneurs cannot read the audit log at all.
+      allow read: if isPlatformAdmin() || (
+        hasPersonDoc() &&
+        currentSystemRole() == 'ecosystem_manager' &&
+        resource.data.ecosystem_id == personDoc().data.ecosystem_id
+      );
+
+      allow create: if isWritingOwnAdminAuditEntry();
+      allow update, delete: if false;
+    }
+
     // Partner API lookup index — written exclusively by Cloud Functions (Admin SDK).
     // No client-side access needed; deny all to prevent enumeration.
     match /external_ref_index/{indexId} {

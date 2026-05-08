@@ -39,11 +39,31 @@ export function isDraftPhaseForVersions(versions: Record<OrgAgreementType, strin
 }
 
 /**
- * Pure missing/stale computation. Given a set of an org's signatures, the
- * required agreement types, and the currently-required versions, returns
- * which are missing, which are stale, and whether the org is fully signed.
+ * Per-signature classification: how does this signature stand against the
+ * currently-required version?
  *
- * Revoked signatures (revoked_at present) are treated as missing.
+ *   'missing' — no signature at all, or the signature has been revoked.
+ *   'stale'   — signature exists but at a different version (older terms).
+ *   'signed'  — current and active.
+ *
+ * Used by both the aggregate `computeSignatureStatus` (across required
+ * types) and the per-row UI in OrgCompactSignatures, so the rules can't drift.
+ */
+export type SignatureClass = 'signed' | 'stale' | 'missing';
+
+export function classifySignature(
+  signature: OrgAgreementAcceptance | null | undefined,
+  requiredVersion: string,
+): SignatureClass {
+  if (!signature) return 'missing';
+  if (signature.revoked_at) return 'missing';
+  if (signature.version !== requiredVersion) return 'stale';
+  return 'signed';
+}
+
+/**
+ * Pure missing/stale computation across an org's full set of signatures.
+ * Wraps classifySignature for each required type.
  */
 export function computeSignatureStatus(
   signatures: OrgAgreementAcceptance[],
@@ -54,12 +74,10 @@ export function computeSignatureStatus(
   const staleTypes: OrgAgreementType[] = [];
 
   for (const type of required) {
-    const sig = signatures.find((s) => s.agreement_type === type && !s.revoked_at);
-    if (!sig) {
-      missingTypes.push(type);
-    } else if (sig.version !== requiredVersions[type]) {
-      staleTypes.push(type);
-    }
+    const sig = signatures.find((s) => s.agreement_type === type);
+    const cls = classifySignature(sig, requiredVersions[type]);
+    if (cls === 'missing') missingTypes.push(type);
+    else if (cls === 'stale') staleTypes.push(type);
   }
 
   return {
@@ -67,6 +85,63 @@ export function computeSignatureStatus(
     missingTypes,
     staleTypes,
   };
+}
+
+// ─── Banner tone selection ──────────────────────────────────────────────────
+
+export interface BannerTone {
+  toneClasses: string;
+  textClasses: string;
+  mutedTextClasses: string;
+  badge: { label: string; classes: string } | null;
+}
+
+const TONE_NEUTRAL: BannerTone = {
+  toneClasses: 'border-indigo-200 bg-indigo-50',
+  textClasses: 'text-indigo-900',
+  mutedTextClasses: 'text-indigo-800',
+  badge: null,
+};
+
+const TONE_BLOCKING: BannerTone = {
+  toneClasses: 'border-rose-300 bg-rose-50',
+  textClasses: 'text-rose-900',
+  mutedTextClasses: 'text-rose-800',
+  badge: { label: 'Compact signature required', classes: 'bg-rose-200 text-rose-900' },
+};
+
+const TONE_ADVISORY: BannerTone = {
+  toneClasses: 'border-amber-300 bg-amber-50',
+  textClasses: 'text-amber-900',
+  mutedTextClasses: 'text-amber-800',
+  badge: { label: 'Compact unsigned (advisory)', classes: 'bg-amber-200 text-amber-900' },
+};
+
+const TONE_SIGNED: BannerTone = {
+  ...TONE_NEUTRAL,
+  badge: { label: 'Compact signed', classes: 'bg-emerald-200 text-emerald-900' },
+};
+
+/**
+ * Decides which visual tone the ConsortiumBanner should render based on
+ * signature status and whether hard enforcement is active.
+ *
+ * Priority order:
+ *   1. hasGap + enforcement → blocking (rose) — gate is live, this is a real block
+ *   2. hasGap + draft       → advisory (amber) — gate not live yet, just a warning
+ *   3. signed               → neutral with green "Compact signed" pill
+ *   4. otherwise            → neutral (loading or non-applicable)
+ */
+export function selectBannerTone(args: {
+  signed: boolean;
+  hasGap: boolean;
+  isDraft: boolean;
+  enforcementActive: boolean;
+}): BannerTone {
+  if (args.hasGap && args.enforcementActive) return TONE_BLOCKING;
+  if (args.hasGap && args.isDraft) return TONE_ADVISORY;
+  if (args.signed) return TONE_SIGNED;
+  return TONE_NEUTRAL;
 }
 
 // ─── IO wrapper ──────────────────────────────────────────────────────────────

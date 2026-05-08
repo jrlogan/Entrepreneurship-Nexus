@@ -7,6 +7,7 @@ import {
   type OrgAgreementAcceptance,
   type OrgAgreementType,
 } from '../../domain/agreements/types';
+import { classifySignature } from '../../domain/agreements/orgEnforcement';
 import { computeTextHash, getContent, type AgreementContent } from '../../domain/agreements/content';
 import { FirebaseOrgAgreementsRepo } from '../../data/repos/firebase/orgAgreements';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
@@ -61,16 +62,19 @@ export const OrgCompactSignatures: React.FC<Props> = ({ org }) => {
       const next: SignatureRow[] = [];
       for (const eco of ecosystemEntries) {
         for (const type of ORG_REQUIRED_AGREEMENTS) {
-          const sig = all.find(
-            (s) => s.ecosystem_id === eco.id && s.agreement_type === type && !s.revoked_at,
+          const rawSig = all.find(
+            (s) => s.ecosystem_id === eco.id && s.agreement_type === type,
           ) ?? null;
-          const needsRefresh = !!sig && sig.version !== AGREEMENT_VERSIONS[type];
+          const cls = classifySignature(rawSig, AGREEMENT_VERSIONS[type]);
+          // 'missing' covers both no signature and revoked; the row should
+          // not surface a revoked record as "signed by X on Y".
+          const signature = cls === 'missing' ? null : rawSig;
           next.push({
             ecosystemId: eco.id,
             ecosystemName: eco.name,
             agreementType: type,
-            signature: sig,
-            needsRefresh,
+            signature,
+            needsRefresh: cls === 'stale',
           });
         }
       }

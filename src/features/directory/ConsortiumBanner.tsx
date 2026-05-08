@@ -9,6 +9,7 @@ import {
 import {
   getViewerSignatureStatus,
   isHardEnforcementActive,
+  selectBannerTone,
   type ViewerSignatureStatus,
 } from '../../domain/agreements/orgEnforcement';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
@@ -55,29 +56,12 @@ export const ConsortiumBanner: React.FC<Props> = ({ subjectOrg }) => {
   const hasGap = !!status && !status.signed;
   const isDraft = status?.isDraftPhase ?? true;
 
-  // Tone:
-  // - hasGap + enforcementActive  → red, blocking-style (informational only today; future hard gate)
-  // - hasGap + draft phase        → amber warning ("will be required at v1.0")
-  // - signed                      → neutral indigo summary
-  // - no status (loading / N/A)   → neutral summary, no badge
-  let toneClasses = 'border-indigo-200 bg-indigo-50';
-  let textClasses = 'text-indigo-900';
-  let mutedTextClasses = 'text-indigo-800';
-  let badge: { label: string; classes: string } | null = null;
-
-  if (hasGap && enforcementActive) {
-    toneClasses = 'border-rose-300 bg-rose-50';
-    textClasses = 'text-rose-900';
-    mutedTextClasses = 'text-rose-800';
-    badge = { label: 'Compact signature required', classes: 'bg-rose-200 text-rose-900' };
-  } else if (hasGap && isDraft) {
-    toneClasses = 'border-amber-300 bg-amber-50';
-    textClasses = 'text-amber-900';
-    mutedTextClasses = 'text-amber-800';
-    badge = { label: 'Compact unsigned (advisory)', classes: 'bg-amber-200 text-amber-900' };
-  } else if (status?.signed) {
-    badge = { label: 'Compact signed', classes: 'bg-emerald-200 text-emerald-900' };
-  }
+  const { toneClasses, textClasses, mutedTextClasses, badge } = selectBannerTone({
+    signed: status?.signed ?? false,
+    hasGap,
+    isDraft,
+    enforcementActive,
+  });
 
   const missingLabels = (status?.missingTypes ?? []).map((t) => getContent(t).title).join(', ');
   const staleLabels = (status?.staleTypes ?? []).map((t) => getContent(t).title).join(', ');
