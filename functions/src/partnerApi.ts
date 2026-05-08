@@ -36,6 +36,11 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { createHmac, createHash, randomBytes } from 'crypto';
 import {
+  buildInteractionWebhookPayload,
+  buildReferralWebhookPayload,
+  scrubSensitiveKeys,
+} from './payloadRedaction';
+import {
   matchPerson,
   matchOrganization,
   attachExternalRef,
@@ -269,11 +274,15 @@ const deliverToWebhook = async (
     return { ok: false, error: 'event not subscribed' };
   }
 
+  // Defense in depth: even though callers should pass already-redacted data,
+  // strip known-sensitive keys here so an accidental field addition upstream
+  // can never leak via webhook. Tier-based redaction lives in payloadRedaction.ts.
+  const safeData = scrubSensitiveKeys(data);
   const payload = {
     id: randomBytes(16).toString('hex'),
     event,
     timestamp: new Date().toISOString(),
-    data,
+    data: safeData,
   };
   const body = JSON.stringify(payload);
   const signature = signPayload(webhook.secret, body);
@@ -1099,8 +1108,13 @@ export const partnerUpsertParticipation = onRequest({ invoker: 'public' }, async
 /**
  * Fires on every new interaction document.
  * Delivers an `interaction.logged` event to webhooks on the author ESO's org.
- * Notes are intentionally excluded from the payload — the receiving system
- * should call partnerGetPerson if it needs the full record.
+ *
+ * Tier-aware: payload is built by buildInteractionWebhookPayload, which
+ * - never includes notes (tier-3 ESO-owned content; fetched separately)
+ * - returns null when note_confidential=true (tier-4 — even the metadata
+ *   "ESO X met with person Y on date Z" is suppressed)
+ *
+ * See project_privacy_5tier memory + payloadRedaction.ts.
  */
 export const onInteractionCreatedDeliverWebhooks = onDocumentCreated(
   'interactions/{interactionId}',
@@ -1112,17 +1126,20 @@ export const onInteractionCreatedDeliverWebhooks = onDocumentCreated(
     const authorOrgId = data.author_org_id as string | undefined;
     if (!authorOrgId) return;
 
-    await deliverWebhooksForOrg(db, authorOrgId, 'interaction.logged', {
-      interaction_id: event.data?.id,
-      ecosystem_id: data.ecosystem_id,
-      organization_id: data.organization_id,   // subject org (the entrepreneur's org)
-      person_id: data.person_id || null,
-      date: data.date,
-      type: data.type,
-      recorded_by: data.recorded_by,
-      source: data.source,
-      // notes omitted — fetch full record via partnerGetPerson if needed
-    });
+    const interactionId = event.data?.id ?? '';
+    const { payload, tier, suppressedReason } = buildInteractionWebhookPayload(data, interactionId);
+
+    if (!payload) {
+      await logAudit(db, 'webhook_suppressed_tier4', authorOrgId, {
+        entity: 'interaction',
+        interaction_id: interactionId,
+        tier,
+        reason: suppressedReason,
+      });
+      return;
+    }
+
+    await deliverWebhooksForOrg(db, authorOrgId, 'interaction.logged', payload as unknown as Record<string, unknown>);
   }
 );
 
@@ -1130,6 +1147,9 @@ export const onInteractionCreatedDeliverWebhooks = onDocumentCreated(
  * Fires on every referral create or update.
  * Delivers `referral.received` on creation, `referral.updated` on changes.
  * Events are sent to webhooks on the receiving ESO's org.
+ *
+ * Tier-aware: payload is built by buildReferralWebhookPayload, which
+ * never includes notes or response_notes (tier-3 ESO-owned content).
  */
 export const onReferralWrittenDeliverWebhooks = onDocumentWritten(
   'referrals/{referralId}',
@@ -1149,18 +1169,9 @@ export const onReferralWrittenDeliverWebhooks = onDocumentWritten(
     // metadata-only writes (e.g. last_delivery timestamp updates)
     if (!isCreate && before?.status === after.status && before?.notes === after.notes) return;
 
-    await deliverWebhooksForOrg(db, receivingOrgId, eventName, {
-      referral_id: event.data?.after?.id,
-      ecosystem_id: after.ecosystem_id,
-      status: after.status,
-      referring_org_id: after.referring_org_id,
-      receiving_org_id: after.receiving_org_id,
-      subject_person_id: after.subject_person_id,
-      date: after.date,
-      intake_type: after.intake_type,
-      source: after.source,
-      // notes omitted intentionally
-    });
+    const referralId = event.data?.after?.id ?? '';
+    const payload = buildReferralWebhookPayload(after, referralId);
+    await deliverWebhooksForOrg(db, receivingOrgId, eventName, payload as unknown as Record<string, unknown>);
   }
 );
 

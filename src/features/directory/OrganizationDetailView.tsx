@@ -12,6 +12,9 @@ import { ENUMS } from '../../domain/standards/enums';
 import type { ChecklistTemplate } from '../../domain/ecosystems/types';
 import type { PipelineDefinition } from '../../domain/pipelines/types';
 import { EditOrgModal, ManageInitiativeModal, ManagePersonModal } from './OrgModals';
+import { OrgCompactSignatures } from './OrgCompactSignatures';
+import { ConsortiumBanner } from './ConsortiumBanner';
+import { useAdminReadLogger } from '../../data/useAdminReadLogger';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -153,6 +156,15 @@ export const OrganizationDetailView = ({
     const metricReport = repos.flexibleMetrics.getReport(metricSetId, {
         scope_type: 'organization',
         scope_id: org.id
+    });
+
+    // Tier-5 audit: log admin reads on orgs they don't own. Self-gates on role.
+    useAdminReadLogger({
+        resourceType: 'organization',
+        resourceId: org.id,
+        subjectOrgId: org.id,
+        surface: 'org_detail',
+        active: !isOwnOrganization,
     });
 
     // Privacy Data
@@ -779,7 +791,10 @@ export const OrganizationDetailView = ({
     
            {/* Tab Content */}
            <div className="grid grid-cols-1 gap-6">
-              
+              {['metrics', 'initiatives', 'interactions', 'referrals'].includes(activeTab) && (
+                <ConsortiumBanner subjectOrg={org} />
+              )}
+
               {activeTab === 'overview' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                    <div className="lg:col-span-2 space-y-6">
@@ -1711,6 +1726,7 @@ export const OrganizationDetailView = ({
 
               {activeTab === 'settings' && isManageable && org.roles.includes('eso') && (
                   <div className="grid gap-6">
+                      <OrgCompactSignatures org={org} />
                       <Card title="Email Templates">
                           <div className="space-y-4">
                               <p className="text-sm text-gray-600 mb-2">

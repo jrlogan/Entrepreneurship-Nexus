@@ -38,3 +38,33 @@ export const REQUIRED_AGREEMENTS: Partial<Record<SystemRole, AgreementType[]>> =
   eso_admin: ['data_usage_agreement'],
   eso_coach: ['data_usage_agreement'],
 };
+
+// ─── Org-level (consortium) agreements ────────────────────────────────────────
+// Tier-2 of the privacy model (see project_privacy_5tier memory): in addition
+// to per-user click-through, an ESO must sign these on behalf of its
+// organization, per ecosystem it participates in. Acceptance carries legal
+// weight for the whole org, not just the signing user.
+
+export type OrgAgreementType = Extract<AgreementType, 'federation_compact' | 'data_usage_agreement'>;
+
+export const ORG_REQUIRED_AGREEMENTS: OrgAgreementType[] = [
+  'federation_compact',
+  'data_usage_agreement',
+];
+
+export interface OrgAgreementAcceptance {
+  id: string;                 // deterministic: {org_id}_{ecosystem_id}_{type}
+  org_id: string;
+  ecosystem_id: string;
+  agreement_type: OrgAgreementType;
+  version: string;
+  text_hash?: string;
+  signed_by_uid: string;      // Firebase auth UID of the signer
+  signed_by_person_id: string;
+  signed_by_name: string;     // denormalized so the audit trail survives renames
+  signed_by_role: SystemRole; // role at time of signing (eso_admin / platform_admin / etc.)
+  signed_at: string;
+  revoked_at?: string;
+  revoked_by_uid?: string;
+  revoked_reason?: string;
+}

@@ -67,6 +67,7 @@ import { UserManagementView } from '../features/admin/UserManagementView';
 import { MetricsManagerView } from '../features/admin/MetricsManagerView';
 import { InboundIntakeView } from '../features/admin/InboundIntakeView';
 import { PlatformAdminView } from '../features/admin/PlatformAdminView';
+import { AdminAccessLogView } from '../features/admin/AdminAccessLogView';
 import { AuthGateView } from '../features/auth/AuthGateView';
 import { AgreementGate } from '../shared/ui/AgreementGate';
 import { LinkedAccountBanner } from '../features/sso/LinkedAccountBanner';
@@ -900,6 +901,9 @@ const App = () => {
            {view === 'platform_admin' && canAccessPlatformAdmin && (
                <PlatformAdminView onNavigate={handleNavigate} />
            )}
+           {view === 'admin_access_log' && canAccessPlatformAdmin && (
+               <AdminAccessLogView />
+           )}
            {view === 'my_ventures' && (
                <MyVenturesView 
                   person={activeUser} 
@@ -1007,7 +1011,7 @@ const App = () => {
            )}
            
            {/* Fallback for other views */}
-           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin'].includes(view) && (
+           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin', 'admin_access_log'].includes(view) && (
               <div className="flex items-center justify-center h-full text-gray-400">
                 View "{view}" is under construction.
               </div>

@@ -7,6 +7,7 @@ import { Card, Badge, Avatar, CompanyLogo, DemoLink, Modal } from '../../shared/
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { InitiativeDetailModal } from './InitiativeDetailModal';
 import { EditOrgModal, ManageInitiativeModal } from '../directory/OrgModals';
+import { SharingControls } from './SharingControls';
 import { getActiveOrganizationAffiliations } from '../../domain/people/affiliations';
 import { ENUMS } from '../../domain/standards/enums';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -552,6 +553,17 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                             </div>
                         )}
                     </Card>
+
+                    {myOrg && (
+                        <SharingControls
+                            myOrg={myOrg}
+                            organizations={organizations}
+                            referrals={referrals}
+                            interactions={interactions}
+                            ecosystemName={currentEcosystem?.name || ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId)?.name || 'this ecosystem'}
+                            onChange={onRefresh}
+                        />
+                    )}
 
                     {/* 2. Initiatives */}
                     {canAccessInitiatives && (

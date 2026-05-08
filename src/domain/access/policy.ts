@@ -44,10 +44,18 @@ export const canViewDirectoryInfo = (viewer: ViewerContext, org: Organization): 
 };
 
 // 2. Operational Data (Initiatives, Metrics, Referrals, Interaction Existence)
+//
+// TIER-2 ENFORCEMENT (planned, currently advisory): Once the federation
+// compact reaches v1.0 (see AGREEMENT_VERSIONS in domain/agreements/types),
+// add a check here that the viewer's ESO has a current OrgAgreementAcceptance
+// for the ecosystem. Until then, the ConsortiumBanner shown on operational
+// tabs warns staff but does not block reads. Helper:
+// `isHardEnforcementActive()` from domain/agreements/orgEnforcement returns
+// false while any required agreement is still in '-draft' phase.
 export const canViewOperationalDetails = (viewer: ViewerContext, org: Organization, hasConsent: boolean = false): boolean => {
     // Legacy Role Check (Migration Path: Replace with capabilities over time)
     if (['platform_admin', 'ecosystem_manager'].includes(viewer.role)) return true;
-    
+
     // New Capability Check (Hybrid approach)
     if (viewerHasCapability(viewer, 'directory.read_private')) return true;
 

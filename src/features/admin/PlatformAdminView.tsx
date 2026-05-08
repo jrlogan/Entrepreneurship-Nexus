@@ -63,6 +63,13 @@ const PLATFORM_TOOLS: Tool[] = [
     icon: '🖥️',
     scope: 'platform',
   },
+  {
+    view: 'admin_access_log',
+    label: 'Admin Access Log',
+    description: 'Tier-5 audit trail. Records every time an admin opens data they don\'t own — makes admin trust observable.',
+    icon: '🛡️',
+    scope: 'platform',
+  },
 ];
 
 interface Props {

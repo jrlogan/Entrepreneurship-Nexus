@@ -4,6 +4,7 @@ import { Interaction, Organization, Person, Referral, Todo } from '../../domain/
 import { acceptSuggestion } from '../../domain/advisor/logic';
 import { Modal, Badge } from '../../shared/ui/Components';
 import { useRepos, useViewer } from '../../data/AppDataContext';
+import { useAdminReadLogger } from '../../data/useAdminReadLogger';
 
 interface InteractionDetailModalProps {
     interaction: Interaction | null;
@@ -16,6 +17,17 @@ export const InteractionDetailModal = ({ interaction, onClose, organizations }: 
     const viewer = useViewer();
     const [taskAddedMsg, setTaskAddedMsg] = useState('');
     const [referralMsg, setReferralMsg] = useState('');
+
+    // Tier-5 audit: log when an admin opens an interaction not authored by
+    // their own org. The hook self-gates on role and active=false; calling
+    // it before the early return keeps hook order stable.
+    useAdminReadLogger({
+        resourceType: 'interaction',
+        resourceId: interaction?.id || '',
+        subjectOrgId: interaction?.organization_id,
+        surface: 'interaction_detail',
+        active: !!interaction && interaction.author_org_id !== viewer.orgId,
+    });
 
     if (!interaction) return null;
 
