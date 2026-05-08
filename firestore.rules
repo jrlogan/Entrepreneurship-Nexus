@@ -348,6 +348,37 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Community Calendar
+    // Events: public read for approved/auto-approved + public visibility; admins see everything.
+    match /events/{eventId} {
+      allow read: if (
+        resource.data.visibility == 'public' &&
+        (resource.data.status == 'approved' || resource.data.status == 'auto_approved')
+      ) || isAuthenticated();
+      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
+    match /event_sources/{sourceId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
+    match /event_source_runs/{runId} {
+      allow read: if isNetworkAdmin() || isEsoOperator();
+      allow write: if false;
+    }
+
+    match /event_flags/{flagId} {
+      // Flags can be filed by anyone — including unauthenticated visitors —
+      // because public-facing event listings need a way to surface bad data.
+      allow read: if isNetworkAdmin() || isEsoOperator();
+      allow create: if true;
+      allow update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

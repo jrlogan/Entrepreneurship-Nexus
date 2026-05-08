@@ -330,6 +330,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                      hoverClass={theme.itemHover}
                    />
                  )}
+                 <SidebarItem
+                   active={view === 'community_calendar'}
+                   onClick={() => handleNav('community_calendar')}
+                   label="Community Calendar"
+                   icon={<IconList className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
 
                  {!showMvpEsoNav && (
                    <>
@@ -463,6 +472,15 @@ export const AppShell: React.FC<AppShellProps> = ({
                      hoverClass={theme.itemHover}
                    />
                  )}
+                 <SidebarItem
+                   active={view === 'community_calendar'}
+                   onClick={() => handleNav('community_calendar')}
+                   label="Community Calendar"
+                   icon={<IconList className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                </>
              )}
 

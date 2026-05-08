@@ -13,6 +13,7 @@ import { FlexibleMetricsRepo } from './metricsRepo';
 import { InboundMessagesRepo } from './inboundMessages';
 import { ServicesRepo } from './services';
 import { GrantsRepo } from './grants';
+import { CalendarRepo } from './calendar';
 
 import { FirebasePeopleRepo } from './firebase/people';
 import { FirebaseReferralsRepo } from './firebase/referrals';
@@ -23,6 +24,7 @@ import { FirebasePipelinesRepo } from './firebase/pipelines';
 import { FirebaseServicesRepo } from './firebase/services';
 import { FirebaseGrantsRepo } from './firebase/grants';
 import { FirebaseConsentRepo } from './firebase/consent';
+import { FirebaseCalendarRepo } from './firebase/calendar';
 import { CONFIG } from '../../app/config';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
@@ -41,6 +43,7 @@ export class AppRepos {
   public inboundMessages: InboundMessagesRepo | FirebaseInboundMessagesRepo;
   public services: ServicesRepo | FirebaseServicesRepo;
   public grants: GrantsRepo | FirebaseGrantsRepo;
+  public calendar: CalendarRepo | FirebaseCalendarRepo;
 
   constructor() {
       const useFirebase = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
@@ -55,5 +58,6 @@ export class AppRepos {
       this.pipelines = useFirebase ? new FirebasePipelinesRepo(this.consent) : new PipelinesRepo(this.consent);
       this.services = useFirebase ? new FirebaseServicesRepo() : new ServicesRepo();
       this.grants = useFirebase ? new FirebaseGrantsRepo() : new GrantsRepo();
+      this.calendar = useFirebase ? new FirebaseCalendarRepo() : new CalendarRepo();
   }
 }

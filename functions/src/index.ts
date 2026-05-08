@@ -2095,6 +2095,33 @@ const processInboundEmailPayload = async (payload: InboundEmailPayload) => {
     };
   }
 
+  if (activityType === 'calendar') {
+    const { processCalendarSubmissionEmail } = await import('./calendar');
+    const calendarResult = await processCalendarSubmissionEmail({
+      ecosystemId: resolvedEcosystemId || '',
+      fromEmail: payload.from_email || '',
+      fromName: undefined,
+      subject: payload.subject || '',
+      textBody: payload.text_body || stripHtmlForParsing(payload.html_body || ''),
+      htmlBody: payload.html_body,
+      routeAddress,
+    });
+    await inboundMessageRef.update({
+      review_status: calendarResult.ok ? 'approved' : 'needs_review',
+      activity_type: 'calendar',
+      calendar_event_id: calendarResult.eventId || null,
+      calendar_event_status: calendarResult.status || null,
+    });
+    return {
+      ok: true,
+      inbound_message_id: inboundMessageRef.id,
+      parse_result_id: parseResultRef.id,
+      review_required: !calendarResult.ok,
+      auto_approved: calendarResult.ok && calendarResult.status === 'added',
+      calendar_event_id: calendarResult.eventId,
+    };
+  }
+
   // 4. Auto-approve if sender is trusted, all required fields resolved, and no ambiguity.
   //    TODO: Add more sophisticated routing logic when ESOs operate in multiple ecosystems.
   const canAutoApprove =
@@ -4552,6 +4579,16 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
   await db.collection('organizations').doc(org_id).update({ description, description_auto_generated: true });
   res.json({ ok: true, description });
 });
+
+// ─── Community Calendar ──────────────────────────────────────────────────────
+export {
+  pollEventSources,
+  triggerEventSourcePoll,
+  submitEventUrl,
+  generateCalendarFeed,
+  flagEvent,
+  resolveEventFlag,
+} from './calendar';
 
 // ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
 export {

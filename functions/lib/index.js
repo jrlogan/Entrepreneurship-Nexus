@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = exports.extractGrantData = exports.generatePartnerApiKey = exports.referralEmailAction = exports.partnerUpsertParticipation = exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.consentAccept = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.applyPendingInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
-exports.submitReferralForm = exports.getEmailLog = exports.recordOnboardingAcknowledgment = void 0;
+exports.extractGrantData = exports.generatePartnerApiKey = exports.referralEmailAction = exports.partnerUpsertParticipation = exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.consentAccept = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.resolveEventFlag = exports.flagEvent = exports.generateCalendarFeed = exports.submitEventUrl = exports.triggerEventSourcePoll = exports.pollEventSources = exports.generateEsoProfile = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.applyPendingInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = void 0;
+exports.submitReferralForm = exports.getEmailLog = exports.recordOnboardingAcknowledgment = exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = void 0;
 const crypto_1 = require("crypto");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -1780,6 +1780,32 @@ const processInboundEmailPayload = async (payload) => {
             review_required: false,
             auto_approved: true,
             grant_opportunity_id: grantResult.grantOpportunityId,
+        };
+    }
+    if (activityType === 'calendar') {
+        const { processCalendarSubmissionEmail } = await Promise.resolve().then(() => __importStar(require('./calendar')));
+        const calendarResult = await processCalendarSubmissionEmail({
+            ecosystemId: resolvedEcosystemId || '',
+            fromEmail: payload.from_email || '',
+            fromName: undefined,
+            subject: payload.subject || '',
+            textBody: payload.text_body || stripHtmlForParsing(payload.html_body || ''),
+            htmlBody: payload.html_body,
+            routeAddress,
+        });
+        await inboundMessageRef.update({
+            review_status: calendarResult.ok ? 'approved' : 'needs_review',
+            activity_type: 'calendar',
+            calendar_event_id: calendarResult.eventId || null,
+            calendar_event_status: calendarResult.status || null,
+        });
+        return {
+            ok: true,
+            inbound_message_id: inboundMessageRef.id,
+            parse_result_id: parseResultRef.id,
+            review_required: !calendarResult.ok,
+            auto_approved: calendarResult.ok && calendarResult.status === 'added',
+            calendar_event_id: calendarResult.eventId,
         };
     }
     // 4. Auto-approve if sender is trusted, all required fields resolved, and no ambiguity.
@@ -3945,6 +3971,14 @@ Keep it factual, practical, and under 200 words. Do not invent information not s
     await db.collection('organizations').doc(org_id).update({ description, description_auto_generated: true });
     res.json({ ok: true, description });
 });
+// ─── Community Calendar ──────────────────────────────────────────────────────
+var calendar_1 = require("./calendar");
+Object.defineProperty(exports, "pollEventSources", { enumerable: true, get: function () { return calendar_1.pollEventSources; } });
+Object.defineProperty(exports, "triggerEventSourcePoll", { enumerable: true, get: function () { return calendar_1.triggerEventSourcePoll; } });
+Object.defineProperty(exports, "submitEventUrl", { enumerable: true, get: function () { return calendar_1.submitEventUrl; } });
+Object.defineProperty(exports, "generateCalendarFeed", { enumerable: true, get: function () { return calendar_1.generateCalendarFeed; } });
+Object.defineProperty(exports, "flagEvent", { enumerable: true, get: function () { return calendar_1.flagEvent; } });
+Object.defineProperty(exports, "resolveEventFlag", { enumerable: true, get: function () { return calendar_1.resolveEventFlag; } });
 // ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
 var partnerApi_1 = require("./partnerApi");
 Object.defineProperty(exports, "partnerUpsertPerson", { enumerable: true, get: function () { return partnerApi_1.partnerUpsertPerson; } });

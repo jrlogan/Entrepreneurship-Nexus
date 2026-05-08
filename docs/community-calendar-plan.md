@@ -4,6 +4,10 @@ This document defines the Community Calendar feature: a multi-source, AI-assiste
 event aggregation system that produces filterable, subscribable iCal feeds scoped
 to each ecosystem and the platform as a whole.
 
+> **Implementation status (2026-05-08):** Foundation shipped — see "What's built"
+> at the bottom of this file for what's live, what's deferred, and the
+> environment + ops setup needed before the first source poll runs.
+
 ---
 
 ## Problem
@@ -379,3 +383,81 @@ Priority order for source types:
 - **Postmark wildcard routing**: Confirm the catch-all at `*@incoming.entrepreneurship.nexus`
   is configured to forward all addresses to the existing webhook endpoint, so
   `events+{slug}@...` addresses work without per-address Postmark configuration.
+
+---
+
+## What's built (2026-05-08 foundation drop)
+
+### Cloud Functions (`functions/src/calendar.ts`)
+- `pollEventSources` — scheduled every 4 hours; iterates active `event_sources`,
+  parses iCal/RSS, fingerprints, dedupes, runs Gemini classification, routes
+  to `auto_approved` / `pending_review` / drops on rejection.
+- `triggerEventSourcePoll` — secret-gated HTTP poke for ad-hoc runs and
+  testing. Requires `CALENDAR_POLL_SECRET` env var.
+- `submitEventUrl` — onCall; pulls a URL, lets Gemini extract one event,
+  routes through the same ingest pipeline.
+- `generateCalendarFeed` — public HTTP iCal endpoint. Query params:
+  `?ecosystem=ID&tags=funding,pitch&scope=local&state=CT`.
+- `flagEvent` / `resolveEventFlag` — onCall; flags writable by anyone,
+  resolution gated to authenticated admins via security rules.
+- `processCalendarSubmissionEmail` — invoked from the existing
+  `postmarkInboundWebhook` whenever an `inbound_routes` doc has
+  `activity_type: 'calendar'`. No new webhook URL needed.
+
+### Firestore
+- New collections: `events`, `event_sources`, `event_source_runs`, `event_flags`.
+- Security rules added in `firestore.rules`: public read of approved/auto-approved
+  public events; ESO-staff/admins can write; flags creatable anonymously.
+- Composite indexes added in `firestore.indexes.json` for the queries above.
+
+### Frontend (`src/features/calendar/CalendarView.tsx`)
+- Sidebar entry "Community Calendar" (no feature flag — always visible).
+- Tabs: **Upcoming** (public list), **Pending review** (admin queue with AI
+  reasoning + approve/reject), **Sources** (admin source list with
+  enable/disable + trust/classify toggle), **Subscribe** (iCal URL).
+- Add-source modal supports iCal/RSS, default tags, geographic tags, and
+  filter mode.
+- Repo pair: `data/repos/calendar.ts` (mock) + `data/repos/firebase/calendar.ts`.
+
+### Filter modes
+Each source has a `filter_mode`:
+- `trust` — every event from the feed publishes immediately, no Gemini call,
+  no token cost. Use for scoped feeds (e.g. an ESO's own calendar).
+- `classify` — Gemini decides relevance + suggests tags + scope. Confidence
+  ≥ source threshold (default 0.85) auto-publishes; 0.5–threshold goes to
+  pending review; below 0.5 drops silently.
+
+### Tests
+- `functions/src/calendar.test.ts` — iCal parser, RSS parser, fingerprint
+  dedup. 9 tests, all passing.
+
+---
+
+## To enable in production
+
+1. **Set env vars** on the Cloud Functions runtime:
+   - `GEMINI_API_KEY` (already set if Grant Lab is live)
+   - `CALENDAR_POLL_SECRET` (for `triggerEventSourcePoll`)
+2. **Deploy:** `firebase deploy --only functions:pollEventSources,functions:generateCalendarFeed,functions:submitEventUrl,functions:flagEvent,functions:resolveEventFlag,functions:triggerEventSourcePoll`
+   plus `--only firestore:rules,firestore:indexes`.
+3. **Add sources** via the new Sources tab, or create `event_sources` docs
+   directly. Start with `filter_mode: 'trust'` for any feed you already
+   trust to be all-entrepreneurial.
+4. **Optional — email forwarding:** create an `inbound_routes` doc with
+   `route_address: 'events+ctsbn@incoming.entrepreneurship.nexus'`,
+   `activity_type: 'calendar'`, `ecosystem_id: <id>`. Forward newsletters
+   there; the existing `postmarkInboundWebhook` will dispatch them.
+5. **Subscribe URL:** the printed `generateCalendarFeed` deploy URL is
+   the user-facing iCal endpoint. Append `?ecosystem=<id>` to scope.
+
+## Deferred to a later iteration
+
+- `url_scrape` source type (HTML scraping for sites without iCal/RSS) —
+  pending Gemini `url_context` SDK upgrade.
+- Cross-ecosystem geo routing — `events.cross_ecosystem_status` field is
+  written but no consumer yet.
+- `calendar_tags` collection — current implementation uses the inline
+  `DEFAULT_EVENT_TAGS` list; promote to a collection when ecosystem-local
+  tags are needed.
+- Public anonymous URL submission — onCall function currently requires sign-in.
+- Multi-event extraction from one email (newsletters with many events).

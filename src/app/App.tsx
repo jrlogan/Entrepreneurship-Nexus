@@ -75,6 +75,7 @@ import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
 import { VentureScoutView } from '../features/scout/VentureScoutView';
 import { TodosView } from '../features/todos/TodosView';
 import { GrantsView } from '../features/grants/GrantsView';
+import { CalendarView } from '../features/calendar/CalendarView';
 
 // App Shell
 import { AppShell } from './AppShell';
@@ -832,6 +833,9 @@ const App = () => {
                canAccessGrantLab ? (
                <GrantsView onLinkToInitiative={(organizationId) => navigateToOrg(organizationId, 'initiatives')} />
                ) : null
+           )}
+           {view === 'community_calendar' && (
+               <CalendarView />
            )}
            {view === 'referrals' && (
                 <ReferralsView
