@@ -289,6 +289,7 @@ const App = () => {
             inbound_intake: true,
             notify_entrepreneurs: true,
             grant_lab: true,
+            community_calendar: true,
           }
         : {
             ...(baseEcosystem.settings.feature_flags || {}),
@@ -312,6 +313,7 @@ const App = () => {
   const canAccessMetricsManager = (isPlatformAdmin || currentRole === 'ecosystem_manager') && featureFlags.metrics_manager === true;
   const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
   const canAccessGrantLab = featureFlags.grant_lab === true;
+  const canAccessCommunityCalendar = isPlatformAdmin || featureFlags.community_calendar === true;
   const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
@@ -836,7 +838,9 @@ const App = () => {
                ) : null
            )}
            {view === 'community_calendar' && (
+               canAccessCommunityCalendar ? (
                <CalendarView />
+               ) : null
            )}
            {view === 'referrals' && (
                 <ReferralsView

@@ -109,6 +109,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const canAccessMetricsManager = (isPlatformAdmin || isSuper) && featureFlags.metrics_manager === true;
   const canAccessInboundIntake = isPlatformAdmin || ((currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true);
   const canAccessGrantLab = featureFlags.grant_lab === true;
+  const canAccessCommunityCalendar = isPlatformAdmin || featureFlags.community_calendar === true;
 
   const iconClass = "w-5 h-5";
   const isDemoMode = CONFIG.IS_DEMO_MODE;
@@ -330,15 +331,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                      hoverClass={theme.itemHover}
                    />
                  )}
-                 <SidebarItem
-                   active={view === 'community_calendar'}
-                   onClick={() => handleNav('community_calendar')}
-                   label="Community Calendar"
-                   icon={<IconList className={iconClass} />}
-                   textColor={theme.itemText}
-                   iconColor={theme.itemIcon}
-                   hoverClass={theme.itemHover}
-                 />
+                 {canAccessCommunityCalendar && (
+                   <SidebarItem
+                     active={view === 'community_calendar'}
+                     onClick={() => handleNav('community_calendar')}
+                     label="Community Calendar"
+                     icon={<IconList className={iconClass} />}
+                     textColor={theme.itemText}
+                     iconColor={theme.itemIcon}
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
 
                  {!showMvpEsoNav && (
                    <>
@@ -472,15 +475,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                      hoverClass={theme.itemHover}
                    />
                  )}
-                 <SidebarItem
-                   active={view === 'community_calendar'}
-                   onClick={() => handleNav('community_calendar')}
-                   label="Community Calendar"
-                   icon={<IconList className={iconClass} />}
-                   textColor={theme.itemText}
-                   iconColor={theme.itemIcon}
-                   hoverClass={theme.itemHover}
-                 />
+                 {canAccessCommunityCalendar && (
+                   <SidebarItem
+                     active={view === 'community_calendar'}
+                     onClick={() => handleNav('community_calendar')}
+                     label="Community Calendar"
+                     icon={<IconList className={iconClass} />}
+                     textColor={theme.itemText}
+                     iconColor={theme.itemIcon}
+                     hoverClass={theme.itemHover}
+                   />
+                 )}
                </>
              )}
 

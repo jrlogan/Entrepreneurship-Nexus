@@ -44,7 +44,14 @@ export interface Ecosystem {
       inbound_intake?: boolean;
       notify_entrepreneurs?: boolean;
       grant_lab?: boolean;
+      community_calendar?: boolean;
     };
+    // Community Calendar geographic profile — used for cross-ecosystem routing
+    geo_state?: string;
+    geo_metros?: string[];
+    geo_adjacent?: string[];
+    // Default auto-approve threshold for AI-classified events (0–1). Per-source can override.
+    calendar_auto_approve_threshold?: number;
   };
   // Configurable checklists available to all initiatives in this ecosystem
   checklist_templates?: ChecklistTemplate[];

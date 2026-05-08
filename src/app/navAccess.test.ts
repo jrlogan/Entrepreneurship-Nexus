@@ -38,6 +38,7 @@ function computeNav(role: SystemRole, flags: FeatureFlags, isMvpMode = true) {
   const canAccessMetricsManager = isPlatformAdmin || (isSuper && flags.metrics_manager === true);
   const canAccessInboundIntake = isPlatformAdmin || (role === 'ecosystem_manager' && flags.inbound_intake === true);
   const canAccessGrantLab = isPlatformAdmin || flags.grant_lab === true;
+  const canAccessCommunityCalendar = isPlatformAdmin || flags.community_calendar === true;
 
   return {
     showMvpEsoNav,
@@ -54,6 +55,7 @@ function computeNav(role: SystemRole, flags: FeatureFlags, isMvpMode = true) {
     canAccessMetricsManager,
     canAccessInboundIntake,
     canAccessGrantLab,
+    canAccessCommunityCalendar,
   };
 }
 
@@ -158,6 +160,18 @@ describe('feature flag gating for eso_admin', () => {
 
   it('can access grant_lab with flag', () => {
     expect(computeNav('eso_admin', { grant_lab: true }).canAccessGrantLab).toBe(true);
+  });
+
+  it('cannot access community_calendar without flag', () => {
+    expect(computeNav('eso_admin', {}).canAccessCommunityCalendar).toBe(false);
+  });
+
+  it('can access community_calendar with flag', () => {
+    expect(computeNav('eso_admin', { community_calendar: true }).canAccessCommunityCalendar).toBe(true);
+  });
+
+  it('platform_admin can access community_calendar with no flag', () => {
+    expect(computeNav('platform_admin', {}).canAccessCommunityCalendar).toBe(true);
   });
 });
 

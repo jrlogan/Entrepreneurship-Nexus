@@ -30,6 +30,10 @@ export class CalendarRepo {
     else MOCK_SOURCES.push(source);
   }
 
+  async createEvent(event: CalendarEvent): Promise<void> {
+    MOCK_EVENTS.push(event);
+  }
+
   async updateEventStatus(id: string, status: CalendarEvent['status'], reviewerId?: string): Promise<void> {
     const ev = MOCK_EVENTS.find((e) => e.id === id);
     if (ev) {

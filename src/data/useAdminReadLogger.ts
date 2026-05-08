@@ -12,8 +12,36 @@ const repo = new FirebaseAdminAuditRepo();
 // log. Reset on full page reload, which is the right boundary for "session".
 const loggedThisSession = new Set<string>();
 
-const isAdminRole = (role: string): boolean =>
-  role === 'platform_admin' || role === 'ecosystem_manager';
+// ─── Pure helpers (testable without React) ───────────────────────────────────
+
+export function isAdminRole(role: string): boolean {
+  return role === 'platform_admin' || role === 'ecosystem_manager';
+}
+
+export function buildDedupKey(personId: string, surface: AdminReadSurface, resourceId: string): string {
+  return `${personId}:${surface}:${resourceId}`;
+}
+
+/**
+ * Pure decision: should this admin read be logged? Encapsulates the role
+ * gate, the active flag, and the resource-id presence check so the hook
+ * stays a thin wrapper.
+ */
+export function shouldLogAdminRead(args: {
+  active: boolean;
+  role: string;
+  resourceId: string;
+}): boolean {
+  if (!args.active) return false;
+  if (!isAdminRole(args.role)) return false;
+  if (!args.resourceId) return false;
+  return true;
+}
+
+// Test-only: drop the dedup cache between cases.
+export function __resetAdminReadLoggerCacheForTest(): void {
+  loggedThisSession.clear();
+}
 
 interface LogParams {
   resourceType: AdminReadResource;
@@ -35,14 +63,16 @@ export function useAdminReadLogger(params: LogParams): void {
   const { session } = useAuthContext();
 
   useEffect(() => {
-    if (!params.active) return;
-    if (!isAdminRole(viewer.role)) return;
-    if (!params.resourceId) return;
+    if (!shouldLogAdminRead({
+      active: params.active,
+      role: viewer.role,
+      resourceId: params.resourceId,
+    })) return;
 
     const authUser = session.authUser;
     if (!authUser) return;
 
-    const key = `${viewer.personId}:${params.surface}:${params.resourceId}`;
+    const key = buildDedupKey(viewer.personId, params.surface, params.resourceId);
     if (loggedThisSession.has(key)) return;
     loggedThisSession.add(key);
 

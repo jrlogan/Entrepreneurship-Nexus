@@ -41,6 +41,10 @@ export class FirebaseCalendarRepo {
     await setDocument('event_sources', source.id, source);
   }
 
+  async createEvent(event: CalendarEvent): Promise<void> {
+    await setDocument('events', event.id, event);
+  }
+
   async updateEventStatus(id: string, status: CalendarEvent['status'], reviewerId?: string): Promise<void> {
     await updateDocument<CalendarEvent>('events', id, {
       status,
