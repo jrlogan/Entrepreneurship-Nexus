@@ -16,6 +16,19 @@ import type { InboundRoute } from '../../domain/inbound/types';
 import { firebaseConfig, isEmulatorMode } from '../../services/firebaseConfig';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 import { getDocument, queryCollection, setDocument } from '../../services/firestoreClient';
+import { callFunction } from '../../services/functionsClient';
+
+interface FeedDetectResult {
+  ok: boolean;
+  found?: boolean;
+  feed_url?: string;
+  feed_type?: 'rss' | 'atom';
+  feed_title?: string | null;
+  preview?: { title: string; start_time: string; url: string | null }[];
+  total_items?: number;
+  reason?: string;
+  message?: string;
+}
 
 type CalendarTab = 'upcoming' | 'pending' | 'sources' | 'feed' | 'settings';
 
@@ -443,6 +456,9 @@ const AddSourceModal: React.FC<{
   const [defaultTags, setDefaultTags] = useState<string[]>([]);
   const [defaultGeoTags, setDefaultGeoTags] = useState('');
   const [busy, setBusy] = useState(false);
+  const [feedSuggestion, setFeedSuggestion] = useState<FeedDetectResult | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [feedDismissedFor, setFeedDismissedFor] = useState<string>('');
 
   const reset = () => {
     setName('');
@@ -451,6 +467,41 @@ const AddSourceModal: React.FC<{
     setFilterMode('classify');
     setDefaultTags([]);
     setDefaultGeoTags('');
+    setFeedSuggestion(null);
+    setDetecting(false);
+    setFeedDismissedFor('');
+  };
+
+  // Default to a longer poll interval for url_scrape to keep Gemini cost predictable.
+  const intervalForType = (t: EventSourceType): number => (t === 'url_scrape' ? 48 : 24);
+
+  const handleDetectFeed = async () => {
+    if (type !== 'url_scrape') return;
+    if (!url || url === feedDismissedFor) return;
+    setDetecting(true);
+    setFeedSuggestion(null);
+    try {
+      const result = await callFunction<{ url: string }, FeedDetectResult>('detectFeedFromUrl', { url });
+      if (result.ok && result.found && result.feed_url) {
+        setFeedSuggestion(result);
+      }
+    } catch {
+      // Silent — detection is best-effort. User can still scrape the page.
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const acceptFeedSuggestion = () => {
+    if (!feedSuggestion?.feed_url) return;
+    setUrl(feedSuggestion.feed_url);
+    setType('rss');
+    setFeedSuggestion(null);
+  };
+
+  const dismissFeedSuggestion = () => {
+    setFeedDismissedFor(url);
+    setFeedSuggestion(null);
   };
 
   const handleSave = async () => {
@@ -466,7 +517,7 @@ const AddSourceModal: React.FC<{
         url,
         ecosystem_id: viewer.ecosystemId || '',
         active: true,
-        check_interval_hours: 24,
+        check_interval_hours: intervalForType(type),
         consecutive_failures: 0,
         filter_mode: filterMode,
         auto_approve_threshold: DEFAULT_AUTO_APPROVE_THRESHOLD,
@@ -503,23 +554,85 @@ const AddSourceModal: React.FC<{
           <label className="block text-xs font-medium text-gray-700 mb-1">Source type</label>
           <select
             value={type}
-            onChange={(e) => setType(e.target.value as EventSourceType)}
+            onChange={(e) => {
+              const next = e.target.value as EventSourceType;
+              setType(next);
+              setFeedSuggestion(null);
+              setFeedDismissedFor('');
+            }}
             className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
           >
             <option value="ical">iCal feed (preferred)</option>
             <option value="rss">RSS feed</option>
+            <option value="url_scrape">Website URL (AI scraping — fuzzier)</option>
           </select>
+          {type === 'url_scrape' && (
+            <p className="text-xs text-gray-500 mt-1">
+              Nexus will fetch this page on a schedule and use AI to extract events. Use only when the org has no
+              iCal or RSS feed — extraction is fuzzier and costs Gemini tokens per poll.
+            </p>
+          )}
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Feed URL</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            {type === 'url_scrape' ? 'Page URL' : 'Feed URL'}
+          </label>
           <input
             type="url"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              if (e.target.value !== feedDismissedFor) setFeedSuggestion(null);
+            }}
+            onBlur={handleDetectFeed}
             className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-            placeholder="https://example.org/events.ics"
+            placeholder={type === 'url_scrape' ? 'https://example.org/events' : 'https://example.org/events.ics'}
           />
+          {detecting && (
+            <p className="text-xs text-gray-500 mt-1">Checking for an RSS feed on this page…</p>
+          )}
         </div>
+        {feedSuggestion?.feed_url && (
+          <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+            <p className="font-medium text-amber-900">RSS feed detected</p>
+            <p className="text-xs text-amber-800 mt-1">
+              This page links to a {feedSuggestion.feed_type?.toUpperCase()} feed. Using the feed is more reliable
+              and cheaper than AI scraping.
+            </p>
+            <p className="text-xs text-amber-900 mt-2 break-all font-mono">{feedSuggestion.feed_url}</p>
+            {feedSuggestion.preview && feedSuggestion.preview.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {feedSuggestion.preview.map((item, i) => (
+                  <li key={i} className="text-xs text-amber-900">
+                    <span className="font-medium">{item.title}</span>
+                    {item.start_time && (
+                      <span className="text-amber-700"> — {new Date(item.start_time).toLocaleDateString()}</span>
+                    )}
+                  </li>
+                ))}
+                {typeof feedSuggestion.total_items === 'number' && feedSuggestion.total_items > (feedSuggestion.preview?.length || 0) && (
+                  <li className="text-xs text-amber-700">…and {feedSuggestion.total_items - (feedSuggestion.preview?.length || 0)} more</li>
+                )}
+              </ul>
+            )}
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={acceptFeedSuggestion}
+                className="px-2.5 py-1 bg-amber-600 text-white text-xs rounded hover:bg-amber-700"
+              >
+                Use the RSS feed
+              </button>
+              <button
+                type="button"
+                onClick={dismissFeedSuggestion}
+                className="px-2.5 py-1 bg-white text-amber-900 text-xs rounded border border-amber-300 hover:bg-amber-100"
+              >
+                Keep scraping the page
+              </button>
+            </div>
+          </div>
+        )}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Filter mode</label>
           <select
