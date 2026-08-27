@@ -318,7 +318,7 @@
     </div>
   </section>
 
-  <!-- 4 · The agreement (framing) -->
+  <!-- 2 · How to read the wire -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">The heart of the compact · what everyone signs up to</p>
@@ -386,7 +386,100 @@
             </marker>
           </defs>
 
-          <!-- 6 · What it asks of you -->
+          <!-- entrepreneur -->
+          <circle cx="230" cy="55" r="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="230" y="59" text-anchor="middle" font-size="11" fill="currentColor">Grace</text>
+          <text x="264" y="59" text-anchor="start" font-size="12" fill="currentColor">entrepreneur</text>
+
+          <!-- walks in -->
+          <line x1="230" y1="81" x2="230" y2="144" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="242" y="116" text-anchor="start" font-size="11.5" fill="currentColor">walks in</text>
+
+          <!-- Agency A -->
+          <rect x="110" y="148" width="240" height="72" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
+          <text x="230" y="176" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Agency A — its own system</text>
+          <text x="230" y="198" text-anchor="middle" font-size="11.5" fill="currentColor">full case file stays here</text>
+
+          <!-- Agency B -->
+          <rect x="690" y="148" width="240" height="72" rx="8" fill="none" stroke="var(--res)" stroke-width="1.8"/>
+          <text x="810" y="176" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Agency B — its own system</text>
+          <text x="810" y="198" text-anchor="middle" font-size="11.5" fill="currentColor">its own IDs, its own key</text>
+
+          <!-- no direct connection -->
+          <line x1="358" y1="186" x2="682" y2="186" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 6" opacity=".55"/>
+          <text x="520" y="174" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".8">✕ never connect directly</text>
+
+          <!-- shared node -->
+          <rect x="380" y="300" width="230" height="84" rx="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <text x="495" y="330" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Shared node</text>
+          <text x="495" y="352" text-anchor="middle" font-size="11.5" fill="currentColor">core fields + activity timeline · jointly governed</text>
+
+          <!-- A pushes -->
+          <line x1="250" y1="222" x2="428" y2="296" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="300" y="252" text-anchor="end" font-size="11.5" fill="currentColor">pushes compact</text>
+          <text x="300" y="268" text-anchor="end" font-size="11.5" fill="currentColor">core on save</text>
+
+          <!-- B reads/writes -->
+          <line x1="725" y1="222" x2="592" y2="296" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="655" y="250" text-anchor="end" font-size="11.5" fill="currentColor">reads / writes,</text>
+          <text x="655" y="266" text-anchor="end" font-size="11.5" fill="currentColor">its own key</text>
+
+          <!-- webhook to B -->
+          <line x1="614" y1="336" x2="843" y2="226" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+          <text x="700" y="318" text-anchor="start" font-size="11.5" fill="currentColor">webhook: referral, linked</text>
+
+          <!-- consent loop (green, both directions) -->
+          <path d="M 378 342 L 64 342 L 64 60 L 198 60" fill="none" stroke="var(--ok)" stroke-width="1.6" marker-start="url(#arrC)" marker-end="url(#arrC)"/>
+          <text x="84" y="368" text-anchor="start" font-size="11.5" fill="var(--ok)">the agreement: consent email out,</text>
+          <text x="84" y="384" text-anchor="start" font-size="11.5" fill="var(--ok)">opt-in click back → directory &amp; trusted-partner grants</text>
+        </svg>
+        <figcaption style="font-size:13px; color:var(--muted); margin-top:8px;">The mechanism: created by real activity at A, consented by the entrepreneur, reachable by B — no direct coupling between agencies. The record carries the compact core plus standardized optional extras (tags, dates, outcome metrics) where an org has them.</figcaption>
+      </figure>
+
+      <figure style="margin:18px 0 0;">
+        <svg viewBox="0 0 960 160" role="img" aria-label="Timeline of dated events accumulating on Grace's shared record: intake at A, program starts, a coaching session logged, a referral to B accepted, membership at B starts, the program ends, and a jobs outcome is reported." style="max-width:100%; height:auto; display:block; color:var(--ink); font-family:'IBM Plex Sans',sans-serif;">
+          <defs>
+            <marker id="tarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <line x1="40" y1="80" x2="920" y2="80" stroke="currentColor" stroke-width="1.4" marker-end="url(#tarr)"/>
+          <text x="930" y="70" text-anchor="end" font-size="11" fill="currentColor" opacity=".7">time →</text>
+
+          <circle cx="85" cy="80" r="6" fill="var(--req)"/>
+          <text x="85" y="48" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">intake</text>
+          <text x="85" y="63" text-anchor="middle" font-size="10.5" fill="var(--req)">Agency A</text>
+
+          <circle cx="210" cy="80" r="6" fill="var(--req)"/>
+          <text x="210" y="106" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">program starts</text>
+          <text x="210" y="121" text-anchor="middle" font-size="10.5" fill="var(--req)">A · active</text>
+
+          <circle cx="335" cy="80" r="6" fill="var(--req)"/>
+          <text x="335" y="48" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">coaching session ✓</text>
+          <text x="335" y="63" text-anchor="middle" font-size="10.5" fill="var(--req)">A · fact shared, notes stay at A</text>
+
+          <circle cx="460" cy="80" r="6" fill="var(--ok)"/>
+          <text x="460" y="106" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">referral accepted</text>
+          <text x="460" y="121" text-anchor="middle" font-size="10.5" fill="var(--ok)">A → B</text>
+
+          <circle cx="585" cy="80" r="6" fill="var(--res)"/>
+          <text x="585" y="48" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">membership starts</text>
+          <text x="585" y="63" text-anchor="middle" font-size="10.5" fill="var(--res)">Agency B</text>
+
+          <circle cx="710" cy="80" r="6" fill="var(--req)"/>
+          <text x="710" y="106" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">program ends</text>
+          <text x="710" y="121" text-anchor="middle" font-size="10.5" fill="var(--req)">A · status: past — history kept</text>
+
+          <circle cx="845" cy="80" r="6" fill="var(--ok)"/>
+          <text x="845" y="48" text-anchor="middle" font-size="11.5" font-weight="600" fill="currentColor">outcome: 2 FT jobs</text>
+          <text x="845" y="63" text-anchor="middle" font-size="10.5" fill="var(--ok)">self-reported</text>
+        </svg>
+        <figcaption style="font-size:13px; color:var(--muted); margin-top:8px;"><strong>…and what accumulates: a shared activity timeline.</strong> Memberships start and stop, referrals resolve, sessions get logged as facts (each org chooses per event whether "it happened" is shared — details never leave the recording org). This log is why the network is useful twice over: any org Grace works with sees <em>who else is helping and how active she is</em> — coordinate, don't duplicate — and survival, retention, and jobs statistics fall out of it automatically.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 6 · What it asks of you -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Adoption · value add, not extra work</p>
@@ -415,7 +508,7 @@
     </div>
   </section>
 
-  <!-- 13 · Real screenshots -->
+  <!-- 8 · Integration step by step -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Not a mockup · captured from MakeHaven's live software</p>
@@ -465,7 +558,7 @@
     </div>
   </section>
 
-  <!-- Identity & merge -->
+  <!-- Referral email flow (real) -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">The hard question · "we all spell names differently"</p>
@@ -496,7 +589,7 @@
     </div>
   </section>
 
-  <!-- Live demo (merged) -->
+  <!-- The hub -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Live demo · running now against the hosted sandbox</p>
@@ -537,7 +630,6 @@
     </div>
   </section>
 
-  <!-- 15 · Try it yourself -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Your turn · the sandbox is live right now</p>
@@ -640,8 +732,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
       <p class="footnote" style="margin-top:18px;"><strong>Everything shown today is open source under the MIT license</strong> — the code, the partner API, the data standard, the agreement drafts, and these slides: <span style="font-family:'IBM Plex Mono',monospace;">github.com/jrlogan/Entrepreneurship-Nexus</span>. Fork it, self-host it, audit it — or let's run it jointly. No one is locked in, including to MakeHaven.</p>
       <p class="kicker">5 HTTPS calls · 2 independent systems · 0 new UIs · 1 shared core, 0 single owners</p>
     </div>
-  </section>  <!-- Reference divider -->
-  <section class="slide">
+  </section><section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">End of the walkthrough</p>
       <h1 style="font-size:clamp(30px,4.6vw,50px);">Reference</h1>
@@ -651,7 +742,6 @@ curl -s -X POST $BASE/partnerUpsertPerson \
     </div>
   </section>
 
-  <!-- 2 · How to read the wire -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Before the demo · how to read what you'll see</p>
@@ -705,7 +795,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
     </div>
   </section>
 
-  <!-- 9 · The mapping is the work -->
+  <!-- 4 · The agreement (framing) -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Step 2 &amp; 3 up close · the real work is agreement, not code</p>
@@ -738,7 +828,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
     </div>
   </section>
 
-  <!-- Referral email flow (real) -->
+  <!-- 11 · In their software -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">The email path, for real · zero integration required</p>
@@ -768,7 +858,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
     </div>
   </section>
 
-  <!-- 14 · Everyday actions -->
+  <!-- Identity & merge -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">Day to day · the two actions that build the timeline</p>
@@ -781,7 +871,65 @@ curl -s -X POST $BASE/partnerUpsertPerson \
             </marker>
           </defs>
 
-          <!-- The hub -->
+          <!-- entry path 1: email -->
+          <rect x="30" y="30" width="255" height="58" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
+          <text x="157" y="54" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">Plain email — CC the network address</text>
+          <text x="157" y="74" text-anchor="middle" font-size="11" fill="currentColor">zero integration · start today</text>
+
+          <!-- entry path 2: integrated -->
+          <rect x="30" y="152" width="255" height="58" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
+          <text x="157" y="176" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">One click in their own system</text>
+          <text x="157" y="196" text-anchor="middle" font-size="11" fill="currentColor">partner API, fires on save</text>
+
+          <!-- converge -->
+          <line x1="285" y1="59" x2="386" y2="102" stroke="currentColor" stroke-width="1.4" marker-end="url(#rarr)"/>
+          <line x1="285" y1="181" x2="386" y2="138" stroke="currentColor" stroke-width="1.4" marker-end="url(#rarr)"/>
+
+          <!-- the one record -->
+          <rect x="390" y="88" width="230" height="64" rx="8" fill="none" stroke="var(--ok)" stroke-width="1.8"/>
+          <text x="505" y="112" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">One referral record</text>
+          <text x="505" y="132" text-anchor="middle" font-size="11" fill="currentColor">id · purpose · owner · follow-up date</text>
+          <text x="505" y="182" text-anchor="middle" font-size="11.5" fill="var(--ok)" font-family="IBM Plex Mono,monospace">pending → accepted / declined → completed</text>
+
+          <!-- receiving org -->
+          <rect x="705" y="88" width="225" height="64" rx="8" fill="none" stroke="var(--res)" stroke-width="1.8"/>
+          <text x="817" y="112" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">Receiving organization</text>
+          <text x="817" y="132" text-anchor="middle" font-size="11" fill="currentColor">their queue, their named owner</text>
+
+          <!-- notify + respond -->
+          <line x1="620" y1="104" x2="702" y2="104" stroke="currentColor" stroke-width="1.4" marker-end="url(#rarr)"/>
+          <text x="661" y="92" text-anchor="middle" font-size="11" fill="currentColor">email links / webhook</text>
+          <line x1="702" y1="136" x2="622" y2="136" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#rarr)"/>
+          <text x="661" y="158" text-anchor="middle" font-size="11" fill="currentColor">accept / decline, no login</text>
+
+          <!-- status back to sender -->
+          <line x1="388" y1="145" x2="300" y2="215" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#rarr)"/>
+          <text x="368" y="205" text-anchor="end" font-size="11" fill="currentColor">status visible to the sender</text>
+        </svg>
+        <figcaption style="font-size:13px; color:var(--muted); margin-top:6px;">Two ways in, one record out. The email path needs zero integration — and because both paths write the same record, a referral can never vanish into an inbox, whichever way it started.</figcaption>
+      </figure>
+      <div class="cols">
+        <div class="card">
+          <span class="tag res">Sessions &amp; milestones — logged where staff already work</span>
+          <h3>Facts on the timeline, details at home</h3>
+          <ul class="tight">
+            <li><strong>Coaching / mentoring:</strong> staff log the meeting in their own CRM as they do today; the system pushes a dated event — type, date, org. <strong>Notes never leave the recording org</strong>; sharing "it happened" is a per-event choice.</li>
+            <li><strong>Memberships &amp; programs:</strong> starts, completions, and lapses flow automatically (<span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px;">active → past</span>, history kept). <strong>Outcomes</strong> (jobs, revenue) recorded as standard metrics, self-reported or verified.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag ok">The day-to-day payoff</span>
+          <h3>Coordinate, don't duplicate</h3>
+          <ul class="tight">
+            <li>Before reaching out about a shared client, staff see <strong>who's already helping and how recently</strong> — and can call that agency to coordinate.</li>
+            <li>Start at the email level today; integrate later. Every level feeds the same timeline — and the statistics — with no extra reporting work.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 15 · Shared metrics -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">The hub · what operators see when the API is doing the work</p>
@@ -809,7 +957,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
     </div>
   </section>
 
-  <!-- 15 · Shared metrics -->
+  <!-- 7 · Already in the box -->
   <section class="slide">
     <div class="slide-inner">
       <p class="eyebrow">The statistics payoff · aggregate &amp; anonymous, by design</p>
@@ -838,7 +986,8 @@ curl -s -X POST $BASE/partnerUpsertPerson \
     </div>
   </section>
 
-
+  <!-- 3 · The cast -->
+  
 
 </div>
 
