@@ -131,17 +131,17 @@ exchanges verified against the sandbox.
    agreement slide (three sharing tiers + the signable documents) and a flow
    diagram of one record's life; "How to read the wire" decodes the
    call/response format for non-developers before the terminal appears.
-2. **Live run** (4 min): `node scripts/demo-federated-walkthrough.mjs --step`
-   against the hosted demo — step mode pauses between calls, and every call
-   prints the actual request and raw JSON response. Narrate the `action`
-   field: `created` at A → `linked` at B (same record) → B reads with A
-   offline, seeing only its own IDs → B subscribes to referral webhooks.
-   Then improvise with `scripts/nexus-call.mjs` — any call, as any of the
-   three seeded agencies (including a "new agency joins live" slot), driven
-   by the room. Full command script: `docs/live-demo-script.md`. Adoption
-   principle to state out loud: **no bulk imports** — the shared record set
-   grows only from real activity, with the consent email sent to each
-   entrepreneur as they enter.
+2. **Live demo — near the end of the deck, right before Decisions** (5 min,
+   "Two independent systems…" → "…A offline"): the deck's demo trio cues it;
+   run `node scripts/demo-federated-walkthrough.mjs --step` against the
+   hosted sandbox (presenter-only — attendees need no downloads; they follow
+   along with curl/Postman/Hoppscotch per `docs/partner-api/TRY_IT.md`).
+   Improvise with `scripts/nexus-call.mjs` — any call, as any of the three
+   seeded agencies (including a "new agency joins live" slot), driven by the
+   room. Full command script: `docs/live-demo-script.md`. Adoption principle
+   to state out loud: **no bulk imports** — the shared record set grows only
+   from real activity, with the consent email sent to each entrepreneur as
+   they enter.
 3. **Adoption ladder** (2 min): levels 0–3, from "keep using email" to
    SSO/webhooks — value add, not extra work; no bulk imports at any level;
    Entrepreneur Central can plug in at level 3 as one identity provider

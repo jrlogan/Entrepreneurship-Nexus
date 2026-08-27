@@ -275,11 +275,11 @@
       <h1>The Federated Compact</h1>
       <p class="lede"><strong>No new UI. No new platform. No central owner of the list.</strong><br>
       A small protocol your existing systems already speak — shown here as five plain HTTPS calls.</p>
-      <div class="wire"><span class="dim">$</span> node scripts/demo-federated-walkthrough.mjs --step
+      <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>   <span class="dim">…an agency's system talks…</span>
+<span class="res">◀ HTTP 201</span> { "ok": true, "action": "created" }   <span class="dim">…the network answers.</span>
 
-<span class="req">▶ POST /partnerUpsertPerson</span>   <span class="dim">…your system talks…</span>
-<span class="res">◀ HTTP 201</span> { "ok": true, "action": "created" }   <span class="dim">…the network answers.</span></div>
-      <p class="kicker">Everything in this deck is running code — the live demo replays it against a sandbox you can call yourselves.</p>
+<span class="dim">The sandbox is online now. Nothing to install — any HTTP tool can call it.</span></div>
+      <p class="kicker">Everything in this deck is running code — and the live demo at the end runs against the same sandbox you can call from your own laptop.</p>
       <p><span class="hint">15 slides · advance with → or the buttons below · "View as document" shows them all at once</span></p>
     </div>
   </section>
@@ -289,13 +289,9 @@
     <div class="slide-inner">
       <p class="eyebrow">Before the demo · how to read what you'll see</p>
       <h2>Every step is one question and one answer</h2>
-      <p class="lede">The demo is a script that plays the role of two organizations' computer systems. Each step shows a <strong>message sent</strong> and the <strong>reply received</strong> — the same way your CRM or website would do it, invisibly, in a fraction of a second.</p>
+      <p class="lede">Wherever you see this format, it's a real exchange with the live sandbox: a <strong>message sent</strong> and the <strong>reply received</strong> — the same way your CRM or website would do it, invisibly, in a fraction of a second. Nothing to download: any HTTP tool (curl, Postman, the browser-based Hoppscotch) speaks it, and sandbox keys are available today.</p>
       <div class="cols">
-        <div class="wire"><span class="dim">$</span> node scripts/demo-federated-walkthrough.mjs --step
-<span class="dim">  ↑ the demo script — it pauses between steps so we
-    can talk about each exchange</span>
-
-<span class="req">▶ POST /partnerUpsertPerson</span>
+        <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>
 <span class="dim">  ↑ the question: "here's a person from my records —
     add or update them." Sent over the web (HTTPS),
     like submitting a form</span>
@@ -395,7 +391,7 @@
       <p class="eyebrow">The mechanism in one picture</p>
       <h2>The life of one shared record</h2>
       <figure style="margin:0;">
-        <svg viewBox="0 0 960 380" role="img" aria-label="Flow diagram: the entrepreneur works with Agency A, whose system pushes the compact core to the shared node; the node emails the entrepreneur for consent; Agency B reads and receives webhooks with its own key; agencies A and B never connect directly." style="max-width:100%; height:auto; display:block; color:var(--ink); font-family:'IBM Plex Sans',sans-serif;">
+        <svg viewBox="0 0 960 430" role="img" aria-label="Flow diagram: the entrepreneur walks into Agency A, whose system pushes the compact core to the shared node; the consent agreement travels between the node and the entrepreneur; Agency B reads and writes with its own key and receives webhooks; agencies A and B never connect directly." style="max-width:100%; height:auto; display:block; color:var(--ink); font-family:'IBM Plex Sans',sans-serif;">
           <defs>
             <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -404,152 +400,56 @@
               <path d="M0,0 L10,5 L0,10 z" fill="var(--ok)"/>
             </marker>
           </defs>
+
           <!-- entrepreneur -->
-          <circle cx="120" cy="60" r="26" fill="none" stroke="currentColor" stroke-width="1.6"/>
-          <text x="120" y="64" text-anchor="middle" font-size="11" fill="currentColor">Grace</text>
-          <text x="120" y="110" text-anchor="middle" font-size="12" fill="currentColor">entrepreneur</text>
+          <circle cx="230" cy="55" r="24" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="230" y="59" text-anchor="middle" font-size="11" fill="currentColor">Grace</text>
+          <text x="264" y="59" text-anchor="start" font-size="12" fill="currentColor">entrepreneur</text>
+
+          <!-- walks in -->
+          <line x1="230" y1="81" x2="230" y2="144" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="242" y="116" text-anchor="start" font-size="11.5" fill="currentColor">walks in</text>
 
           <!-- Agency A -->
-          <rect x="40" y="160" width="220" height="66" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
-          <text x="150" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Agency A — own system</text>
-          <text x="150" y="207" text-anchor="middle" font-size="11.5" fill="currentColor">full case file stays here</text>
+          <rect x="110" y="148" width="240" height="72" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
+          <text x="230" y="176" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Agency A — its own system</text>
+          <text x="230" y="198" text-anchor="middle" font-size="11.5" fill="currentColor">full case file stays here</text>
 
           <!-- Agency B -->
-          <rect x="700" y="160" width="220" height="66" rx="8" fill="none" stroke="var(--res)" stroke-width="1.8"/>
-          <text x="810" y="187" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Agency B — own system</text>
-          <text x="810" y="207" text-anchor="middle" font-size="11.5" fill="currentColor">its own IDs, its own key</text>
+          <rect x="690" y="148" width="240" height="72" rx="8" fill="none" stroke="var(--res)" stroke-width="1.8"/>
+          <text x="810" y="176" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Agency B — its own system</text>
+          <text x="810" y="198" text-anchor="middle" font-size="11.5" fill="currentColor">its own IDs, its own key</text>
 
-          <!-- Shared node -->
-          <rect x="370" y="290" width="220" height="72" rx="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
-          <text x="480" y="316" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Shared node</text>
-          <text x="480" y="336" text-anchor="middle" font-size="11.5" fill="currentColor">compact core only · jointly governed</text>
+          <!-- no direct connection -->
+          <line x1="358" y1="186" x2="682" y2="186" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 6" opacity=".55"/>
+          <text x="520" y="174" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".8">✕ never connect directly</text>
 
-          <!-- edges -->
-          <line x1="120" y1="90" x2="142" y2="158" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
-          <text x="94" y="136" font-size="11.5" fill="currentColor">walks in</text>
+          <!-- shared node -->
+          <rect x="380" y="300" width="230" height="84" rx="8" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <text x="495" y="330" text-anchor="middle" font-size="13" font-weight="600" fill="currentColor">Shared node</text>
+          <text x="495" y="352" text-anchor="middle" font-size="11.5" fill="currentColor">compact core only · jointly governed</text>
 
-          <line x1="205" y1="228" x2="392" y2="296" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
-          <text x="216" y="272" font-size="11.5" fill="currentColor">pushes core on save</text>
+          <!-- A pushes -->
+          <line x1="250" y1="222" x2="428" y2="296" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="300" y="252" text-anchor="end" font-size="11.5" fill="currentColor">pushes compact</text>
+          <text x="300" y="268" text-anchor="end" font-size="11.5" fill="currentColor">core on save</text>
 
-          <line x1="756" y1="228" x2="572" y2="296" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
-          <text x="640" y="252" font-size="11.5" fill="currentColor">reads / writes, own key</text>
+          <!-- B reads/writes -->
+          <line x1="725" y1="222" x2="592" y2="296" stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="655" y="250" text-anchor="end" font-size="11.5" fill="currentColor">reads / writes,</text>
+          <text x="655" y="266" text-anchor="end" font-size="11.5" fill="currentColor">its own key</text>
 
-          <line x1="608" y1="322" x2="740" y2="232" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arr)"/>
-          <text x="672" y="300" font-size="11.5" fill="currentColor">webhook: referral, linked</text>
+          <!-- webhook to B -->
+          <line x1="614" y1="336" x2="843" y2="226" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+          <text x="700" y="318" text-anchor="start" font-size="11.5" fill="currentColor">webhook: referral, linked</text>
 
-          <!-- consent loop (accent) -->
-          <path d="M 380 300 C 220 280 140 180 122 92" fill="none" stroke="var(--ok)" stroke-width="1.6" marker-end="url(#arrC)"/>
-          <text x="180" y="308" font-size="11.5" fill="var(--ok)">consent email: the agreement</text>
-          <path d="M 150 76 C 300 110 420 190 470 288" fill="none" stroke="var(--ok)" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrC)"/>
-          <text x="300" y="150" font-size="11.5" fill="var(--ok)">opt-in click → directory / grants</text>
-
-          <!-- no direct link -->
-          <line x1="262" y1="192" x2="698" y2="192" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 6" opacity=".55"/>
-          <text x="480" y="184" text-anchor="middle" font-size="11.5" fill="currentColor" opacity=".8">✕ A and B never connect directly</text>
+          <!-- consent loop (green, both directions) -->
+          <path d="M 378 342 L 64 342 L 64 60 L 198 60" fill="none" stroke="var(--ok)" stroke-width="1.6" marker-start="url(#arrC)" marker-end="url(#arrC)"/>
+          <text x="84" y="368" text-anchor="start" font-size="11.5" fill="var(--ok)">the agreement: consent email out,</text>
+          <text x="84" y="384" text-anchor="start" font-size="11.5" fill="var(--ok)">opt-in click back → directory &amp; trusted-partner grants</text>
         </svg>
         <figcaption style="font-size:13px; color:var(--muted); margin-top:8px;">One record's life: created by real activity at A, consented by the entrepreneur, reachable by B — with no direct coupling between agencies and nothing but the compact core on the node.</figcaption>
       </figure>
-    </div>
-  </section>
-
-  <!-- 3 · The cast -->
-  <section class="slide">
-    <div class="slide-inner">
-      <p class="eyebrow">The demo setup</p>
-      <h2>Two independent systems, two keys, zero coordination</h2>
-      <div class="cols">
-        <div class="card">
-          <span class="tag req">Provider A</span>
-          <h3>Entrepreneurship Foundation</h3>
-          <p>Keeps its own tracker. Its contact <strong>#contact-4402</strong> stays its own ID forever.</p>
-          <p style="font-family:'IBM Plex Mono',monospace; font-size:13px;">X-Nexus-API-Key: nxk_…EF</p>
-        </div>
-        <div class="card">
-          <span class="tag res">Provider B</span>
-          <h3>IP Factory</h3>
-          <p>Keeps its matching app. Its member <strong>#member-118</strong> stays its own ID forever.</p>
-          <p style="font-family:'IBM Plex Mono',monospace; font-size:13px;">X-Nexus-API-Key: nxk_…IPF</p>
-        </div>
-      </div>
-      <p class="lede" style="margin-top:18px;">Between them sits a <strong>shared record</strong> — jointly written, owned by no one, holding only the fields the compact agrees to share. A and B never call each other, and never see each other's internal IDs.</p>
-      <p class="footnote">The node hosting the shared record is MIT-licensed open source — this group can host it jointly, and any member could stand up a replacement.</p>
-    </div>
-  </section>
-
-  <!-- 4 · The linked moment -->
-  <section class="slide">
-    <div class="slide-inner">
-      <p class="eyebrow">The demo's key moment · steps 1 → 3</p>
-      <h2>Watch the <span style="font-family:'IBM Plex Mono',monospace; font-weight:600;">action</span> field</h2>
-      <div class="cols">
-        <div>
-          <span class="tag req">EF registers Ada</span>
-          <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>
-<span class="dim">  key: EF's</span>
-{
-  "external_ref": {
-    "source": "ef_tracker",
-    "id": "contact-4402"
-  },
-  "email": "ada@example.com",
-  "first_name": "Ada",
-  "last_name": "Founder"
-}
-<span class="res">◀ HTTP 201</span>
-{
-  "ok": true,
-  "nexus_id": "ZQWLB…",
-  <span class="ok">"action": "created"</span>
-}</div>
-        </div>
-        <div>
-          <span class="tag res">Ada walks into IP Factory</span>
-          <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>
-<span class="dim">  key: IP Factory's</span>
-{
-  "external_ref": {
-    "source": "ipfactory_matching",
-    "id": "member-118"
-  },
-  "email": "ada@example.com",
-  "first_name": "Ada",
-  "last_name": "Founder"
-}
-<span class="res">◀ HTTP 200</span>
-{
-  "ok": true,
-  "nexus_id": "ZQWLB…",
-  <span class="ok">"action": "linked"</span>
-}</div>
-        </div>
-      </div>
-      <p class="lede" style="margin-top:16px;"><strong>Same <span style="font-family:'IBM Plex Mono',monospace;font-size:.92em;">nexus_id</span>, no duplicate, no central signup.</strong> Ada registered once, at the org she actually visited — the network reconciled identity on its own.</p>
-    </div>
-  </section>
-
-  <!-- 5 · Sovereignty -->
-  <section class="slide">
-    <div class="slide-inner">
-      <p class="eyebrow">Step 4 · sovereignty &amp; resilience</p>
-      <h2>B keeps working with A offline — and sees only its own IDs</h2>
-      <div class="wire"><span class="req">▶ GET /partnerGetPerson?source=ipfactory_matching&amp;id=member-118</span>
-<span class="dim">  key: IP Factory's — this call touches nothing at EF</span>
-<span class="res">◀ HTTP 200</span>
-{
-  "person": {
-    "nexus_id": "ZQWLB…",
-    "email": "ada@example.com",
-    "tags": ["entrepreneur", "patent"],
-    "external_refs": [
-      { "source": "ipfactory_matching", "id": "member-118" }   <span class="ok">← only B's own ref.</span>
-    ]                                                          <span class="dim">EF's contact-4402 is never disclosed.</span>
-  }
-}</div>
-      <ul class="tight" style="margin-top:16px;">
-        <li><strong>No single point of failure for the providers</strong> — every org's own system stays primary; the shared node syncs, it doesn't gatekeep.</li>
-        <li><strong>Login survives outages too</strong> — any org can register its existing sign-in as an identity provider; sessions are minted independently, so entrepreneurs still get in when their home org is down.</li>
-        <li><strong>Entrepreneur consent gates visibility</strong> — pushed records stay out of the shared directory until the person opts in by email; data-removal is built in.</li>
-      </ul>
     </div>
   </section>
 
@@ -713,6 +613,107 @@
           <p>A versioned federation compact and data-usage agreement organizations sign in place. It's marked <strong>draft</strong> on purpose — v1.0 is written by this group.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- 3 · The cast -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">Live demo · running now against the hosted sandbox</p>
+      <h2>Two independent systems, two keys, zero coordination</h2>
+      <div class="cols">
+        <div class="card">
+          <span class="tag req">Provider A</span>
+          <h3>Entrepreneurship Foundation</h3>
+          <p>Keeps its own tracker. Its contact <strong>#contact-4402</strong> stays its own ID forever.</p>
+          <p style="font-family:'IBM Plex Mono',monospace; font-size:13px;">X-Nexus-API-Key: nxk_…EF</p>
+        </div>
+        <div class="card">
+          <span class="tag res">Provider B</span>
+          <h3>IP Factory</h3>
+          <p>Keeps its matching app. Its member <strong>#member-118</strong> stays its own ID forever.</p>
+          <p style="font-family:'IBM Plex Mono',monospace; font-size:13px;">X-Nexus-API-Key: nxk_…IPF</p>
+        </div>
+      </div>
+      <p class="lede" style="margin-top:18px;">Between them sits a <strong>shared record</strong> — jointly written, owned by no one, holding only the fields the compact agrees to share. A and B never call each other, and never see each other's internal IDs.</p>
+      <p class="footnote">The node hosting the shared record is MIT-licensed open source — this group can host it jointly, and any member could stand up a replacement.</p>
+    </div>
+  </section>
+
+  <!-- 4 · The linked moment -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">The demo's key moment · steps 1 → 3</p>
+      <h2>Watch the <span style="font-family:'IBM Plex Mono',monospace; font-weight:600;">action</span> field</h2>
+      <div class="cols">
+        <div>
+          <span class="tag req">EF registers Ada</span>
+          <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>
+<span class="dim">  key: EF's</span>
+{
+  "external_ref": {
+    "source": "ef_tracker",
+    "id": "contact-4402"
+  },
+  "email": "ada@example.com",
+  "first_name": "Ada",
+  "last_name": "Founder"
+}
+<span class="res">◀ HTTP 201</span>
+{
+  "ok": true,
+  "nexus_id": "ZQWLB…",
+  <span class="ok">"action": "created"</span>
+}</div>
+        </div>
+        <div>
+          <span class="tag res">Ada walks into IP Factory</span>
+          <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>
+<span class="dim">  key: IP Factory's</span>
+{
+  "external_ref": {
+    "source": "ipfactory_matching",
+    "id": "member-118"
+  },
+  "email": "ada@example.com",
+  "first_name": "Ada",
+  "last_name": "Founder"
+}
+<span class="res">◀ HTTP 200</span>
+{
+  "ok": true,
+  "nexus_id": "ZQWLB…",
+  <span class="ok">"action": "linked"</span>
+}</div>
+        </div>
+      </div>
+      <p class="lede" style="margin-top:16px;"><strong>Same <span style="font-family:'IBM Plex Mono',monospace;font-size:.92em;">nexus_id</span>, no duplicate, no central signup.</strong> Ada registered once, at the org she actually visited — the network reconciled identity on its own.</p>
+    </div>
+  </section>
+
+  <!-- 5 · Sovereignty -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">Step 4 · sovereignty &amp; resilience</p>
+      <h2>B keeps working with A offline — and sees only its own IDs</h2>
+      <div class="wire"><span class="req">▶ GET /partnerGetPerson?source=ipfactory_matching&amp;id=member-118</span>
+<span class="dim">  key: IP Factory's — this call touches nothing at EF</span>
+<span class="res">◀ HTTP 200</span>
+{
+  "person": {
+    "nexus_id": "ZQWLB…",
+    "email": "ada@example.com",
+    "tags": ["entrepreneur", "patent"],
+    "external_refs": [
+      { "source": "ipfactory_matching", "id": "member-118" }   <span class="ok">← only B's own ref.</span>
+    ]                                                          <span class="dim">EF's contact-4402 is never disclosed.</span>
+  }
+}</div>
+      <ul class="tight" style="margin-top:16px;">
+        <li><strong>No single point of failure for the providers</strong> — every org's own system stays primary; the shared node syncs, it doesn't gatekeep.</li>
+        <li><strong>Login survives outages too</strong> — any org can register its existing sign-in as an identity provider; sessions are minted independently, so entrepreneurs still get in when their home org is down.</li>
+        <li><strong>Entrepreneur consent gates visibility</strong> — pushed records stay out of the shared directory until the person opts in by email; data-removal is built in.</li>
+      </ul>
     </div>
   </section>
 
