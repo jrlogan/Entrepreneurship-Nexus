@@ -296,6 +296,9 @@ const App = () => {
               data_standards: true,
               notify_entrepreneurs: true,
               inbound_intake: true,
+              // Duplicate review IS part of the compact: matching happens in
+              // the API, but resolving a flagged pair needs a human screen.
+              data_quality: true,
               // Deliberately off — valuable, but not part of the compact.
               advanced_workflows: false,
               tasks_advice: false,
@@ -303,7 +306,6 @@ const App = () => {
               processes: false,
               reports: false,
               venture_scout: false,
-              data_quality: false,
               metrics_manager: false,
               grant_lab: false,
               community_calendar: false,

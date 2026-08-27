@@ -695,6 +695,37 @@
     </div>
   </section>
 
+  <!-- Identity & merge -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">The hard question · "we all spell names differently"</p>
+      <h2>Identity, duplicates, and how they get fixed</h2>
+      <p class="lede">Every data-sharing effort dies here. The answer is three separate jobs — <strong>avoid, resolve, reverse</strong> — and refusing to guess in the middle one.</p>
+      <ol class="spec">
+        <li><div><strong>Avoid — match on things that don't vary</strong> <em>Your own record ID first (<span style="font-family:'IBM Plex Mono',monospace;font-size:.92em">external_ref</span>), then exact email or domain. Never on spelling. "Bob Smith" vs "Robert Smith Jr." never auto-merges.</em></div></li>
+        <li><div><strong>Flag — a weak signal is a question, not a decision</strong> <em>Similar name + same email domain? The system creates the record so nobody is blocked, and flags the pair for review. <strong>The API never silently merges two people.</strong></em></div></li>
+        <li><div><strong>Resolve — a human decides, in the GUI</strong> <em>This is what the interface is for: an admin sees both records side by side and picks the survivor. Most days the API does everything; the screen exists for exactly this.</em></div></li>
+        <li><div><strong>Reverse — every merge is undoable</strong> <em>The merged record is archived and tombstoned, never deleted, recording precisely which IDs moved. Unmerge puts back exactly those and nothing else.</em></div></li>
+      </ol>
+      <div class="cols" style="margin-top:14px;">
+        <div class="card">
+          <h3>Why nobody loses their pointer</h3>
+          <p>On merge, every partner's ID from the losing record is copied to the survivor <strong>and its lookup entry is repointed</strong>. An agency that only knows its own ID keeps resolving to the live record — no reconciliation on your side, no broken integration.</p>
+        </div>
+        <div class="card">
+          <h3>The safety properties</h3>
+          <ul class="tight">
+            <li>Merges run in a transaction — no half-merged state.</li>
+            <li>Tombstoned records redirect reads to the survivor.</li>
+            <li>Merge and unmerge are both written to the audit log, with who and when.</li>
+            <li>Only platform admins and ecosystem managers can merge.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="footnote">Try it in the compact demo: <span class="mono">Data Quality</span> shows pending duplicates with a side-by-side review and a survivor choice.</p>
+    </div>
+  </section>
+
   <!-- 7 · Already in the box -->
   <section class="slide">
     <div class="slide-inner">

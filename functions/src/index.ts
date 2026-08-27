@@ -1,6 +1,18 @@
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+
+// Constant-time secret comparison; hashing first equalizes lengths so
+// timingSafeEqual never throws and length is not observable.
+export const secretsMatch = (provided: string, expected: string): boolean => {
+  if (!provided || !expected) return false;
+  return timingSafeEqual(
+    createHash('sha256').update(provided).digest(),
+    createHash('sha256').update(expected).digest(),
+  );
+};
 import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { fetchPublicUrl, readTextCapped } from './urlGuard';
 import {
   extractEmails,
   extractNameFromSubject,
@@ -154,9 +166,34 @@ const getProjectId = () => {
   }
 };
 
+// Projects that must never expose the local-only surface (seeding, test
+// account creation, well-known demo API keys), regardless of environment
+// configuration. Additional ids can be supplied via PROTECTED_PROJECT_IDS.
+const PROTECTED_PROJECT_IDS = ['entrepreneurship-nexus'];
+
+const isProtectedProject = (projectId: string): boolean => {
+  if (!projectId) return false;
+  const extra = parseCsvEnv('PROTECTED_PROJECT_IDS');
+  return [...PROTECTED_PROJECT_IDS, ...extra].includes(projectId);
+};
+
 const isLocalOnlyEnvironment = () => {
   if (process.env.FUNCTIONS_EMULATOR === 'true') {
     return true;
+  }
+
+  const projectId = getProjectId();
+
+  // Hard stop: a stray ALLOW_LOCAL_ONLY_FUNCTIONS=true copied into a
+  // production deployment would otherwise hand out accounts and seeded
+  // API keys. Refuse it outright rather than trusting configuration.
+  if (isProtectedProject(projectId)) {
+    if (getRequiredEnv('ALLOW_LOCAL_ONLY_FUNCTIONS') === 'true') {
+      console.error(
+        `ALLOW_LOCAL_ONLY_FUNCTIONS=true was ignored: ${projectId} is a protected project.`
+      );
+    }
+    return false;
   }
 
   const explicit = getRequiredEnv('ALLOW_LOCAL_ONLY_FUNCTIONS');
@@ -164,7 +201,6 @@ const isLocalOnlyEnvironment = () => {
     return explicit === 'true';
   }
 
-  const projectId = getProjectId();
   return projectId.includes('local');
 };
 
@@ -311,6 +347,41 @@ const getActiveMembershipsForPerson = async (personId: string) => {
     .get();
 
   return snapshot.docs.map((doc) => doc.data() as PersonMembershipRecord);
+};
+
+/**
+ * Denormalizes the person's active ecosystem memberships onto their `people`
+ * document as `ecosystem_ids`.
+ *
+ * Firestore security rules can `get()` a single document but cannot query a
+ * collection, so tenancy rules on interactions/referrals/etc. have no way to
+ * read `person_memberships`. This array is what those rules check. It is
+ * derived state — `person_memberships` remains the source of truth — and is
+ * kept in sync by the syncPersonEcosystems trigger below.
+ */
+export const syncPersonEcosystemIds = async (personId: string): Promise<string[]> => {
+  if (!personId) return [];
+  const memberships = await getActiveMembershipsForPerson(personId);
+  const ecosystemIds = [...new Set(
+    memberships.map((m) => m.ecosystem_id).filter((id): id is string => !!id)
+  )].sort();
+
+  const personRef = db.collection('people').doc(personId);
+  const personDoc = await personRef.get();
+  if (!personDoc.exists) return ecosystemIds;
+
+  // Always retain the person's primary ecosystem_id so a person who has a
+  // person doc but no membership rows yet (self-signup mid-flight) is not
+  // locked out of their own ecosystem.
+  const primary = personDoc.get('ecosystem_id') as string | undefined;
+  const merged = [...new Set([...ecosystemIds, ...(primary ? [primary] : [])])].sort();
+
+  const existing = (personDoc.get('ecosystem_ids') as string[] | undefined) || [];
+  const unchanged = existing.length === merged.length && existing.every((id, i) => id === merged[i]);
+  if (unchanged) return merged;
+
+  await personRef.set({ ecosystem_ids: merged, updated_at: new Date().toISOString() }, { merge: true });
+  return merged;
 };
 
 const hasInviteAuthority = (
@@ -578,15 +649,11 @@ const isCommonEmailDomain = (domain: string): boolean =>
  */
 const fetchWebsiteMetadata = async (domain: string): Promise<{ name?: string; description?: string } | null> => {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const response = await fetch(`https://${domain}`, {
-      signal: controller.signal,
+    const response = await fetchPublicUrl(`https://${domain}`, {
       headers: { 'User-Agent': 'Entrepreneurship-Nexus-Bot/1.0' },
-    });
-    clearTimeout(timeout);
+    }, { timeoutMs: 5000, httpsOnly: true });
     if (!response.ok) return null;
-    const html = await response.text();
+    const html = await readTextCapped(response, 2_000_000);
     const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]
       || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1];
     const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
@@ -1655,7 +1722,16 @@ const createReferralFromInboundMessage = async (args: {
 }) => {
   const now = new Date().toISOString();
   const { message, messageRef, parseResult, personEmail, personName, ventureName, subjectOrgId,
-    receivingOrgId, referringOrgId, ecosystemId, approvedBy } = args;
+    receivingOrgId, referringOrgId, ecosystemId: ecosystemIdArg, approvedBy } = args;
+
+  // Ecosystem fallback: inherit from the receiving org so intake referrals
+  // are never orphaned from ecosystem-scoped queries (a null ecosystem_id
+  // never matches an equality filter).
+  let ecosystemId = ecosystemIdArg || '';
+  if (!ecosystemId && receivingOrgId) {
+    const receivingSnap = await db.collection('organizations').doc(receivingOrgId).get();
+    ecosystemId = (receivingSnap.get('ecosystem_ids') as string[] | undefined)?.[0] || '';
+  }
 
   let organization: FirebaseFirestore.DocumentSnapshot | null = null;
   let autoLinkOrganization = false;
@@ -2380,7 +2456,7 @@ export const resolvePerson = onRequest({ invoker: 'public' }, async (req, res) =
       if (!organizationName) {
         return true;
       }
-      return normalize(data.primary_organization_name) === organizationName || true;
+      return normalize(data.primary_organization_name) === organizationName;
     });
 
     if (matched) {
@@ -2511,6 +2587,7 @@ export const createTestAccount = onRequest({ invoker: 'public' }, async (req, re
       status: 'active',
       joined_at: now,
     }, { merge: true });
+    await syncPersonEcosystemIds(authUser.uid);
   }
 
   res.json({
@@ -2615,6 +2692,10 @@ export const completeSelfSignup = onRequest({ invoker: 'public' }, async (req, r
       joined_at: now,
     }, { merge: true });
 
+    // Sync inline as well as via the trigger — the user starts reading
+    // ecosystem-scoped data the moment this call returns.
+    await syncPersonEcosystemIds(personRef.id);
+
     await logAudit('self_signup_completed', decoded.uid, {
       ecosystem_id: ecosystemId,
       role: resolvedMembershipRole,
@@ -2645,7 +2726,7 @@ export const bootstrapPlatformAdmin = onRequest({ invoker: 'public' }, async (re
   }
 
   const providedSecret = getBootstrapSecret(req);
-  if (!providedSecret || providedSecret !== configuredSecret) {
+  if (!secretsMatch(providedSecret, configuredSecret)) {
     res.status(401).json({ error: 'Invalid bootstrap secret' });
     return;
   }
@@ -2702,6 +2783,8 @@ export const bootstrapPlatformAdmin = onRequest({ invoker: 'public' }, async (re
       status: 'active',
       joined_at: now,
     }, { merge: true });
+
+    await syncPersonEcosystemIds(authUser.uid);
 
     await logAudit('platform_admin_bootstrapped', authUser.uid, {
       ecosystem_id: ecosystemId,
@@ -3071,6 +3154,8 @@ export const acceptInvite = onRequest({ invoker: 'public' }, async (req, res) =>
       invited_by_person_id: invite.invited_by_person_id,
     }, { merge: true });
 
+    await syncPersonEcosystemIds(personRef.id);
+
     // If a bare entrepreneur membership exists from completeSelfSignup (organization_id = '')
     // and this invite is for an elevated role with an org, revoke the bare one to avoid
     // non-deterministic primary membership selection in the frontend.
@@ -3175,6 +3260,15 @@ export const applyPendingInvite = onRequest({ invoker: 'public' }, async (req, r
       return;
     }
 
+    // The caller must hold invite authority over this specific invite's
+    // role/org/ecosystem — the role check above alone would let any eso_admin
+    // apply invites belonging to other organizations and ecosystems.
+    const callerMemberships = await getActiveMembershipsForPerson(decoded.uid);
+    if (!hasInviteAuthority(callerMemberships, invite.invited_role, invite.organization_id || '', invite.ecosystem_id || '')) {
+      res.status(403).json({ error: 'You do not have authority over this invite' });
+      return;
+    }
+
     const existingPerson = await findExistingPersonByEmail(normalize(invite.email));
     if (!existingPerson) {
       res.status(404).json({ error: 'No person found with this invite email — they have not joined yet' });
@@ -3208,6 +3302,8 @@ export const applyPendingInvite = onRequest({ invoker: 'public' }, async (req, r
       joined_at: now,
       invited_by_person_id: invite.invited_by_person_id,
     }, { merge: true });
+
+    await syncPersonEcosystemIds(existingPerson.ref.id);
 
     // Revoke bare entrepreneur membership if upgrading to org role
     if (invite.organization_id && invite.invited_role !== 'entrepreneur') {
@@ -3412,6 +3508,32 @@ export const updatePersonRole = onRequest({ invoker: 'public' }, async (req, res
 
   const now = new Date().toISOString();
 
+  const membershipsSnap = await db.collection('person_memberships')
+    .where('person_id', '==', personId)
+    .where('status', '==', 'active')
+    .get();
+
+  // Ecosystem managers may only change roles for people inside an ecosystem
+  // they manage; without this check any manager could act platform-wide.
+  if (!isPlatformAdmin) {
+    const managedEcosystems = new Set(
+      callerMemberships
+        .filter((m) => m.system_role === 'ecosystem_manager')
+        .map((m) => m.ecosystem_id)
+        .filter(Boolean)
+    );
+    const targetEcosystems = new Set<string>(
+      membershipsSnap.docs.map((doc) => doc.get('ecosystem_id')).filter(Boolean)
+    );
+    const personEcosystem = personDoc.get('ecosystem_id');
+    if (personEcosystem) targetEcosystems.add(personEcosystem);
+    const inScope = [...targetEcosystems].some((e) => managedEcosystems.has(e));
+    if (!inScope) {
+      res.status(403).json({ error: 'Target person is outside your managed ecosystems' });
+      return;
+    }
+  }
+
   // 1. Update the people record
   const peopleUpdate: Record<string, any> = { system_role: newRole, updated_at: now };
   if (organizationId) {
@@ -3420,10 +3542,6 @@ export const updatePersonRole = onRequest({ invoker: 'public' }, async (req, res
   await personRef.set(peopleUpdate, { merge: true });
 
   // 2. Update all active person_memberships for this person
-  const membershipsSnap = await db.collection('person_memberships')
-    .where('person_id', '==', personId)
-    .where('status', '==', 'active')
-    .get();
 
   await Promise.all(
     membershipsSnap.docs.map((doc) => {
@@ -3478,6 +3596,15 @@ export const approveAccountRequest = onRequest({ invoker: 'public' }, async (req
     return;
   }
 
+  // approved_role echoes the requester's self-declared role from the UI, so
+  // validate it server-side. platform_admin must never be granted through the
+  // one-click approval flow — use updatePersonRole deliberately instead.
+  const approvableRoles = ['ecosystem_manager', 'eso_admin', 'eso_staff', 'eso_coach', 'entrepreneur'];
+  if (!approvableRoles.includes(approvedRole)) {
+    res.status(400).json({ error: `approved_role must be one of: ${approvableRoles.join(', ')}` });
+    return;
+  }
+
   const requestRef = db.collection('account_requests').doc(requestId);
   const requestDoc = await requestRef.get();
   if (!requestDoc.exists) {
@@ -3514,6 +3641,7 @@ export const approveAccountRequest = onRequest({ invoker: 'public' }, async (req
       status: 'active',
       joined_at: now,
     }, { merge: true });
+    await syncPersonEcosystemIds(requestId);
   }
 
   await admin.auth().setCustomUserClaims(requestId, {
@@ -3969,12 +4097,44 @@ export const pushInteraction = onRequest({ invoker: 'public' }, async (req, res)
     return;
   }
 
-  const interactionRef = db.collection('interactions').doc();
-  const now = new Date().toISOString();
-  
   const apiKeyContext: Extract<AuthContext, { type: 'api_key' }> | null = context.type === 'api_key'
     ? context as Extract<AuthContext, { type: 'api_key' }>
     : null;
+
+  // Scope the write to the caller: an API key may only log interactions into
+  // its own org's ecosystems, and a user must be an ESO operator in the
+  // target ecosystem. author_org_id always comes from the caller's identity,
+  // never from the request body.
+  let authorOrgId: string | null;
+  if (apiKeyContext) {
+    const orgSnap = await db.collection('organizations').doc(apiKeyContext.organization_id).get();
+    const orgEcosystems = (orgSnap.get('ecosystem_ids') as string[] | undefined) || [];
+    if (!orgEcosystems.includes(ecosystem_id)) {
+      res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+      return;
+    }
+    authorOrgId = apiKeyContext.organization_id;
+  } else {
+    const callerSnaps = await db.collection('people').where('auth_uid', '==', (context as { uid: string }).uid).limit(1).get();
+    if (callerSnaps.empty) {
+      res.status(403).json({ error: 'No person record for this account' });
+      return;
+    }
+    const caller = callerSnaps.docs[0].data();
+    const operatorRoles = ['platform_admin', 'ecosystem_manager', 'eso_admin', 'eso_staff', 'eso_coach'];
+    if (!operatorRoles.includes(caller.system_role)) {
+      res.status(403).json({ error: 'Insufficient permissions to log interactions' });
+      return;
+    }
+    if (caller.system_role !== 'platform_admin' && caller.ecosystem_id !== ecosystem_id) {
+      res.status(403).json({ error: 'ecosystem_id is outside your ecosystem' });
+      return;
+    }
+    authorOrgId = caller.primary_organization_id || caller.organization_id || null;
+  }
+
+  const interactionRef = db.collection('interactions').doc();
+  const now = new Date().toISOString();
 
   const interaction = {
     id: interactionRef.id,
@@ -3986,7 +4146,7 @@ export const pushInteraction = onRequest({ invoker: 'public' }, async (req, res)
     notes,
     recorded_by: recorded_by || (apiKeyContext?.label || 'System'),
     attendees: attendees || [],
-    author_org_id: apiKeyContext?.organization_id || (req.body.author_org_id || null),
+    author_org_id: authorOrgId,
     visibility: 'network_shared',
     note_confidential: false,
     created_at: now,
@@ -4087,8 +4247,20 @@ export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (re
   // The full key stays known ("test-api-key-abc123") so tests can authenticate,
   // but what's persisted is only the SHA-256 hash — matching the production
   // storage format. Production keys are minted via generatePartnerApiKey.
-  const testKeyFull = 'test-api-key-abc123';
-  const testKeyHash = createHash('sha256').update(testKeyFull).digest('hex');
+  //
+  // Keys live in the organizations/{orgId}/api_keys subcollection —
+  // validateApiKey resolves them via a collectionGroup('api_keys') query,
+  // so an api_keys array field on the org doc would never authenticate.
+  const seedApiKey = async (orgId: string, keyId: string, fullKey: string, label: string) => {
+    await db.collection('organizations').doc(orgId).collection('api_keys').doc(keyId).set({
+      id: keyId,
+      label,
+      prefix: `${fullKey.slice(0, 12)}...${fullKey.slice(-4)}`,
+      hash: createHash('sha256').update(fullKey).digest('hex'),
+      created_at: now,
+      status: 'active',
+    }, { merge: true });
+  };
 
   await db.collection('organizations').doc('org_makehaven').set({
     id: 'org_makehaven',
@@ -4102,17 +4274,11 @@ export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (re
     ecosystem_ids: ['eco_new_haven'],
     version: 1,
     status: 'active',
-    api_keys: [{
-      id: 'key_test_local_001',
-      label: 'Local integration test key',
-      prefix: 'test-api-key-...c123',
-      hash: testKeyHash,
-      created_at: now,
-      status: 'active',
-    }],
     created_at: now,
     updated_at: now,
   }, { merge: true });
+
+  await seedApiKey('org_makehaven', 'key_test_local_001', 'test-api-key-abc123', 'Local integration test key');
 
   await db.collection('organizations').doc('org_sbdc').set({
     id: 'org_sbdc',
@@ -4250,7 +4416,154 @@ export const seedLocalReferenceData = onRequest({ invoker: 'public' }, async (re
     is_active: true,
   }, { merge: true });
 
+  // ── CT consortium federated demo ────────────────────────────────────────────
+  // Mirrors the "Connecticut Regional Entrepreneur Community" scenario from the
+  // statewide consortium discussion (see docs/federated-demo-plan.md): two
+  // independent ESOs with their own systems and API keys, sharing one
+  // entrepreneur record through the partner API without a central owner.
+  // scripts/demo-federated-walkthrough.mjs runs the agreed prototype spec
+  // against these organizations.
+  await db.collection('ecosystems').doc('eco_connecticut').set({
+    id: 'eco_connecticut',
+    name: 'Connecticut Regional Entrepreneur Community',
+    region: 'Connecticut',
+    settings: {
+      interaction_privacy_default: 'restricted',
+    },
+    pipelines: [],
+  }, { merge: true });
+
+  await db.collection('organizations').doc('org_ef').set({
+    id: 'org_ef',
+    name: 'Entrepreneurship Foundation',
+    description: 'Demo consortium ESO — mentoring, business plan competitions, and long-term outcome tracking.',
+    tax_status: 'non_profit',
+    roles: ['eso'],
+    managed_by_ids: [],
+    operational_visibility: 'open',
+    authorized_eso_ids: [],
+    ecosystem_ids: ['eco_connecticut'],
+    version: 1,
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  }, { merge: true });
+
+  await db.collection('organizations').doc('org_ipfactory').set({
+    id: 'org_ipfactory',
+    name: 'IP Factory',
+    description: 'Demo consortium ESO — IP matching connecting owners, entrepreneurs, investors, and talent.',
+    tax_status: 'non_profit',
+    roles: ['eso'],
+    managed_by_ids: [],
+    operational_visibility: 'open',
+    authorized_eso_ids: [],
+    ecosystem_ids: ['eco_connecticut'],
+    version: 1,
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  }, { merge: true });
+
+  // A third, deliberately unnamed agency so a live demo can improvise a
+  // "new organization joins the network" moment without pre-registration.
+  await db.collection('organizations').doc('org_new_agency').set({
+    id: 'org_new_agency',
+    name: 'New Agency (live demo)',
+    description: 'Demo consortium slot — plays whichever organization volunteers during a live walkthrough.',
+    tax_status: 'non_profit',
+    roles: ['eso'],
+    managed_by_ids: [],
+    operational_visibility: 'open',
+    authorized_eso_ids: [],
+    ecosystem_ids: ['eco_connecticut'],
+    version: 1,
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  }, { merge: true });
+
+  await seedApiKey('org_ef', 'key_demo_ef_001', 'test-api-key-ef-demo001', 'Consortium demo key — Entrepreneurship Foundation');
+  await seedApiKey('org_ipfactory', 'key_demo_ipf_001', 'test-api-key-ipf-demo001', 'Consortium demo key — IP Factory');
+  await seedApiKey('org_new_agency', 'key_demo_new_001', 'test-api-key-new-demo001', 'Consortium demo key — live-demo agency slot');
+
   res.json({ ok: true });
+});
+
+/**
+ * Self-service demo-agency provisioning for the consortium sandbox.
+ *
+ * POST { name: "Danbury Hackerspace" } → creates a demo ESO org in the
+ * eco_connecticut demo ecosystem, mints a random org-scoped API key (returned
+ * once, stored only as a SHA-256 hash — same format as generatePartnerApiKey),
+ * and returns everything the caller needs to hit the partner API.
+ *
+ * Gated by requireLocalOnlyEnvironment: available only on emulators or
+ * sandboxes that explicitly set ALLOW_LOCAL_ONLY_FUNCTIONS=true. Never
+ * enabled in production, where keys are minted by admins via
+ * generatePartnerApiKey.
+ */
+export const provisionDemoAgency = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) {
+    return;
+  }
+  setCors(res);
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  if (!requireLocalOnlyEnvironment(res)) {
+    return;
+  }
+
+  const name = (req.body?.name || '').toString().trim().slice(0, 80);
+  if (!name) {
+    res.status(400).json({ error: 'name is required — e.g. { "name": "Danbury Hackerspace" }' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'agency';
+  const orgId = `org_demo_${slug}_${randomBytes(3).toString('hex')}`;
+
+  const keyMaterial = randomBytes(24).toString('hex');
+  const fullKey = `nxk_demo_${keyMaterial}`;
+
+  await db.collection('organizations').doc(orgId).set({
+    id: orgId,
+    name,
+    description: 'Self-provisioned demo agency (consortium sandbox).',
+    tax_status: 'non_profit',
+    roles: ['eso'],
+    managed_by_ids: [],
+    operational_visibility: 'open',
+    authorized_eso_ids: [],
+    ecosystem_ids: ['eco_connecticut'],
+    version: 1,
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  });
+
+  const keyId = `key_${Date.now()}_${randomBytes(4).toString('hex')}`;
+  await db.collection('organizations').doc(orgId).collection('api_keys').doc(keyId).set({
+    id: keyId,
+    label: `Demo key — ${name}`,
+    prefix: `nxk_demo_…${keyMaterial.slice(-4)}`,
+    hash: createHash('sha256').update(fullKey).digest('hex'),
+    created_at: now,
+    status: 'active',
+  });
+
+  res.status(201).json({
+    ok: true,
+    organization: { id: orgId, name },
+    ecosystem_id: 'eco_connecticut',
+    api_key: fullKey,
+    note: 'Store this key — it is shown once. Use it as the X-Nexus-API-Key header with eso_org_id set to your organization id. Sandbox data is purged periodically.',
+  });
 });
 
 export const processInboundEmail = onRequest({ invoker: 'public' }, async (req, res) => {
@@ -4290,8 +4603,10 @@ export const postmarkInboundWebhook = onRequest({ invoker: 'public' }, async (re
     return;
   }
 
-  const providedSecret = (req.query.secret || req.get('x-postmark-webhook-secret') || '').toString().trim();
-  if (!providedSecret || providedSecret !== configuredSecret) {
+  // Prefer the header — query-string secrets land in request logs. The query
+  // fallback remains for existing Postmark configurations.
+  const providedSecret = (req.get('x-postmark-webhook-secret') || req.query.secret || '').toString().trim();
+  if (!secretsMatch(providedSecret, configuredSecret)) {
     res.status(401).json({ error: 'Invalid Postmark webhook secret' });
     return;
   }
@@ -4338,8 +4653,14 @@ export const sendQueuedNotices = onRequest({ invoker: 'public' }, async (req, re
       docs = [doc as FirebaseFirestore.QueryDocumentSnapshot];
     }
   } else {
-    const snapshot = await db.collection('notice_queue').where('status', '==', 'queued').limit(limit).get();
-    docs = snapshot.docs;
+    // sendNotice writes only 'sent' or 'failed' (nothing ever writes
+    // 'queued'), so draining must target failed notices or it is a no-op.
+    const snapshot = await db.collection('notice_queue')
+      .where('status', 'in', ['queued', 'failed'])
+      .limit(limit)
+      .get();
+    // Cap retries so a permanently-bouncing notice doesn't recycle forever.
+    docs = snapshot.docs.filter((doc) => (doc.get('retry_count') || 0) < 5);
   }
 
   const results: Array<{ notice_id: string; status: 'sent' | 'failed'; error?: string }> = [];
@@ -4359,6 +4680,7 @@ export const sendQueuedNotices = onRequest({ invoker: 'public' }, async (req, re
       await doc.ref.set({
         status: 'failed',
         failed_at: new Date().toISOString(),
+        retry_count: (doc.get('retry_count') || 0) + 1,
         last_error: error?.message || 'Postmark send failed',
       }, { merge: true });
       results.push({ notice_id: doc.id, status: 'failed', error: error?.message || 'Postmark send failed' });
@@ -4611,6 +4933,9 @@ export {
   partnerUpsertParticipation,
 } from './partnerApi';
 
+// ─── Identity resolution: admin-reviewed merge / unmerge ────────────────────
+export { mergeRecords, unmergeRecords } from './recordMerge';
+
 // ─── Referral one-click email actions ───────────────────────────────────────
 
 const actionConfirmHtml = (title: string, body: string, manageUrl: string) => `<!DOCTYPE html>
@@ -4636,15 +4961,44 @@ const actionConfirmHtml = (title: string, body: string, manageUrl: string) => `<
 </body>
 </html>`;
 
+// Confirmation page shown on GET before any state changes. Email scanners and
+// link prefetchers issue GETs, so the mutation only happens on the POST the
+// human triggers with the button below.
+const actionPromptHtml = (title: string, body: string, token: string, buttonLabel: string) => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title} — Entrepreneurship Nexus</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 10px; padding: 40px 48px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    h1 { font-size: 22px; color: #1a1a2e; margin: 0 0 12px; }
+    p { font-size: 15px; color: #374151; line-height: 1.6; margin: 0 0 24px; }
+    button { background: #1a1a2e; color: #fff; border: none; padding: 12px 28px; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    <p>${body}</p>
+    <form method="POST">
+      <input type="hidden" name="token" value="${token}">
+      <button type="submit">${buttonLabel}</button>
+    </form>
+  </div>
+</body>
+</html>`;
+
 export const referralEmailAction = onRequest({ invoker: 'public' }, async (req, res) => {
   setCors(res);
 
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     res.status(405).send('Method not allowed');
     return;
   }
 
-  const token = req.query?.token as string | undefined;
+  const token = (req.method === 'POST' ? req.body?.token : req.query?.token) as string | undefined;
   if (!token || typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) {
     res.status(400).send(actionConfirmHtml(
       'Invalid link',
@@ -4701,12 +5055,44 @@ export const referralEmailAction = onRequest({ invoker: 'public' }, async (req, 
   const now = new Date().toISOString();
   const currentStatus: string = referralDoc.get('status') || 'pending';
 
+  // GET never mutates — it renders a confirm page whose button POSTs back.
+  if (req.method === 'GET') {
+    if (action === 'accept') {
+      res.status(200).send(actionPromptHtml(
+        'Accept this referral?',
+        'Confirm to accept this referral. The referring organization will be notified.',
+        token,
+        'Accept Referral',
+      ));
+      return;
+    }
+    if (action === 'complete') {
+      res.status(200).send(actionPromptHtml(
+        'Mark this referral complete?',
+        'Confirm to mark this referral as complete. You can add outcome details in the workspace afterwards.',
+        token,
+        'Mark Complete',
+      ));
+      return;
+    }
+    res.status(400).send(actionConfirmHtml('Unknown action', 'This action link is not recognized.', manageUrl));
+    return;
+  }
+
   if (action === 'accept') {
     if (currentStatus === 'accepted' || currentStatus === 'completed') {
       await tokenDoc.ref.update({ used_at: now });
       res.status(200).send(actionConfirmHtml(
         'Already accepted',
         'This referral has already been accepted. You can open the workspace to add notes or mark it complete.',
+        manageUrl,
+      ));
+      return;
+    }
+    if (currentStatus === 'rejected') {
+      res.status(409).send(actionConfirmHtml(
+        'Referral was declined',
+        'This referral was declined and can no longer be accepted from an email link. Open the workspace if this needs to change.',
         manageUrl,
       ));
       return;
@@ -4732,7 +5118,19 @@ export const referralEmailAction = onRequest({ invoker: 'public' }, async (req, 
       ));
       return;
     }
-    await referralDoc.ref.update({ status: 'completed', closed_at: now, outcome: 'completed_via_email' });
+    if (currentStatus === 'rejected') {
+      res.status(409).send(actionConfirmHtml(
+        'Referral was declined',
+        'This referral was declined and cannot be marked complete from an email link.',
+        manageUrl,
+      ));
+      return;
+    }
+    // One-click complete from pending is intentional — record the implied
+    // acceptance so the SLA clock has a value.
+    const updates: Record<string, unknown> = { status: 'completed', closed_at: now, outcome: 'completed_via_email' };
+    if (currentStatus === 'pending') updates.accepted_at = now;
+    await referralDoc.ref.update(updates);
     await tokenDoc.ref.update({ used_at: now });
     await logAudit('referral_email_completed', 'email_action', { referral_id: referralId, token_prefix: token.slice(0, 8) });
     res.status(200).send(actionConfirmHtml(
@@ -4856,14 +5254,14 @@ export const extractGrantData = onCall({ timeoutSeconds: 120 }, async (request) 
   const fetchPage = async (targetUrl: string) => {
     try {
       console.log(`[GrantLab] Fetching page: ${targetUrl}`);
-      const resp = await fetch(targetUrl, {
+      const resp = await fetchPublicUrl(targetUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0 NexusGrantBot/1.0' }
-      });
+      }, { timeoutMs: 15_000 });
       if (!resp.ok) {
         console.error(`[GrantLab] Fetch failed with status: ${resp.status}`);
         return null;
       }
-      const html = await resp.text();
+      const html = await readTextCapped(resp, 5_000_000);
       console.log(`[GrantLab] Fetch successful, HTML length: ${html.length}`);
       return html
         .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -5324,8 +5722,15 @@ export const requestConsentAccess = onRequest({ invoker: 'public' }, async (req,
 // ─── Consent Email Action (approve / decline from email link) ───────────────
 export const consentEmailAction = onRequest({ invoker: 'public' }, async (req, res) => {
   setCors(res);
-  const token = req.query['token'] as string | undefined;
-  if (!token) { res.status(400).send('Missing token'); return; }
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    res.status(405).send('Method not allowed');
+    return;
+  }
+  const token = (req.method === 'POST' ? req.body?.token : req.query['token']) as string | undefined;
+  if (!token || typeof token !== 'string' || !/^[0-9a-zA-Z_-]{16,128}$/.test(token)) {
+    res.status(400).send('Missing or invalid token');
+    return;
+  }
 
   const tokenSnap = await db.collection('consent_action_tokens').doc(token).get();
   if (!tokenSnap.exists) { res.status(404).send('Token not found or expired'); return; }
@@ -5342,6 +5747,20 @@ export const consentEmailAction = onRequest({ invoker: 'public' }, async (req, r
   const requestData = requestSnap.data()!;
   if (requestData.status !== 'pending') {
     res.status(410).send(`This request has already been ${requestData.status}`);
+    return;
+  }
+
+  // GET never mutates: consent grants must not fire from mail-scanner
+  // prefetches. Render a confirm page whose button POSTs back.
+  if (req.method === 'GET') {
+    res.status(200).send(actionPromptHtml(
+      action === 'approve' ? 'Approve data sharing?' : 'Decline this request?',
+      action === 'approve'
+        ? 'Confirm to grant the requesting organization access to your operational data. You can revoke this at any time from the Privacy Dashboard.'
+        : 'Confirm to decline this data-sharing request.',
+      token,
+      action === 'approve' ? 'Approve Access' : 'Decline Request',
+    ));
     return;
   }
 
@@ -5692,7 +6111,10 @@ export const submitReferralForm = onRequest({ invoker: 'public' }, async (req, r
   const person = personDoc.data();
   const referringPersonId = personDoc.id;
   const referringOrgId: string | null = person.primary_organization_id || person.organization_id || null;
-  const ecosystemId: string = person.primary_ecosystem_id || '';
+  // Person docs store ecosystem_id (primary_ecosystem_id was never written
+  // anywhere — referrals created here used to get ecosystem_id: '' and were
+  // invisible to every ecosystem-scoped query).
+  let ecosystemId: string = person.ecosystem_id || person.primary_ecosystem_id || '';
 
   const {
     venture_name,
@@ -5711,6 +6133,13 @@ export const submitReferralForm = onRequest({ invoker: 'public' }, async (req, r
   if (!receiving_org_id) {
     res.status(400).json({ error: 'receiving_org_id is required' });
     return;
+  }
+
+  // Last-resort ecosystem fallback: inherit from the receiving org so the
+  // referral is never orphaned from ecosystem-scoped queries.
+  if (!ecosystemId) {
+    const receivingSnap = await db.collection('organizations').doc(receiving_org_id).get();
+    ecosystemId = (receivingSnap.get('ecosystem_ids') as string[] | undefined)?.[0] || '';
   }
 
   // Resolve or upsert the subject org
@@ -5745,6 +6174,18 @@ export const submitReferralForm = onRequest({ invoker: 'public' }, async (req, r
     noteLines.push(notes.trim());
   }
 
+  // Link the subject person when we can find them by email; otherwise leave
+  // null. (The old logic was inverted — it discarded a supplied contact email
+  // and stored the literal string 'unknown_person' when none was given.)
+  let subjectPersonId: string | null = null;
+  if (contact_email) {
+    const subjectSnap = await db.collection('people')
+      .where('email', '==', normalize(contact_email))
+      .limit(1)
+      .get();
+    if (!subjectSnap.empty) subjectPersonId = subjectSnap.docs[0].id;
+  }
+
   // Create the referral
   const referralRef = db.collection('referrals').doc();
   const now = new Date().toISOString();
@@ -5755,7 +6196,7 @@ export const submitReferralForm = onRequest({ invoker: 'public' }, async (req, r
     referring_person_id: referringPersonId,
     receiving_org_id,
     subject_org_id: finalSubjectOrgId,
-    subject_person_id: contact_email ? null : 'unknown_person',
+    subject_person_id: subjectPersonId,
     date: now,
     status: 'pending',
     notes: noteLines.join('\n') || '',
@@ -5777,3 +6218,23 @@ export const submitReferralForm = onRequest({ invoker: 'public' }, async (req, r
     subject_org_name: finalSubjectOrgName,
   });
 });
+
+// ─── Person ecosystem denormalization trigger ───────────────────────────────
+/**
+ * Keeps `people/{id}.ecosystem_ids` in sync with the `person_memberships`
+ * collection. Firestore rules cannot query a collection, so tenancy rules on
+ * interactions / referrals / initiatives / grants read this denormalized
+ * array instead. Running as a trigger means every write path — invites,
+ * self-signup, role changes, seeds, and manual console edits — stays correct
+ * without each call site having to remember.
+ */
+export const syncPersonEcosystems = onDocumentWritten(
+  'person_memberships/{membershipId}',
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    const personId = (after?.person_id || before?.person_id) as string | undefined;
+    if (!personId) return;
+    await syncPersonEcosystemIds(personId);
+  }
+);

@@ -35,6 +35,7 @@ import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { createHmac, createHash, randomBytes } from 'crypto';
+import { assertPublicHttpUrl } from './urlGuard';
 import {
   buildInteractionWebhookPayload,
   buildReferralWebhookPayload,
@@ -47,6 +48,7 @@ import {
   flagPossibleDuplicate,
   type ExternalRef as FedExternalRef,
 } from './federationDedup';
+import { followMergePointer } from './recordMerge';
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -252,11 +254,11 @@ const findByExternalRef = async (
   if (!indexDoc.exists) return null;
 
   const entityId = indexDoc.get('entity_id') as string;
-  const collection = entityType === 'person' ? 'people' : 'organizations';
-  const entityDoc = await db.collection(collection).doc(entityId).get();
-  if (!entityDoc.exists) return null;
-
-  return { id: entityDoc.id, data: entityDoc.data()! };
+  // Follow `merged_into` so a ref that pointed at a record an admin later
+  // merged away resolves to the survivor instead of writing to a tombstone.
+  // Index entries are repointed on merge; this is the belt-and-braces path
+  // for entries written before the merge, or by another code path.
+  return followMergePointer(db, entityType, entityId);
 };
 
 // ─── Outbound webhook delivery ────────────────────────────────────────────────
@@ -891,6 +893,14 @@ export const partnerRegisterWebhook = onRequest({ invoker: 'public' }, async (re
 
   if (!url.startsWith('https://')) {
     res.status(400).json({ error: 'url is required and must use HTTPS' });
+    return;
+  }
+  try {
+    // Webhook deliveries originate from our infrastructure, so refuse
+    // endpoints that point into private address space (SSRF via triggers).
+    await assertPublicHttpUrl(url, { httpsOnly: true });
+  } catch {
+    res.status(400).json({ error: 'url must resolve to a public host' });
     return;
   }
 
@@ -1791,6 +1801,32 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       // Index drift — the external_ref_index pointed at a deleted record.
       // Fall through to creation by treating this as a miss.
       console.warn('dedup pointed at missing person, creating fresh:', personMatch);
+    } else if (['platform_admin', 'ecosystem_manager'].includes((personDoc.get('system_role') as string) || '')) {
+      // NEVER silently auto-link a privileged account. A provider controls
+      // what its userinfo endpoint asserts, so an email match alone must not
+      // mint a session for an admin — that would let any org with an API key
+      // take over admin accounts. Privileged users must sign in directly and
+      // use the interactive oidcLinkAccount flow.
+      console.warn(`OIDC auto-link blocked for privileged account ${personMatch.person_id} via provider ${providerId}`);
+      res.status(403).json({
+        error: 'This account cannot be linked via SSO sign-in. Sign in with your Nexus credentials and link the provider from account settings.',
+      });
+      return;
+    } else if (
+      personMatch.tier === 'email_exact' &&
+      !(
+        (provider.ecosystem_id && (personDoc.get('ecosystem_id') as string) === provider.ecosystem_id) ||
+        ((personDoc.get('primary_organization_id') || personDoc.get('organization_id') || '') === provider.organization_id)
+      )
+    ) {
+      // An email-only match must stay within the provider's own scope —
+      // otherwise a provider could assert any email in the platform and
+      // capture accounts from other ecosystems.
+      console.warn(`OIDC email auto-link out of scope: person ${personMatch.person_id} vs provider ${providerId}`);
+      res.status(403).json({
+        error: 'An account with this email already exists outside this provider\'s network. Sign in with your Nexus credentials and link the provider from account settings.',
+      });
+      return;
     } else {
       personId = personDoc.id;
       try {
