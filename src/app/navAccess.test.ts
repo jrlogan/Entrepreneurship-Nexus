@@ -1,63 +1,12 @@
 /**
  * Tests for sidebar nav access logic.
  *
- * These mirror the computed booleans in AppShell.tsx so that regressions in
- * feature-flag gating or role bypasses are caught before they reach production.
+ * These exercise the real computeNavAccess function that App.tsx and
+ * AppShell.tsx import, so regressions in feature-flag gating or role
+ * bypasses are caught before they reach production.
  */
 import { describe, it, expect } from 'vitest';
-import type { SystemRole } from '../domain/types';
-
-// ---------------------------------------------------------------------------
-// Inline the pure logic from AppShell (kept in sync manually)
-// ---------------------------------------------------------------------------
-
-type FeatureFlags = Record<string, boolean | undefined>;
-
-function computeNav(role: SystemRole, flags: FeatureFlags, isMvpMode = true) {
-  const isClient = role === 'entrepreneur';
-  const isPrivileged = ['eso_admin', 'ecosystem_manager', 'platform_admin'].includes(role);
-  const isSuper = ['platform_admin', 'ecosystem_manager'].includes(role);
-  const isPlatformAdmin = role === 'platform_admin';
-
-  const canAccessAdvancedWorkflows = flags.advanced_workflows === true;
-  const canAccessDashboard = canAccessAdvancedWorkflows || flags.dashboard === true;
-  const canAccessTasksAdvice = canAccessAdvancedWorkflows || flags.tasks_advice === true;
-  const canAccessInitiatives = canAccessAdvancedWorkflows || flags.initiatives === true;
-  const canAccessProcesses = canAccessAdvancedWorkflows || flags.processes === true;
-  const canAccessInteractions = canAccessAdvancedWorkflows || flags.interactions === true;
-  const canAccessReports = canAccessAdvancedWorkflows || flags.reports === true;
-  const canAccessVentureScout = canAccessAdvancedWorkflows || flags.venture_scout === true;
-
-  const hasAnyWorkflowFeature = canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives ||
-    canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout;
-  const showMvpEsoNav = isMvpMode && !isClient && !hasAnyWorkflowFeature;
-
-  const canAccessApiConsole = isPlatformAdmin || (isPrivileged && flags.api_console === true);
-  const canAccessDataQuality = isPlatformAdmin || (isPrivileged && flags.data_quality === true);
-  const canAccessDataStandards = isPlatformAdmin || (isPrivileged && flags.data_standards === true);
-  const canAccessMetricsManager = isPlatformAdmin || (isSuper && flags.metrics_manager === true);
-  const canAccessInboundIntake = isPlatformAdmin || (role === 'ecosystem_manager' && flags.inbound_intake === true);
-  const canAccessGrantLab = isPlatformAdmin || flags.grant_lab === true;
-  const canAccessCommunityCalendar = isPlatformAdmin || flags.community_calendar === true;
-
-  return {
-    showMvpEsoNav,
-    canAccessDashboard,
-    canAccessTasksAdvice,
-    canAccessInitiatives,
-    canAccessProcesses,
-    canAccessInteractions,
-    canAccessReports,
-    canAccessVentureScout,
-    canAccessApiConsole,
-    canAccessDataQuality,
-    canAccessDataStandards,
-    canAccessMetricsManager,
-    canAccessInboundIntake,
-    canAccessGrantLab,
-    canAccessCommunityCalendar,
-  };
-}
+import { computeNavAccess as computeNav, type FeatureFlags } from '../domain/access/navAccess';
 
 // ---------------------------------------------------------------------------
 // showMvpEsoNav — the gate that hides workflow views in MVP mode
@@ -172,6 +121,11 @@ describe('feature flag gating for eso_admin', () => {
 
   it('platform_admin can access community_calendar with no flag', () => {
     expect(computeNav('platform_admin', {}).canAccessCommunityCalendar).toBe(true);
+  });
+
+  it('an explicit false hides optional modules from platform_admin too', () => {
+    expect(computeNav('platform_admin', { community_calendar: false }).canAccessCommunityCalendar).toBe(false);
+    expect(computeNav('platform_admin', { grant_lab: false }).canAccessGrantLab).toBe(false);
   });
 });
 
