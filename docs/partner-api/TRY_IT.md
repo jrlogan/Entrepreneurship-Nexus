@@ -31,23 +31,31 @@ test data and is purged periodically — **use made-up people only**.
 |---|---|
 | Base URL | `https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net` |
 | `ecosystem_id` | `eco_connecticut` |
-| Your org + key | **Self-service — mint your own in one call** (see below), or ask JR (jrlogan@makehaven.org) |
+| Your org + key | Mint your own in one call — you need a short **invite code** first (see below) |
 
-Mint your own demo org + key (returned once — save it):
+**Get the invite code** by asking JR (jrlogan@makehaven.org). It is shared with
+the consortium out of band and deliberately not published here: this repository
+is public, so a code committed to it would be scraped and the sandbox filled
+with bot-created organizations within hours. The code is not a secret worth
+protecting for its own sake — it is a speed bump that keeps the sandbox usable
+for the people actually evaluating the network.
+
+Then mint your own demo org + key (the key is returned once — save it):
 
 ```bash
 BASE=https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net
 
 curl -s -X POST $BASE/provisionDemoAgency \
   -H "Content-Type: application/json" \
-  -d '{"name":"Your Org Name"}'
+  -d '{"name":"Your Org Name","invite_code":"ASK_JR_FOR_THIS"}'
 # → { "organization": { "id": "org_demo_your_org_name_ab12cd", ... },
 #     "api_key": "nxk_demo_…", "ecosystem_id": "eco_connecticut" }
 ```
 
 Use the returned `organization.id` as your `eso_org_id` and the `api_key` as
 your `X-Nexus-API-Key` in everything below. (Self-provisioning exists only on
-this sandbox; on a real network, keys are issued by each org's admin.)
+this sandbox; on a real network, keys are issued by each organization's own
+admin — there is no self-service path to a production key.)
 
 ## Fastest path: curl
 

@@ -5,9 +5,10 @@ Companion to `AI_INTEGRATION_PROMPT.md`. That file gets your assistant to
 before you show anyone.
 
 Give your assistant (Claude, ChatGPT, Cursor, Copilot — any of them) the block
-below along with one sentence about your stack. It contains everything needed:
-the sandbox address, how to get credentials without asking a human, the eight
-checks that constitute "integrated", and what each result means.
+below along with one sentence about your stack, plus the sandbox invite code
+(ask JR — it is not published, because this repository is public). The block
+contains everything else: the sandbox address, how to mint credentials, the
+eight checks that constitute "integrated", and what each result means.
 
 Nothing here touches production or real people. The sandbox holds test data
 only and is purged periodically.
@@ -25,10 +26,15 @@ SANDBOX
   BASE = https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net
   ecosystem_id = eco_connecticut
 
-STEP 0 — get credentials (no human needed)
+STEP 0 — get credentials
+  You need a short invite code, supplied by the network admin (JR,
+  jrlogan@makehaven.org). It is not in the repository: the repo is public, so
+  a published code would be scraped and the sandbox flooded. If you were not
+  given one, stop and ask — do not try to work around it.
+
   POST $BASE/provisionDemoAgency
     Content-Type: application/json
-    {"name":"<my organization name>"}
+    {"name":"<my organization name>", "invite_code":"<the code you were given>"}
   The response gives organization.id (use as eso_org_id) and api_key
   (send as the X-Nexus-API-Key header). The key is shown once — save it to
   an environment variable, never to a file in the repo.
