@@ -370,7 +370,7 @@ export const DemoWalkthrough = ({
                             The underlying motive of this prototype is to <strong>explore the data structure</strong> and how it might exist if we followed the Agency Specification. It serves as a tool to better understand our requirements and rapidly iterate on potential solutions.
                         </p>
                         <p>
-                            Modern AI options make it feasible for us to build our own solution. This prototype is released under the <strong>MIT License</strong>, making it freely available for the community. The code for this project is accessible at <a href="https://ai.studio/apps/drive/1IcUvd7VmDWyHIIN_bKgxsW3O-UraSwCL" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold hover:underline">Google AI Studio</a>.
+                            Modern AI options make it feasible for us to build our own solution. This project is released under the <strong>MIT License</strong>, making it freely available for the community. The full source — application, partner API, data standard, and documentation — lives at <a href="https://github.com/jrlogan/Entrepreneurship-Nexus" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold hover:underline">github.com/jrlogan/Entrepreneurship-Nexus</a>.
                         </p>
                     </div>
 

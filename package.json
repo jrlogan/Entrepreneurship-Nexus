@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "build:demo": "VITE_DEMO_MODE=true VITE_BUILD_OUT_DIR=dist-demo vite build",
     "test": "vitest run",
+    "test:rules": "vitest run --config vitest.rules.config.ts",
+    "test:rules:emulated": "firebase emulators:exec --only firestore --project nexus-rules-test \"npm run test:rules\"",
     "test:e2e": "playwright test",
     "preview": "vite preview",
     "local:start": "bash scripts/start-local-dev.sh",
@@ -22,7 +26,8 @@
     "simulate:export-email-previews": "node scripts/export-email-previews.mjs",
     "simulate:full-invite-flow": "node scripts/simulate-full-invite-flow.mjs",
     "staging:seed-mail-test": "node scripts/seed-staging-mail-test.mjs",
-    "staging:cleanup-mail-test": "node scripts/cleanup-staging-mail-test.mjs"
+    "staging:cleanup-mail-test": "node scripts/cleanup-staging-mail-test.mjs",
+    "build:demo:compact": "VITE_DEMO_MODE=true VITE_DEMO_PROFILE=compact VITE_BUILD_OUT_DIR=dist-demo-compact vite build"
   },
   "dependencies": {
     "@google/genai": "latest",
@@ -32,11 +37,14 @@
     "react-image-crop": "^11.0.10"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase-tools": "^13.35.1",
     "jsdom": "^26.1.0",

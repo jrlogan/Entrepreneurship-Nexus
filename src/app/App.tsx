@@ -282,9 +282,33 @@ const App = () => {
       ...baseEcosystem.settings,
       ...(override.settings || {}),
       // Deep-merge feature_flags so a partial override doesn't wipe base flags.
-      // In demo mode every flag is forced on so visitors can explore the full surface area.
+      // Demo builds force flags on so visitors can explore without an admin.
+      // The 'full' profile opens everything; 'compact' opens only the
+      // interoperability core (see CONFIG.DEMO_PROFILE) so the consortium
+      // demo isn't cluttered with modules that aren't part of the compact.
       feature_flags: CONFIG.IS_DEMO_MODE
-        ? {
+        ? (CONFIG.DEMO_PROFILE === 'compact'
+          ? {
+              // Core: the shared record, referrals, and the entrepreneur experience.
+              dashboard: true,
+              interactions: true,
+              api_console: true,
+              data_standards: true,
+              notify_entrepreneurs: true,
+              inbound_intake: true,
+              // Deliberately off — valuable, but not part of the compact.
+              advanced_workflows: false,
+              tasks_advice: false,
+              initiatives: false,
+              processes: false,
+              reports: false,
+              venture_scout: false,
+              data_quality: false,
+              metrics_manager: false,
+              grant_lab: false,
+              community_calendar: false,
+            }
+          : {
             advanced_workflows: true,
             dashboard: true,
             tasks_advice: true,
@@ -301,7 +325,7 @@ const App = () => {
             notify_entrepreneurs: true,
             grant_lab: true,
             community_calendar: true,
-          }
+          })
         : {
             ...(baseEcosystem.settings.feature_flags || {}),
             ...(override.settings?.feature_flags || {}),

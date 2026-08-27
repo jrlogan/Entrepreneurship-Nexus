@@ -1,11 +1,18 @@
 # Try the Nexus Partner API — 5 minutes, any HTTP tool
 
-> **Just want to click around?** The full UI with sample data is at
-> **https://entrepreneurship-nexus-demo.web.app** — no signup, nothing to
-> install, and it resets on reload. Switch personas from the bottom-left to
-> see it as an entrepreneur (their support network, activity, and sharing
-> controls) or as agency staff. The API sandbox below is the other half:
-> calling the network from your own system.
+> **Just want to click around?** Two hosted demos, no signup, sample data
+> that resets on reload. Switch personas from the bottom-left to view as an
+> entrepreneur (support network, activity, sharing controls) or agency staff.
+>
+> - **https://nexus-compact-demo.web.app** — the interoperability core only:
+>   shared records, referrals, the entrepreneur's view, the API console.
+>   This is the surface the consortium would adopt.
+> - **https://entrepreneurship-nexus-demo.web.app** — MakeHaven's wider
+>   prototype, including optional modules (grant lab, calendar, scout) that
+>   sit outside the compact.
+>
+> The API sandbox below is the other half: calling the network from your own
+> system.
 
 A live, throwaway sandbox of the federated entrepreneur network is running
 at:

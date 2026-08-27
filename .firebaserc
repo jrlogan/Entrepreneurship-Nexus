@@ -13,6 +13,9 @@
         ],
         "demo": [
           "entrepreneurship-nexus-demo"
+        ],
+        "compact": [
+          "nexus-compact-demo"
         ]
       }
     },
