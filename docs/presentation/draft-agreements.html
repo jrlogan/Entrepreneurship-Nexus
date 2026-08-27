@@ -1,0 +1,149 @@
+<title>The Draft Agreements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --paper:#fbfaf7; --ink:#1f1d1a; --muted:#5f5a52; --faint:#8d8579;
+    --rule:#ddd7cc; --accent:#7a4b1e; --card:#ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#16150f; --ink:#ece7dd; --muted:#a8a196; --faint:#7c766b;
+      --rule:#332f26; --accent:#d7a468; --card:#1d1b15;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#16150f; --ink:#ece7dd; --muted:#a8a196; --faint:#7c766b;
+    --rule:#332f26; --accent:#d7a468; --card:#1d1b15;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif; line-height:1.6; }
+  .wrap { max-width:760px; margin:0 auto; padding:40px 24px 80px; }
+  header.top { border-bottom:2px solid var(--ink); padding-bottom:20px; margin-bottom:28px; }
+  h1 { font-family:Newsreader,Georgia,serif; font-weight:600; font-size:clamp(30px,5vw,44px);
+    line-height:1.12; margin:0 0 10px; text-wrap:balance; }
+  .standfirst { color:var(--muted); margin:0; max-width:60ch; }
+  .note { background:var(--card); border:1px solid var(--rule); border-left:3px solid var(--accent);
+    padding:14px 18px; margin:22px 0 0; font-size:15px; color:var(--muted); }
+  .note strong { color:var(--ink); }
+  nav.toc { margin:26px 0 0; font-size:14px; }
+  nav.toc a { color:var(--accent); text-decoration:none; border-bottom:1px solid transparent; }
+  nav.toc a:hover { border-bottom-color:var(--accent); }
+  .doc { margin-top:52px; padding-top:28px; border-top:1px solid var(--rule); }
+  .eyebrow { font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--faint); margin:0 0 8px; }
+  h2 { font-family:Newsreader,Georgia,serif; font-weight:600; font-size:clamp(23px,3.4vw,31px);
+    margin:0 0 12px; line-height:1.2; text-wrap:balance; }
+  .who, .intro { margin:0 0 8px; color:var(--muted); font-size:15px; }
+  .who strong { color:var(--ink); }
+  .intro { margin-bottom:22px; }
+  .clause { margin:0 0 22px; }
+  .clause h3 { font-size:16px; font-weight:600; margin:0 0 6px; color:var(--ink); }
+  .clause p { margin:0; color:var(--muted); max-width:66ch; }
+  .signature { font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--ink);
+    border:1px dashed var(--rule); padding:12px 14px; margin-top:26px; }
+  footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--rule);
+    color:var(--faint); font-size:14px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>The draft agreements</h1>
+    <p class="standfirst">The three documents that make the federated network an agreement rather than a platform — reproduced in full, exactly as they appear in the running software.</p>
+    <div class="note"><strong>These are drafts, and that is the point.</strong> Every word here is a starting position for the consortium to argue with. It is easier to respond to real language than to a blank page — so mark them up, strike what you disagree with, and bring it to the group. Nothing becomes v1.0 until the group says so.</div>
+    <nav class="toc">Jump to: <a href="#compact">Network Compact</a> · <a href="#privacy">Privacy Notice</a> · <a href="#dua">Data Usage Agreement</a></nav>
+  </header>
+
+  <article class="doc" id="compact">
+    <p class="eyebrow">Document 1 of 3 · draft</p>
+    <h2>Joining a shared entrepreneurship network</h2>
+    <p class="who"><strong>Who signs:</strong> Every entrepreneur, once, when their record first enters the shared network.</p>
+    <p class="intro">The plain-language explanation of what a federated network is and what joining it means. This is the document that has to be understandable, not just correct.</p>
+      <section class="clause">
+        <h3>You are joining something shared by design</h3>
+        <p>This system is part of a federated network of independent entrepreneurship-support organizations. Each organization runs its own tools and keeps control of its own data, and organizations that have signed the shared privacy and standards compact can exchange information about the entrepreneurs they support — with your consent.</p>
+      </section>
+      <section class="clause">
+        <h3>What becomes visible across organizations</h3>
+        <p>Your core directory information — name, contact, venture name, and a short description — becomes visible to organizations in this ecosystem so they can find and support you. Deeper data (interaction notes, program details, financials) stays with the organization that recorded it unless you explicitly approve cross-organization sharing.</p>
+      </section>
+      <section class="clause">
+        <h3>You stay in control of what moves</h3>
+        <p>Data sharing between specific organizations requires your consent each time a new organization asks for access. You can revoke access at any time from your privacy settings. Revoking your participation here does not affect your membership or relationship with any individual organization.</p>
+      </section>
+      <section class="clause">
+        <h3>Why this is better than a central database</h3>
+        <p>No single organization holds everyone&#x27;s data. Each ecosystem participant keeps control of its own records, and we agree on shared standards so your information can move between organizations with your permission rather than being duplicated or locked behind one system.</p>
+      </section>
+      <section class="clause">
+        <h3>What this organization will not do</h3>
+        <p>We do not sell your data, we do not share it outside the compact without your consent, and we do not use it for purposes unrelated to entrepreneurship support. Organizations violating the compact can be removed from the network.</p>
+      </section>
+    <p class="signature">☐ I understand and agree to join this federated network</p>
+  </article>
+
+  <article class="doc" id="privacy">
+    <p class="eyebrow">Document 2 of 3 · draft</p>
+    <h2>Entrepreneur Data &amp; Privacy Notice</h2>
+    <p class="who"><strong>Who signs:</strong> Every entrepreneur, alongside the compact.</p>
+    <p class="intro">The specifics: what is stored, who can see it, how cross-organization sharing is approved, and what rights the entrepreneur keeps.</p>
+      <section class="clause">
+        <h3>What information is stored</h3>
+        <p>When you participate in ecosystem programs, support organizations (ESOs) may record your basic profile (name, contact info, venture name and description), program participation and progress milestones, and interaction notes related to the services they provide to you.</p>
+      </section>
+      <section class="clause">
+        <h3>Who can see your data</h3>
+        <p>Each ESO only sees records they have created or that you have explicitly shared with them. Your information is not visible to organizations you have not worked with. Basic directory information (name, venture, contact) is visible to all ESOs in this ecosystem.</p>
+      </section>
+      <section class="clause">
+        <h3>Cross-organization sharing</h3>
+        <p>If you work with multiple ESOs and want them to coordinate, you must explicitly approve any cross-organization data sharing. You will always be asked before a second organization can access another organization&#x27;s notes or records about you.</p>
+      </section>
+      <section class="clause">
+        <h3>Your rights</h3>
+        <p>You can view which organizations have access to your data from your Privacy Settings at any time. You can restrict or revoke access to your data, and you can request a copy or deletion of your records by contacting your ecosystem administrator.</p>
+      </section>
+      <section class="clause">
+        <h3>What we do not do</h3>
+        <p>We do not sell your data to third parties. We do not share your information outside this ecosystem without your consent. Individual interaction notes are confidential between you and the recording organization.</p>
+      </section>
+    <p class="signature">☐ I have read and agree to this Privacy Notice</p>
+  </article>
+
+  <article class="doc" id="dua">
+    <p class="eyebrow">Document 3 of 3 · draft</p>
+    <h2>Data Access &amp; Responsibility Agreement</h2>
+    <p class="who"><strong>Who signs:</strong> Every member organization, and its staff who access shared data.</p>
+    <p class="intro">The obligations an organization takes on in exchange for access — the counterpart to what entrepreneurs are promised above.</p>
+      <section class="clause">
+        <h3>Permitted uses</h3>
+        <p>You may access entrepreneur information solely to provide ecosystem support services: reviewing venture details to offer relevant programs, recording interaction notes and program participation, and coordinating referrals with the entrepreneur&#x27;s explicit consent.</p>
+      </section>
+      <section class="clause">
+        <h3>Confidentiality obligations</h3>
+        <p>You must treat all entrepreneur data as confidential. Do not share venture details, financials, interaction notes, or any personally identifiable information outside this platform or with parties not authorized to access it through this system.</p>
+      </section>
+      <section class="clause">
+        <h3>Prohibited activities</h3>
+        <p>You may not use entrepreneur data for purposes unrelated to providing ecosystem support. You may not share data externally, use it for commercial gain, or access records beyond what your role requires. You may not attempt to access data belonging to organizations outside your assigned scope.</p>
+      </section>
+      <section class="clause">
+        <h3>Audit and accountability</h3>
+        <p>All data access and modifications are logged and may be reviewed by ecosystem administrators. Access is scoped to your assigned organization and role. Administrators may audit activity at any time.</p>
+      </section>
+      <section class="clause">
+        <h3>Reporting obligations</h3>
+        <p>If you become aware of an accidental data disclosure or potential breach, report it immediately to your organization administrator. Any observed misuse of entrepreneur data should be reported through the platform feedback system.</p>
+      </section>
+      <section class="clause">
+        <h3>Consequences of violation</h3>
+        <p>Unauthorized use or disclosure of entrepreneur data may result in immediate access revocation, removal from this ecosystem, and potential civil or legal liability. This agreement survives the end of your participation in this ecosystem.</p>
+      </section>
+    <p class="signature">☐ I have read and agree to this Data Usage Agreement</p>
+  </article>
+
+  <footer>
+    Signatures are versioned: when the group revises a document, members re-sign the new version, and the software records which version each organization accepted. Source: <span style="font-family:'IBM Plex Mono',monospace">src/domain/agreements/content.ts</span> in the open-source repository.
+  </footer>
+</div>
