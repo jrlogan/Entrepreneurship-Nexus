@@ -13,6 +13,13 @@ interface Props {
   referrals: Referral[];
   interactions: Interaction[];
   ecosystemName: string;
+  /**
+   * The networks this entrepreneur belongs to, for the in-panel selector.
+   * Privacy is decided per network even though their activity is shown across
+   * all of them, so the choice of network lives here rather than in a global
+   * switcher — named explicitly, next to the setting it governs.
+   */
+  availableEcosystems?: { id: string; name: string }[];
   onChange?: () => void;
 }
 
@@ -31,9 +38,17 @@ const formatDate = (iso: string): string => {
   }
 };
 
-export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referrals, interactions, ecosystemName, onChange }) => {
+export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referrals, interactions, ecosystemName, availableEcosystems, onChange }) => {
   const repos = useRepos();
   const viewer = useViewer();
+  // Which network these settings apply to. Defaults to the viewer's current
+  // one; the selector below changes only what this panel governs, never what
+  // the rest of the portal shows.
+  const [scopeEcosystemId, setScopeEcosystemId] = useState<string>(viewer.ecosystemId);
+  const networks = (availableEcosystems && availableEcosystems.length > 0)
+    ? availableEcosystems
+    : [{ id: viewer.ecosystemId, name: ecosystemName }];
+  const scopeName = networks.find((n) => n.id === scopeEcosystemId)?.name || ecosystemName;
   const [policies, setPolicies] = useState<ConsentPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyEsoId, setBusyEsoId] = useState<string | null>(null);
@@ -69,7 +84,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
     const list: EsoRow[] = organizations
       .filter((o) =>
         o.id !== myOrg.id
-        && o.ecosystem_ids.includes(viewer.ecosystemId)
+        && o.ecosystem_ids.includes(scopeEcosystemId)
         && o.roles.includes('eso')
       )
       .map((o) => ({
@@ -78,7 +93,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
         // another network is shown separately below rather than silently
         // rendering this network's toggle as "on".
         policy: policies.find(
-          (p) => p.viewerId === o.id && p.isActive && policyAppliesInEcosystem(p, viewer.ecosystemId)
+          (p) => p.viewerId === o.id && p.isActive && policyAppliesInEcosystem(p, scopeEcosystemId)
         ) ?? null,
         hasRelationship: relatedIds.has(o.id),
       }))
@@ -93,12 +108,12 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
         return a.org.name.localeCompare(b.org.name);
       });
     return list;
-  }, [organizations, policies, referrals, interactions, myOrg.id, viewer.ecosystemId]);
+  }, [organizations, policies, referrals, interactions, myOrg.id, scopeEcosystemId]);
 
-  const isOpenMode = effectiveVisibility(myOrg, viewer.ecosystemId) === 'open';
+  const isOpenMode = effectiveVisibility(myOrg, scopeEcosystemId) === 'open';
 
   const handleSetVisibility = async (next: 'open' | 'restricted') => {
-    if (effectiveVisibility(myOrg, viewer.ecosystemId) === next) return;
+    if (effectiveVisibility(myOrg, scopeEcosystemId) === next) return;
     setVisibilityBusy(true);
     setError(null);
     try {
@@ -108,7 +123,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
       await repos.organizations.update(myOrg.id, {
         operational_visibility_by_ecosystem: {
           ...(myOrg.operational_visibility_by_ecosystem || {}),
-          [viewer.ecosystemId]: next,
+          [scopeEcosystemId]: next,
         },
       });
       onChange?.();
@@ -127,7 +142,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
         // Base ConsentRepo signature is (resource, viewer, level, actor); the
         // Firebase impl defaults grantedVia to 'self' when no opts arg is given.
         await repos.consent.grantAccess(myOrg.id, row.org.id, 'read', viewer.personId, {
-          ecosystemId: viewer.ecosystemId,
+          ecosystemId: scopeEcosystemId,
         });
       } else if (row.policy) {
         await repos.consent.revokeAccess(row.policy.id, viewer.personId, myOrg.id, row.org.id, 'Revoked by entrepreneur via portal');
@@ -167,18 +182,40 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
   // for, wherever the grant was made.
   const otherNetworkGrants = useMemo(() => {
     return policies
-      .filter((p) => p.isActive && !policyAppliesInEcosystem(p, viewer.ecosystemId))
+      .filter((p) => p.isActive && !policyAppliesInEcosystem(p, scopeEcosystemId))
       .map((p) => ({
         policy: p,
         org: organizations.find((o) => o.id === p.viewerId) || null,
       }));
-  }, [policies, organizations, viewer.ecosystemId]);
+  }, [policies, organizations, scopeEcosystemId]);
 
   return (
     <Card title="Who can see my activity" className="border-t-4 border-t-emerald-500">
       <div className="space-y-4">
+        {networks.length > 1 && (
+          <div className="rounded border border-indigo-200 bg-indigo-50 px-3 py-2.5">
+            <label htmlFor="sharing-network" className="block text-xs font-bold text-indigo-900 mb-1">
+              These settings apply to one network at a time
+            </label>
+            <select
+              id="sharing-network"
+              value={scopeEcosystemId}
+              onChange={(e) => setScopeEcosystemId(e.target.value)}
+              className="w-full rounded border border-indigo-200 bg-white px-2 py-1.5 text-sm text-gray-900"
+            >
+              {networks.map((n) => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-indigo-800">
+              You belong to {networks.length} networks. Your activity is shown across all of them, but
+              sharing is decided separately for each — opening up here does not open up the others.
+            </p>
+          </div>
+        )}
+
         <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-700">
-          Your basic profile (name, venture, contact) is always visible to organizations in <strong>{ecosystemName}</strong>. The controls below govern <strong>operational data</strong> — interaction notes, program participation, and metrics about your venture. Each organization that receives access has signed the network compact and the data usage agreement.
+          Your basic profile (name, venture, contact) is always visible to organizations in <strong>{scopeName}</strong>. The controls below govern <strong>operational data</strong> — interaction notes, program participation, and metrics about your venture. Each organization that receives access has signed the network compact and the data usage agreement.
         </div>
 
         {/* Default visibility toggle */}
@@ -196,7 +233,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
               }`}
             >
               <div className="font-semibold">Open to ecosystem</div>
-              <div className="text-xs mt-0.5 opacity-80">Any ESO in {ecosystemName} can see operational data about your venture.</div>
+              <div className="text-xs mt-0.5 opacity-80">Any ESO in {scopeName} can see operational data about your venture.</div>
             </button>
             <button
               type="button"
@@ -219,7 +256,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-semibold text-gray-900">
-                Organizations in {ecosystemName}
+                Organizations in {scopeName}
               </div>
               <div className="text-xs text-gray-500">
                 {grantedCount} of {esoRows.length} can see your activity
@@ -229,7 +266,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
             {loading && <div className="text-sm text-gray-500 py-2">Loading…</div>}
 
             {!loading && esoRows.length === 0 && (
-              <div className="text-sm text-gray-500 py-2">No organizations in this ecosystem yet.</div>
+              <div className="text-sm text-gray-500 py-2">No organizations in {scopeName} yet.</div>
             )}
 
             <ul className="divide-y divide-gray-100 rounded border border-gray-200 bg-white">

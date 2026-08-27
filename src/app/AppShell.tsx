@@ -5,6 +5,7 @@ import type { PersonOrganizationAffiliation } from '../domain/people/types';
 import { ViewMode } from './types';
 import { CONFIG } from './config';
 import { getTheme } from './theme';
+import { computeNavAccess } from '../domain/access/navAccess';
 import { SidebarItem, DemoWarningBanner, Avatar, CompanyLogo, DemoLink } from '../shared/ui/Components';
 import { PrivacyLegend } from '../shared/ui/PrivacyLegend';
 import { FeedbackWidget } from '../features/feedback/FeedbackWidget';
@@ -90,26 +91,24 @@ export const AppShell: React.FC<AppShellProps> = ({
   const isSuper = isSystemAdmin(currentRole);
   const isClient = isEntrepreneur(currentRole);
   const featureFlags = currentEcosystem.settings.feature_flags || {};
-  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-  const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
-  const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
-  const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
-  const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
-  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
-  const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
-  const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
-  const hasAnyWorkflowFeature = canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives || canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout;
-  // In MVP mode show the simplified nav — unless feature flags have unlocked specific workflow views.
-  const showMvpEsoNav = isMvpMode && !isClient && !hasAnyWorkflowFeature;
   const isPlatformAdmin = currentRole === 'platform_admin';
-  // Platform admin always sees all system views (they configure the flags; feature flags gate other roles only).
-  const canAccessApiConsole = isPlatformAdmin || (isPrivileged && featureFlags.api_console === true);
-  const canAccessDataQuality = isPlatformAdmin || (isPrivileged && featureFlags.data_quality === true);
-  const canAccessDataStandards = isPlatformAdmin || (isPrivileged && featureFlags.data_standards === true);
-  const canAccessMetricsManager = (isPlatformAdmin || isSuper) && featureFlags.metrics_manager === true;
-  const canAccessInboundIntake = isPlatformAdmin || ((currentRole === 'ecosystem_manager') && featureFlags.inbound_intake === true);
-  const canAccessGrantLab = featureFlags.grant_lab === true;
-  const canAccessCommunityCalendar = isPlatformAdmin || featureFlags.community_calendar === true;
+  const {
+    showMvpEsoNav,
+    canAccessDashboard,
+    canAccessTasksAdvice,
+    canAccessInitiatives,
+    canAccessProcesses,
+    canAccessInteractions,
+    canAccessReports,
+    canAccessVentureScout,
+    canAccessApiConsole,
+    canAccessDataQuality,
+    canAccessDataStandards,
+    canAccessMetricsManager,
+    canAccessInboundIntake,
+    canAccessGrantLab,
+    canAccessCommunityCalendar,
+  } = computeNavAccess(currentRole, featureFlags, isMvpMode);
 
   const iconClass = "w-5 h-5";
   const isDemoMode = CONFIG.IS_DEMO_MODE;
@@ -198,7 +197,16 @@ export const AppShell: React.FC<AppShellProps> = ({
            <div className={`p-4 border-b ${theme.sidebarBorder} hidden md:block`}>
              <h1 className={`font-bold text-lg tracking-tight ${theme.headerTitle}`}>Entrepreneurship <span className={theme.itemIcon === 'text-white' ? 'text-indigo-200' : 'text-indigo-500'}>Nexus</span></h1>
              
-             {/* Ecosystem Switcher */}
+             {/* Ecosystem Switcher — staff only.
+
+                 An entrepreneur belongs to networks but should not have to
+                 think in them: their history is assembled across all of them
+                 (see fetchAcrossViewerNetworks in App.tsx), so a global
+                 switcher would only let them hide half their own record.
+                 Where the network genuinely matters to them — deciding who
+                 can see what — the choice is made in the sharing controls,
+                 with the network named. */}
+             {!isClient && (
              <div className="relative mt-3">
                  <button 
                     onClick={() => setIsEcoDropdownOpen(!isEcoDropdownOpen)}
@@ -222,6 +230,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                      </div>
                  )}
              </div>
+             )}
 
              {/* Acting As Context */}
              <div className="mt-3 text-[10px] uppercase tracking-wider text-gray-300 font-bold">

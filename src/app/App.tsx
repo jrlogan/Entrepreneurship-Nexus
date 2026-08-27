@@ -159,6 +159,20 @@ const App = () => {
   // User Session
   const defaultDemoUser = MOCK_PEOPLE.find((person) => person.system_role === 'eso_admin') || MOCK_PEOPLE[0];
   const [demoUser, setDemoUser] = useState<Person>(defaultDemoUser);
+
+  // Which personas the demo offers.
+  //
+  // The compact build is the interoperability core, where the coach/mentor
+  // seat is deliberately out of scope: in this model a mentor works in their
+  // own ESO's system and their activity reaches the network through the API,
+  // rather than holding an account in the shared node. Offering the persona
+  // would imply a central seat the compact does not ask for.
+  const demoPersonas = useMemo(
+    () => (CONFIG.DEMO_PROFILE === 'compact'
+      ? MOCK_PEOPLE.filter((p) => p.system_role !== 'eso_coach')
+      : MOCK_PEOPLE),
+    []
+  );
   const [resolvedAuthPerson, setResolvedAuthPerson] = useState<Person | null>(null);
   const [isResolvingAuthPerson, setIsResolvingAuthPerson] = useState(false);
   const [hasAttemptedPersonResolution, setHasAttemptedPersonResolution] = useState(false);
@@ -410,6 +424,39 @@ const App = () => {
     }
   }, [activeUser, canAccessDashboard, currentRole, view]);
 
+  // The networks an entrepreneur belongs to.
+  //
+  // A founder does not think in networks — they think about who is helping
+  // them. Their history is therefore assembled across every network they
+  // belong to, rather than being filtered to whichever one happens to be
+  // selected. (Privacy is still decided per network; that choice lives in the
+  // sharing controls, where the network is named explicitly.)
+  const viewerEcosystemIds = useMemo(() => {
+    const ids = (activeUser?.memberships || []).map((m) => m.ecosystem_id).filter(Boolean);
+    if (!ids.includes(currentEcosystemId)) ids.push(currentEcosystemId);
+    return Array.from(new Set(ids));
+  }, [activeUser, currentEcosystemId]);
+
+  const isEntrepreneurViewer = currentRole === 'entrepreneur';
+
+  /**
+   * Runs an ecosystem-scoped fetch across every network the viewer belongs to
+   * and merges the results, de-duplicated by id. For non-entrepreneurs this is
+   * a single call for the selected network, exactly as before.
+   */
+  const fetchAcrossViewerNetworks = React.useCallback(
+    async <T extends { id: string }>(load: (ecosystemId: string) => Promise<T[]>): Promise<T[]> => {
+      const scopes = isEntrepreneurViewer ? viewerEcosystemIds : [currentEcosystemId];
+      const results = await Promise.all(
+        scopes.map((id) => load(id).catch(() => [] as T[]))
+      );
+      const byId = new Map<string, T>();
+      results.flat().forEach((row) => { if (row?.id) byId.set(row.id, row); });
+      return Array.from(byId.values());
+    },
+    [isEntrepreneurViewer, viewerEcosystemIds, currentEcosystemId]
+  );
+
   const viewerContext: ViewerContext | null = useMemo(() => {
     if (!activeUser) {
       return null;
@@ -532,7 +579,9 @@ const App = () => {
   useEffect(() => {
     setOrganizations([]);
     if (viewerContext) {
-      repos.organizations.getAll(viewerContext, currentEcosystemId)
+      fetchAcrossViewerNetworks((ecosystemId) =>
+        repos.organizations.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
+      )
         .then(setOrganizations)
         .catch(() => setOrganizations([]));
       const canSeeArchived = ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(currentRole);
@@ -562,11 +611,13 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.interactions.getAll(viewerContext, currentEcosystemId).then(setInteractions).catch((error) => {
+      fetchAcrossViewerNetworks((ecosystemId) =>
+        repos.interactions.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
+      ).then(setInteractions).catch((error) => {
         console.error('Failed to load interactions', error);
       });
     }
-  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+  }, [repos, viewerContext, currentEcosystemId, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
     if (shouldRequireAuth && !viewerContext) {
@@ -580,11 +631,13 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.referrals.getAll(viewerContext).then(setReferrals).catch((error) => {
+      fetchAcrossViewerNetworks((ecosystemId) =>
+        repos.referrals.getAll({ ...viewerContext, ecosystemId })
+      ).then(setReferrals).catch((error) => {
         console.error('Failed to load referrals', error);
       });
     }
-  }, [repos, viewerContext, dataVersion]);
+  }, [repos, viewerContext, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
     if (shouldRequireAuth && !viewerContext) {
@@ -1208,7 +1261,7 @@ const App = () => {
         <Modal isOpen={isSwitchUserOpen} onClose={() => setIsSwitchUserOpen(false)} title="Switch Context (User)">
             <div className="space-y-2">
                 <p className="text-sm text-gray-500 mb-4">Select a user to simulate their permissions and view.</p>
-                {MOCK_PEOPLE.map(p => (
+                {demoPersonas.map(p => (
                     <button 
                       key={p.id} 
                       onClick={() => { 

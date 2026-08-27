@@ -34,6 +34,18 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
     
     // State for modal
     const [selectedInitiative, setSelectedInitiative] = useState<Initiative | null>(null);
+    const [initiativeInteractions, setInitiativeInteractions] = useState<Interaction[]>([]);
+    useEffect(() => {
+        if (!selectedInitiative) {
+            setInitiativeInteractions([]);
+            return;
+        }
+        let active = true;
+        repos.interactions.listForInitiative(viewer, selectedInitiative.id)
+            .then((list) => { if (active) setInitiativeInteractions(list); })
+            .catch((err) => console.error('Failed to load initiative interactions', err));
+        return () => { active = false; };
+    }, [repos, viewer, selectedInitiative]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
     const [isEditOrgModalOpen, setIsEditOrgModalOpen] = useState(false);
@@ -65,6 +77,20 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
 
     // Get ecosystem config
     const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
+
+    // The networks this founder belongs to. Their activity is shown across all
+    // of them, so the only place the network still matters to them is the
+    // sharing panel — which gets this list to scope its own settings.
+    const myNetworks = useMemo(() => {
+        const ids = (person.memberships || []).map(m => m.ecosystem_id).filter(Boolean);
+        if (!ids.includes(viewer.ecosystemId)) ids.push(viewer.ecosystemId);
+        return Array.from(new Set(ids)).map(id => ({
+            id,
+            name: ALL_ECOSYSTEMS.find(e => e.id === id)?.name
+                || (id === currentEcosystem?.id ? currentEcosystem?.name : undefined)
+                || id,
+        }));
+    }, [person.memberships, viewer.ecosystemId, currentEcosystem]);
     const featureFlags = ecosystem?.settings?.feature_flags || {};
     const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
     const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
@@ -561,6 +587,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                             referrals={referrals}
                             interactions={interactions}
                             ecosystemName={currentEcosystem?.name || ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId)?.name || 'this ecosystem'}
+                            availableEcosystems={myNetworks}
                             onChange={onRefresh}
                         />
                     )}
@@ -909,7 +936,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                     initiative={selectedInitiative}
                     organization={myOrg}
                     pipeline={getPipeline(selectedInitiative)} // Pass undefined if not found
-                    interactions={repos.interactions.listForInitiative(viewer, selectedInitiative.id)}
+                    interactions={initiativeInteractions}
                     isOpen={!!selectedInitiative}
                     onClose={() => setSelectedInitiative(null)}
                     onRefresh={() => onRefresh?.()}
