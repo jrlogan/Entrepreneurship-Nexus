@@ -30,3 +30,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .playwright-cli/
+dist-demo
+
+# Meeting notes / email exports with personal contact info — never commit
+docs/discussion/

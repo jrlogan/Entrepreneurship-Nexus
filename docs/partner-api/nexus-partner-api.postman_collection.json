@@ -1,0 +1,131 @@
+{
+  "info": {
+    "name": "Nexus Partner API — Consortium Sandbox",
+    "description": "Call the federated network's partner API yourself. Set the collection variables (base_url, api_key, eso_org_id, ecosystem_id) to the values you were given, then run the requests top to bottom — or improvise. Every upsert is idempotent: re-running never creates duplicates. Works identically in Postman, Insomnia, Bruno, or plain curl.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net", "description": "Sandbox Cloud Functions base URL (no trailing slash)" },
+    { "key": "api_key", "value": "REPLACE_WITH_YOUR_SANDBOX_KEY", "description": "Your org-scoped X-Nexus-API-Key" },
+    { "key": "eso_org_id", "value": "org_ef", "description": "Your organization's Nexus org id" },
+    { "key": "ecosystem_id", "value": "eco_connecticut", "description": "The demo ecosystem" },
+    { "key": "source", "value": "my_crm", "description": "A stable name for YOUR system — your external_ref namespace" },
+    { "key": "demo_email", "value": "ada.demo@example.com", "description": "Change to test the link-by-email flow across two orgs" }
+  ],
+  "item": [
+    {
+      "name": "1 · Register an entrepreneur (create)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Nexus-API-Key", "value": "{{api_key}}" }
+        ],
+        "url": "{{base_url}}/partnerUpsertPerson",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Ada\",\n  \"last_name\": \"Founder\",\n  \"email\": \"{{demo_email}}\",\n  \"tags\": [\"entrepreneur\"],\n  \"send_consent_email\": false\n}"
+        },
+        "description": "First run returns action: \"created\" and a nexus_id. Run it again: action becomes \"updated\", same nexus_id — idempotent. Set send_consent_email true to send the real opt-in email (use a test inbox)."
+      }
+    },
+    {
+      "name": "2 · Same email from a second org (link)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Nexus-API-Key", "value": "{{api_key}}" }
+        ],
+        "url": "{{base_url}}/partnerUpsertPerson",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"external_ref\": { \"source\": \"{{source}}_second_system\", \"id\": \"m-77\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Ada\",\n  \"last_name\": \"Founder\",\n  \"email\": \"{{demo_email}}\",\n  \"tags\": [\"patent\"]\n}"
+        },
+        "description": "To see the true cross-org moment, run this with ANOTHER org's key and org id (or ask the person next to you to run request 1 with the same email from their org): response is action: \"linked\", same nexus_id — one shared identity, no central signup, no duplicate."
+      }
+    },
+    {
+      "name": "3 · Read the person back (privacy scoping)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "X-Nexus-API-Key", "value": "{{api_key}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/partnerGetPerson?source={{source}}&id=contact-1",
+          "host": ["{{base_url}}"],
+          "path": ["partnerGetPerson"],
+          "query": [
+            { "key": "source", "value": "{{source}}" },
+            { "key": "id", "value": "contact-1" }
+          ]
+        },
+        "description": "Note external_refs in the response: only YOUR org's refs are returned, even when other orgs are linked to the same person. Tags are merged across orgs."
+      }
+    },
+    {
+      "name": "4 · Record a participation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Nexus-API-Key", "value": "{{api_key}}" }
+        ],
+        "url": "{{base_url}}/partnerUpsertParticipation",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"person_external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1\" },\n  \"participation_external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1_program\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"participation_type\": \"program\",\n  \"name\": \"Business Plan Competition 2026\",\n  \"status\": \"active\",\n  \"start_date\": \"2026-08-01\"\n}"
+        },
+        "description": "Typed, dated involvement. Valid types: membership, program, application, residency, rental, event, service. Statuses: active, past, applied, waitlisted. Requires the person to exist (run request 1 first)."
+      }
+    },
+    {
+      "name": "5 · Subscribe to referral webhooks",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Nexus-API-Key", "value": "{{api_key}}" }
+        ],
+        "url": "{{base_url}}/partnerRegisterWebhook",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"url\": \"https://webhook.site/REPLACE-ME\",\n  \"events\": [\"referral.received\", \"referral.updated\", \"person.linked\"],\n  \"description\": \"Sandbox experiment\"\n}"
+        },
+        "description": "Grab a free URL from webhook.site and paste it in to watch HMAC-signed deliveries arrive live. Store the signing_secret from the response — it is shown once."
+      }
+    },
+    {
+      "name": "6a · Guard: no key → 401",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{base_url}}/partnerUpsertPerson",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"external_ref\": { \"source\": \"x\", \"id\": \"1\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"A\", \"last_name\": \"B\", \"email\": \"a@b.com\"\n}"
+        },
+        "description": "Machine-to-machine only: no key, no entry."
+      }
+    },
+    {
+      "name": "6b · Guard: impersonating another org → 403",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "X-Nexus-API-Key", "value": "{{api_key}}" }
+        ],
+        "url": "{{base_url}}/partnerUpsertPerson",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"org_somebody_else\",\n  \"first_name\": \"Ada\", \"last_name\": \"Founder\", \"email\": \"{{demo_email}}\"\n}"
+        },
+        "description": "Your key can only write as your org. Every write in the network is attributable."
+      }
+    }
+  ]
+}
