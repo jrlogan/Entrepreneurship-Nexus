@@ -21,7 +21,8 @@ const baseOrg: Organization = {
   name: 'Secret Startup',
   description: 'A stealth company',
   tax_status: 'for_profit',
-  roles: ['startup'],
+  roles: [],
+  org_type: 'startup',
   owner_characteristics: [],
   classification: { industry_tags: ['fintech'] },
   external_refs: [{ source: 'Salesforce', id: '123' }],
@@ -43,7 +44,7 @@ const baseInitiative: Initiative = {
   current_stage_index: 2,
   status: 'active',
   stage_history: [],
-  checklists: [{ checklist_id: 'c1', items: [] }],
+  checklists: [{ template_id: 'c1', items_checked: {} }],
 };
 
 const baseInteraction: Interaction = {

@@ -1,19 +1,21 @@
 
 import { ConsentPolicy, ConsentEvent } from '../../domain/consent/types';
+import { policyAppliesInEcosystem } from '../../domain/consent/types';
 import { MOCK_CONSENT_POLICIES, MOCK_CONSENT_EVENTS } from '../mockData';
 import { AccessLevel } from '../../domain/types';
 
 export class ConsentRepo {
-  // Core Check: Does Viewer have active policy for Subject?
-  // ecosystemId is accepted for context scoping (even if policies are currently global)
+  // Core Check: Does Viewer have an active policy for Subject in this network?
+  // Grants are network-scoped; legacy grants without a network apply everywhere.
   hasOperationalAccess(viewerOrgId: string, subjectOrgId: string, ecosystemId?: string): boolean {
       if (!viewerOrgId || !subjectOrgId) return false;
       if (viewerOrgId === subjectOrgId) return true;
-      
-      const policy = MOCK_CONSENT_POLICIES.find(p => 
-          p.resourceId === subjectOrgId && 
-          p.viewerId === viewerOrgId && 
-          p.isActive
+
+      const policy = MOCK_CONSENT_POLICIES.find(p =>
+          p.resourceId === subjectOrgId &&
+          p.viewerId === viewerOrgId &&
+          p.isActive &&
+          policyAppliesInEcosystem(p, ecosystemId)
       );
       
       // Access is granted if policy exists and level is sufficient (anything > none)
@@ -25,9 +27,20 @@ export class ConsentRepo {
   }
 
   // Grant access (Create or Update Policy)
-  async grantAccess(resourceId: string, viewerId: string, level: AccessLevel, actorId?: string): Promise<void> {
-    const existing = MOCK_CONSENT_POLICIES.find(p => p.resourceId === resourceId && p.viewerId === viewerId);
-    
+  async grantAccess(
+    resourceId: string,
+    viewerId: string,
+    level: AccessLevel,
+    actorId?: string,
+    opts?: { ecosystemId?: string }
+  ): Promise<void> {
+    // Scoped per network: the same pair can be granted in one and not another.
+    const existing = MOCK_CONSENT_POLICIES.find(p =>
+        p.resourceId === resourceId &&
+        p.viewerId === viewerId &&
+        (p.ecosystemId || undefined) === (opts?.ecosystemId || undefined)
+    );
+
     if (existing) {
         existing.accessLevel = level;
         existing.isActive = true;
@@ -40,7 +53,8 @@ export class ConsentRepo {
             viewerId,
             accessLevel: level,
             isActive: true,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            ...(opts?.ecosystemId ? { ecosystemId: opts.ecosystemId } : {}),
         });
     }
 

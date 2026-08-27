@@ -6,7 +6,7 @@ import { ViewerContext, explainOrgAccess, canViewOperationalDetails } from '../.
 import { redactOrganization } from '../../domain/access/redaction';
 import { ConsentRepo } from './consent';
 
-interface IngestionResult {
+export interface IngestionResult {
     status: 'created' | 'updated' | 'error';
     entity: Organization;
     message: string;

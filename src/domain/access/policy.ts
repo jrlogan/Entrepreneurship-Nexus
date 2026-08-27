@@ -62,7 +62,26 @@ export const canViewOperationalDetails = (viewer: ViewerContext, org: Organizati
     if (viewer.orgId === org.id) return true;
     if (hasConsent) return true;
 
-    return org.operational_visibility === 'open';
+    return effectiveVisibility(org, viewer.ecosystemId) === 'open';
+};
+
+/**
+ * The visibility setting in force for one network.
+ *
+ * An organization can be open to its county cluster while staying restricted
+ * statewide, so the per-network map wins where set. Networks with no explicit
+ * choice fall back to the org-wide default, which is what every record had
+ * before per-network settings existed.
+ */
+export const effectiveVisibility = (
+    org: Pick<Organization, 'operational_visibility' | 'operational_visibility_by_ecosystem'>,
+    ecosystemId?: string
+): Organization['operational_visibility'] => {
+    if (ecosystemId) {
+        const perNetwork = org.operational_visibility_by_ecosystem?.[ecosystemId];
+        if (perNetwork) return perNetwork;
+    }
+    return org.operational_visibility;
 };
 
 // Alias for backward compatibility / explicit naming

@@ -1,6 +1,6 @@
 
 import { Organization, Initiative, Interaction, Referral, MetricLog, SystemRole } from '../types';
-import { ViewerContext } from './privacy';
+import { ViewerContext } from './policy';
 
 // --- Constants ---
 export const REDACTED_TEXT = "REDACTED";

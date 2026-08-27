@@ -91,6 +91,10 @@ export interface Organization {
   // Identification
   ein?: string; // Tax ID for precise matching
 
+  // Server-managed timestamps (set by the Firebase repo on add/update)
+  created_at?: string;
+  updated_at?: string;
+
   // Extensions
   roles: OrganizationRole[];
   org_type?: OrganizationType;
@@ -106,7 +110,17 @@ export interface Organization {
   managed_by_ids: string[]; // IDs of ESO orgs that count this org as a client
   
   // Privacy
-  operational_visibility: OperationalVisibility; // Replaces 'visibility'
+  operational_visibility: OperationalVisibility; // Default when a network has no explicit setting
+  /**
+   * Per-network default visibility.
+   *
+   * An organization can belong to several networks (a county cluster and a
+   * statewide network, say), and "open to everyone here" is a different
+   * decision in each. Keyed by ecosystem id; a network absent from the map
+   * falls back to `operational_visibility`, so existing records keep their
+   * current behaviour until the owner makes a per-network choice.
+   */
+  operational_visibility_by_ecosystem?: Record<string, OperationalVisibility>;
   // consents: Consent[]; // REMOVED: Managed via ConsentPolicy repo now
   authorized_eso_ids: string[]; // List of ESOs the client has trusted (Legacy/Metadata)
   

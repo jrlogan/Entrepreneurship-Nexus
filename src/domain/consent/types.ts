@@ -16,7 +16,36 @@ export interface ConsentPolicy {
   updatedAt: string;
   grantedVia?: ConsentGrantedVia;
   requestId?: string; // Links to ConsentRequest if grantedVia === 'eso_request'
+  /**
+   * The network the grant was made in.
+   *
+   * Consent is given inside a context — "I'm sharing with my county cluster"
+   * is a different decision from "I'm sharing with the statewide network" —
+   * and an entrepreneur may belong to several. A grant applies only within
+   * its ecosystem.
+   *
+   * Optional for backward compatibility: policies written before scoping
+   * existed carry no ecosystem and are treated as network-wide (see
+   * policyAppliesInEcosystem). New grants always set it.
+   */
+  ecosystemId?: string;
 }
+
+/**
+ * Whether a stored grant is in force for the network being evaluated.
+ *
+ * Legacy grants (no ecosystemId) stay in force everywhere so an upgrade never
+ * silently revokes access someone is relying on — they are surfaced in the UI
+ * as unscoped so an entrepreneur can re-make or revoke them deliberately.
+ */
+export const policyAppliesInEcosystem = (
+  policy: Pick<ConsentPolicy, 'ecosystemId'>,
+  ecosystemId?: string
+): boolean => {
+  if (!policy.ecosystemId) return true;
+  if (!ecosystemId) return true;
+  return policy.ecosystemId === ecosystemId;
+};
 
 export interface ConsentEvent {
   id: string;

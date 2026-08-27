@@ -8,7 +8,8 @@ import type { Organization } from './organizations/types';
 const makeOrg = (overrides: Partial<Organization> & { id: string; name: string }): Organization => ({
   description: '',
   tax_status: 'for_profit',
-  roles: ['startup'],
+  roles: [],
+  org_type: 'startup',
   owner_characteristics: [],
   classification: { industry_tags: [] },
   external_refs: [],

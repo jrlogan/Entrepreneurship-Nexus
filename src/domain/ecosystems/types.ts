@@ -27,7 +27,8 @@ export interface Ecosystem {
   name: string;
   region: string;
   settings: {
-    interaction_privacy_default: 'open' | 'restricted'; // Updated to match new model
+    // Default visibility for newly logged interactions (InteractionVisibility vocabulary)
+    interaction_privacy_default: 'network_shared' | 'eso_private';
     feature_flags?: {
       advanced_workflows?: boolean;
       dashboard?: boolean;
@@ -35,6 +36,7 @@ export interface Ecosystem {
       initiatives?: boolean;
       processes?: boolean;
       interactions?: boolean;
+      interactions_ai?: boolean;
       reports?: boolean;
       venture_scout?: boolean;
       api_console?: boolean;

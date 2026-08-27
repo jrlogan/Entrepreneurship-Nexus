@@ -1,5 +1,6 @@
-import { queryCollection, whereEquals, setDocument, updateDocument } from '../../../services/firestoreClient';
+import { getDocument, queryCollection, whereEquals, setDocument, updateDocument } from '../../../services/firestoreClient';
 import type { ConsentPolicy, ConsentEvent, ConsentRequest, ConsentRequestStatus } from '../../../domain/consent/types';
+import { policyAppliesInEcosystem } from '../../../domain/consent/types';
 import type { AccessLevel } from '../../../domain/types';
 import { ConsentRepo } from '../consent';
 
@@ -8,27 +9,36 @@ export class FirebaseConsentRepo extends ConsentRepo {
   private eventCache = new Map<string, ConsentEvent[]>();
   private accessCache = new Map<string, boolean>();
 
+  // Grants are network-scoped, so the cache must be too: the same pair of
+  // organizations can legitimately have access in one network and not in
+  // another.
   private getAccessCacheKey(viewerOrgId: string, subjectOrgId: string, ecosystemId?: string) {
-    return `${viewerOrgId}::${subjectOrgId}::${ecosystemId || ''}`;
+    return `${viewerOrgId}::${subjectOrgId}::${ecosystemId || 'any'}`;
   }
 
-  hasOperationalAccess(viewerOrgId: string, subjectOrgId: string, _ecosystemId?: string): boolean {
+  hasOperationalAccess(viewerOrgId: string, subjectOrgId: string, ecosystemId?: string): boolean {
     // Synchronous check not feasible with Firestore — callers should use hasOperationalAccessAsync
     if (!viewerOrgId || !subjectOrgId) return false;
     if (viewerOrgId === subjectOrgId) return true;
-    return this.accessCache.get(this.getAccessCacheKey(viewerOrgId, subjectOrgId, _ecosystemId)) || false;
+    return this.accessCache.get(this.getAccessCacheKey(viewerOrgId, subjectOrgId, ecosystemId)) || false;
   }
 
-  async hasOperationalAccessAsync(viewerOrgId: string, subjectOrgId: string): Promise<boolean> {
+  async hasOperationalAccessAsync(viewerOrgId: string, subjectOrgId: string, ecosystemId?: string): Promise<boolean> {
     if (!viewerOrgId || !subjectOrgId) return false;
     if (viewerOrgId === subjectOrgId) return true;
-    const policies = await queryCollection<ConsentPolicy>('consent_policies', [
+    const raw = await queryCollection<Record<string, unknown>>('consent_policies', [
       whereEquals('resource_id', subjectOrgId),
       whereEquals('viewer_id', viewerOrgId),
       whereEquals('is_active', true),
     ]);
-    const hasAccess = policies.some(p => ['read', 'write', 'admin'].includes(p.accessLevel));
-    this.accessCache.set(this.getAccessCacheKey(viewerOrgId, subjectOrgId), hasAccess);
+    // Firestore docs are snake_case — normalize before reading accessLevel.
+    // A grant only counts in the network it was made in; legacy grants with
+    // no network recorded still count everywhere (see policyAppliesInEcosystem).
+    const policies = raw.map(this.normalizePolicy);
+    const hasAccess = policies.some(
+      p => ['read', 'write', 'admin'].includes(p.accessLevel) && policyAppliesInEcosystem(p, ecosystemId)
+    );
+    this.accessCache.set(this.getAccessCacheKey(viewerOrgId, subjectOrgId, ecosystemId), hasAccess);
     return hasAccess;
   }
 
@@ -37,15 +47,22 @@ export class FirebaseConsentRepo extends ConsentRepo {
     viewerId: string,
     level: AccessLevel,
     actorId: string,
-    opts?: { grantedVia?: ConsentPolicy['grantedVia']; requestId?: string; overrideReason?: string }
+    opts?: { grantedVia?: ConsentPolicy['grantedVia']; requestId?: string; overrideReason?: string; ecosystemId?: string }
   ): Promise<void> {
     const now = new Date().toISOString();
     // Check for existing policy to update
-    const existing = await queryCollection<ConsentPolicy & { id: string }>('consent_policies', [
+    // A grant is per (subject, viewer, network) — the same two organizations
+    // can be granted in one network and not another, so an existing policy is
+    // only reused when it belongs to the same network.
+    const existing = await queryCollection<ConsentPolicy & { id: string; ecosystem_id?: string }>('consent_policies', [
       whereEquals('resource_id', resourceId),
       whereEquals('viewer_id', viewerId),
     ]);
-    const policyId = existing[0]?.id || `pol_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const sameScope = existing.find(
+      (p) => (p as unknown as Record<string, unknown>)['ecosystem_id'] === (opts?.ecosystemId || undefined)
+        || (!((p as unknown as Record<string, unknown>)['ecosystem_id']) && !opts?.ecosystemId)
+    );
+    const policyId = sameScope?.id || `pol_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await setDocument('consent_policies', policyId, {
       resource_id: resourceId,
       viewer_id: viewerId,
@@ -55,6 +72,7 @@ export class FirebaseConsentRepo extends ConsentRepo {
       updated_at: now,
       granted_via: opts?.grantedVia || 'self',
       request_id: opts?.requestId || null,
+      ...(opts?.ecosystemId ? { ecosystem_id: opts.ecosystemId } : {}),
     });
     await this.logEvent({
       id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -160,12 +178,8 @@ export class FirebaseConsentRepo extends ConsentRepo {
   }
 
   async getConsentRequest(requestId: string): Promise<ConsentRequest | null> {
-    const results = await queryCollection<Record<string, unknown>>('consent_requests', [
-      whereEquals('__name__', requestId),
-    ]);
-    // Direct doc fetch not available via queryCollection — use the raw result
-    if (!results.length) return null;
-    return this.normalizeRequest(results[0]);
+    const raw = await getDocument<Record<string, unknown>>('consent_requests', requestId);
+    return raw ? this.normalizeRequest(raw) : null;
   }
 
   async updateConsentRequestStatus(
@@ -216,7 +230,6 @@ export class FirebaseConsentRepo extends ConsentRepo {
   }
 
   async hasOnboardingAcknowledgment(personId: string, ecosystemId: string): Promise<boolean> {
-    const id = `ack_${personId}_${ecosystemId}`;
     const results = await queryCollection<Record<string, unknown>>('consent_events', [
       whereEquals('resource_id', personId),
       whereEquals('viewer_id', ecosystemId),
@@ -236,6 +249,7 @@ export class FirebaseConsentRepo extends ConsentRepo {
       updatedAt: (raw['updated_at'] as string) || '',
       grantedVia: (raw['granted_via'] as ConsentPolicy['grantedVia']) || undefined,
       requestId: (raw['request_id'] as string) || undefined,
+      ecosystemId: (raw['ecosystem_id'] as string) || undefined,
     };
   }
 

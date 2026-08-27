@@ -25,6 +25,7 @@ import { FirebaseServicesRepo } from './firebase/services';
 import { FirebaseGrantsRepo } from './firebase/grants';
 import { FirebaseConsentRepo } from './firebase/consent';
 import { FirebaseCalendarRepo } from './firebase/calendar';
+import { FirebaseEcosystemsRepo } from './firebase/ecosystems';
 import { CONFIG } from '../../app/config';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
@@ -37,7 +38,7 @@ export class AppRepos {
   public pipelines: PipelinesRepo | FirebasePipelinesRepo;
   public todos = new TodosRepo();
   public advisor = new AdvisorRepo();
-  public ecosystems = new EcosystemsRepo();
+  public ecosystems: EcosystemsRepo | FirebaseEcosystemsRepo;
   public metrics: MetricsRepo;
   public flexibleMetrics = new FlexibleMetricsRepo(); // New Flexible Layer
   public inboundMessages: InboundMessagesRepo | FirebaseInboundMessagesRepo;
@@ -49,6 +50,7 @@ export class AppRepos {
       const useFirebase = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
       this.consent = useFirebase ? new FirebaseConsentRepo() : new ConsentRepo();
       this.metrics = new MetricsRepo(this.consent);
+      this.ecosystems = useFirebase ? new FirebaseEcosystemsRepo() : new EcosystemsRepo();
       
       this.organizations = useFirebase ? new FirebaseOrganizationsRepo(this.consent) : new OrganizationsRepo(this.consent);
       this.people = useFirebase ? new FirebasePeopleRepo() : new PeopleRepo();

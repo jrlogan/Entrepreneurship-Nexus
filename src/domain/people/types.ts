@@ -27,6 +27,9 @@ export interface EcosystemMembership {
   ecosystem_id: string;
   system_role: SystemRole;
   joined_at: string;
+  // Organization this membership is scoped to (mirrors the server-side
+  // person_memberships records; empty/absent for bare entrepreneur signups).
+  organization_id?: string;
 }
 
 export interface PersonOrganizationAffiliation {

@@ -52,6 +52,10 @@ export interface Initiative {
   status: 'active' | 'paused' | 'completed' | 'abandoned';
   ecosystem_id: string; // Scoped to ecosystem
   notes?: string;
+
+  // Server-managed timestamps (set by the Firebase repo on add/update)
+  created_at?: string;
+  updated_at?: string;
   
   // New: Timeline Targets
   start_date?: string;

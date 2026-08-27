@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import type { Organization, Referral, Interaction } from '../../domain/types';
 import type { ConsentPolicy } from '../../domain/consent/types';
+import { policyAppliesInEcosystem } from '../../domain/consent/types';
+import { effectiveVisibility } from '../../domain/access/policy';
 import { Card, CompanyLogo } from '../../shared/ui/Components';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 
@@ -72,7 +74,12 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
       )
       .map((o) => ({
         org: o,
-        policy: policies.find((p) => p.viewerId === o.id && p.isActive) ?? null,
+        // Only a grant made in THIS network counts here. A grant made in
+        // another network is shown separately below rather than silently
+        // rendering this network's toggle as "on".
+        policy: policies.find(
+          (p) => p.viewerId === o.id && p.isActive && policyAppliesInEcosystem(p, viewer.ecosystemId)
+        ) ?? null,
         hasRelationship: relatedIds.has(o.id),
       }))
       .sort((a, b) => {
@@ -88,14 +95,22 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
     return list;
   }, [organizations, policies, referrals, interactions, myOrg.id, viewer.ecosystemId]);
 
-  const isOpenMode = myOrg.operational_visibility === 'open';
+  const isOpenMode = effectiveVisibility(myOrg, viewer.ecosystemId) === 'open';
 
   const handleSetVisibility = async (next: 'open' | 'restricted') => {
-    if (myOrg.operational_visibility === next) return;
+    if (effectiveVisibility(myOrg, viewer.ecosystemId) === next) return;
     setVisibilityBusy(true);
     setError(null);
     try {
-      await repos.organizations.update(myOrg.id, { operational_visibility: next });
+      // Per-network: opening up to one network must not open up the others.
+      // The org-wide field stays as the fallback for networks with no explicit
+      // choice, so existing behaviour is preserved everywhere untouched.
+      await repos.organizations.update(myOrg.id, {
+        operational_visibility_by_ecosystem: {
+          ...(myOrg.operational_visibility_by_ecosystem || {}),
+          [viewer.ecosystemId]: next,
+        },
+      });
       onChange?.();
     } catch {
       setError('Could not update sharing default. Try again.');
@@ -111,7 +126,9 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
       if (next) {
         // Base ConsentRepo signature is (resource, viewer, level, actor); the
         // Firebase impl defaults grantedVia to 'self' when no opts arg is given.
-        await repos.consent.grantAccess(myOrg.id, row.org.id, 'read', viewer.personId);
+        await repos.consent.grantAccess(myOrg.id, row.org.id, 'read', viewer.personId, {
+          ecosystemId: viewer.ecosystemId,
+        });
       } else if (row.policy) {
         await repos.consent.revokeAccess(row.policy.id, viewer.personId, myOrg.id, row.org.id, 'Revoked by entrepreneur via portal');
       }
@@ -124,7 +141,38 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
     }
   };
 
+  const handleRevokeOther = async (policy: ConsentPolicy) => {
+    setError(null);
+    try {
+      await repos.consent.revokeAccess(
+        policy.id,
+        viewer.personId,
+        myOrg.id,
+        policy.viewerId,
+        'Revoked by entrepreneur via portal (other network)'
+      );
+      await loadPolicies();
+      onChange?.();
+    } catch {
+      setError('Could not revoke that grant. Try again.');
+    }
+  };
+
   const grantedCount = esoRows.filter((r) => !!r.policy).length;
+
+  // Grants the entrepreneur made in their OTHER networks. Previously these
+  // were loaded, still in force, and then filtered out of the list — active
+  // access that could not be seen or revoked from this screen. They are shown
+  // separately so every organization that can see the venture is accounted
+  // for, wherever the grant was made.
+  const otherNetworkGrants = useMemo(() => {
+    return policies
+      .filter((p) => p.isActive && !policyAppliesInEcosystem(p, viewer.ecosystemId))
+      .map((p) => ({
+        policy: p,
+        org: organizations.find((o) => o.id === p.viewerId) || null,
+      }));
+  }, [policies, organizations, viewer.ecosystemId]);
 
   return (
     <Card title="Who can see my activity" className="border-t-4 border-t-emerald-500">
@@ -215,6 +263,41 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
                 );
               })}
             </ul>
+
+            {otherNetworkGrants.length > 0 && (
+              <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-amber-800 mb-1">
+                  Access granted in your other networks
+                </div>
+                <p className="text-xs text-amber-800 mb-2">
+                  These organizations can see your venture through a grant you made in a different
+                  network. They are listed here so nothing is sharing quietly — you can revoke any of
+                  them from here.
+                </p>
+                <ul className="divide-y divide-amber-200 rounded border border-amber-200 bg-white">
+                  {otherNetworkGrants.map(({ policy, org }) => (
+                    <li key={policy.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-gray-900 truncate">
+                          {org?.name || 'Organization outside your current network'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {policy.ecosystemId ? `Granted in another network` : 'Granted before networks were separated — applies everywhere'}
+                          {policy.updatedAt ? ` · ${formatDate(policy.updatedAt)}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-rose-700 hover:underline shrink-0"
+                        onClick={() => void handleRevokeOther(policy)}
+                      >
+                        Revoke
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
