@@ -174,6 +174,28 @@ const participation = await call('partnerUpsertParticipation', {
 });
 assert.ok(participation.status < 300, `Participation failed: ${JSON.stringify(participation.body)}`);
 takeaway('Entrepreneur ↔ provider A link is now on the shared record.');
+await pause();
+
+// A coaching session happens — the EVENT joins the shared activity timeline;
+// the notes never leave provider A.
+console.log(`\n${bold('   (activity)')} ${dim('A mentoring session happens. The dated event goes on the timeline:')}`);
+const session = await call('pushInteraction', {
+  as: ESO_A,
+  body: {
+    ecosystem_id: ECOSYSTEM_ID,
+    organization_id: ESO_A.orgId,
+    person_id: nexusId,
+    date: '2026-08-15',
+    type: 'meeting',
+    notes: 'Coaching session held. (Detail stays private to the recording org.)',
+  },
+});
+assert.ok(session.status < 300, `Interaction failed: ${JSON.stringify(session.body)}`);
+takeaway('Memberships starting/stopping, referrals, sessions — every dated event accumulates');
+console.log('     into one activity timeline. Whether "it happened" is network-visible is a');
+console.log('     per-event choice; the notes themselves are never shared (not even in webhooks).');
+console.log(dim('     This log is the coordination view (who is helping, how active) and the raw'));
+console.log(dim('     material for survival/jobs statistics — no extra reporting work.'));
 
 // ── 3. Provider B recognizes the same entrepreneur (shared identity) ─────────
 await step(3, `Entrepreneur shows up at ${ESO_B.name} — systems LINK, not duplicate`,
