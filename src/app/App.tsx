@@ -18,6 +18,7 @@ import {
 } from '../domain/types';
 import { ViewerContext } from '../domain/access/policy';
 import { getCapabilitiesForRole } from '../domain/access/policy'; // Imported helper
+import { computeNavAccess } from '../domain/access/navAccess';
 import { 
   ALL_ORGANIZATIONS,
   INITIATIVE_A, 
@@ -39,8 +40,7 @@ import { calculatePipelineProgress, calculateDaysBetween, detectDuplicates } fro
 // Repos & Context
 import { AppRepos } from '../data/repos';
 import { AppDataProvider } from '../data/AppDataContext';
-import { setDocument, getDocument } from '../services/firestoreClient';
-import { isEmulatorMode } from '../services/firebaseConfig';
+import { setDocument } from '../services/firestoreClient';
 import { callHttpFunction } from '../services/httpFunctionClient';
 
 // Shared
@@ -97,6 +97,7 @@ const APP_VIEWS = new Set<ViewMode>([
   'my_clients', 'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
   'journey', 'ecosystem_config', 'scout', 'todos', 'my_org', 'my_projects', 'data_standards',
   'metrics_manager', 'my_metrics_tasks', 'inbound_intake', 'grants',
+  'community_calendar', 'platform_admin', 'admin_access_log',
 ]);
 
 type RouteState = {
@@ -252,17 +253,27 @@ const App = () => {
     });
     return initial;
   });
+  // Ecosystems are hydrated from Firestore at boot so server-created
+  // ecosystems (e.g. a federated demo ecosystem) appear in the UI instead of
+  // being limited to the hardcoded ALL_ECOSYSTEMS seed list.
+  const [availableEcosystemList, setAvailableEcosystemList] = useState<Ecosystem[]>(
+    () => repos.ecosystems.getAll()
+  );
   useEffect(() => {
-    // Overlay with Firestore data when available (production)
-    if (isEmulatorMode) return;
-    ALL_ECOSYSTEMS.forEach(eco => {
-      getDocument('ecosystems', eco.id).then(doc => {
-        if (doc) setEcosystemOverrides(prev => ({ ...prev, [eco.id]: doc as Partial<Ecosystem> }));
-      }).catch(() => {});
-    });
-  }, []);
+    let active = true;
+    repos.ecosystems.hydrate()
+      .then((list) => { if (active) setAvailableEcosystemList([...list]); })
+      .catch((error) => {
+        // Don't swallow this: a permission error here means ecosystem config
+        // and feature flags silently fall back to hardcoded mock defaults.
+        console.error('Failed to load ecosystem config', error);
+      });
+    return () => { active = false; };
+  }, [repos]);
 
-  const baseEcosystem = ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId) || DEFAULT_ECO;
+  const baseEcosystem = availableEcosystemList.find(e => e.id === currentEcosystemId)
+    || ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId)
+    || DEFAULT_ECO;
   const override = ecosystemOverrides[currentEcosystemId] || {};
   const currentEcosystem: Ecosystem = {
     ...baseEcosystem,
@@ -298,22 +309,23 @@ const App = () => {
     },
   };
   const featureFlags = currentEcosystem.settings.feature_flags || {};
-  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-  const canAccessDashboard = canAccessAdvancedWorkflows || featureFlags.dashboard === true;
-  const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
-  const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
-  const canAccessProcesses = canAccessAdvancedWorkflows || featureFlags.processes === true;
-  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
-  const canAccessReports = canAccessAdvancedWorkflows || featureFlags.reports === true;
-  const canAccessVentureScout = canAccessAdvancedWorkflows || featureFlags.venture_scout === true;
   const isPlatformAdmin = currentRole === 'platform_admin';
-  const canAccessApiConsole = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.api_console === true);
-  const canAccessDataQuality = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_quality === true);
-  const canAccessDataStandards = isPlatformAdmin || (['eso_admin', 'ecosystem_manager'].includes(currentRole) && featureFlags.data_standards === true);
-  const canAccessMetricsManager = (isPlatformAdmin || currentRole === 'ecosystem_manager') && featureFlags.metrics_manager === true;
-  const canAccessInboundIntake = isPlatformAdmin || (currentRole === 'ecosystem_manager' && featureFlags.inbound_intake === true);
-  const canAccessGrantLab = featureFlags.grant_lab === true;
-  const canAccessCommunityCalendar = isPlatformAdmin || featureFlags.community_calendar === true;
+  const {
+    canAccessDashboard,
+    canAccessTasksAdvice,
+    canAccessInitiatives,
+    canAccessProcesses,
+    canAccessInteractions,
+    canAccessReports,
+    canAccessVentureScout,
+    canAccessApiConsole,
+    canAccessDataQuality,
+    canAccessDataStandards,
+    canAccessMetricsManager,
+    canAccessInboundIntake,
+    canAccessGrantLab,
+    canAccessCommunityCalendar,
+  } = computeNavAccess(currentRole, featureFlags);
   const canAccessPlatformAdmin = isPlatformAdmin;
 
   useEffect(() => {
@@ -508,19 +520,25 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.people.getAll(currentEcosystemId).then(setPeople);
+      repos.people.getAll(currentEcosystemId).then(setPeople).catch((error) => {
+        console.error('Failed to load people', error);
+      });
     }
   }, [repos, viewerContext, currentEcosystemId, dataVersion]);
 
   useEffect(() => {
     if (viewerContext) {
-      repos.pipelines.getInitiativesForViewer(viewerContext, currentEcosystemId).then(setInitiatives);
+      repos.pipelines.getInitiativesForViewer(viewerContext, currentEcosystemId).then(setInitiatives).catch((error) => {
+        console.error('Failed to load initiatives', error);
+      });
     }
   }, [repos, viewerContext, currentEcosystemId, dataVersion]);
 
   useEffect(() => {
     if (viewerContext) {
-      repos.interactions.getAll(viewerContext, currentEcosystemId).then(setInteractions);
+      repos.interactions.getAll(viewerContext, currentEcosystemId).then(setInteractions).catch((error) => {
+        console.error('Failed to load interactions', error);
+      });
     }
   }, [repos, viewerContext, currentEcosystemId, dataVersion]);
 
@@ -536,7 +554,9 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.referrals.getAll(viewerContext).then(setReferrals);
+      repos.referrals.getAll(viewerContext).then(setReferrals).catch((error) => {
+        console.error('Failed to load referrals', error);
+      });
     }
   }, [repos, viewerContext, dataVersion]);
 
@@ -644,6 +664,7 @@ const App = () => {
       (view === 'metrics_manager' && !canAccessMetricsManager) ||
       (view === 'inbound_intake' && !canAccessInboundIntake) ||
       (view === 'grants' && !canAccessGrantLab) ||
+      (view === 'community_calendar' && !canAccessCommunityCalendar) ||
       (view === 'platform_admin' && !canAccessPlatformAdmin);
 
     if (viewFeatureBlocked) {
@@ -752,7 +773,7 @@ const App = () => {
         actingOrganizations={actingOrganizations}
         currentRole={currentRole}
         currentEcosystem={currentEcosystem}
-        availableEcosystems={currentRole === 'platform_admin' ? ALL_ECOSYSTEMS : ALL_ECOSYSTEMS.filter(e => activeUser.memberships?.some(m => m.ecosystem_id === e.id))}
+        availableEcosystems={currentRole === 'platform_admin' ? availableEcosystemList : availableEcosystemList.filter(e => activeUser.memberships?.some(m => m.ecosystem_id === e.id))}
         onSwitchEcosystem={(ecosystemId) => applyRoute({
           view,
           orgId: selectedOrgId,
@@ -884,7 +905,7 @@ const App = () => {
            {view === 'ecosystem_config' && (
                <EcosystemConfigView
                  ecosystem={currentEcosystem}
-                 allEcosystems={ALL_ECOSYSTEMS.map(e => {
+                 allEcosystems={availableEcosystemList.map(e => {
                    const ov = ecosystemOverrides[e.id];
                    if (!ov) return e;
                    return { ...e, ...ov, settings: { ...e.settings, ...(ov.settings || {}) } };
@@ -1015,7 +1036,7 @@ const App = () => {
            )}
            
            {/* Fallback for other views */}
-           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin', 'admin_access_log'].includes(view) && (
+           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin', 'admin_access_log', 'grants', 'community_calendar', 'referral_form'].includes(view) && (
               <div className="flex items-center justify-center h-full text-gray-400">
                 View "{view}" is under construction.
               </div>

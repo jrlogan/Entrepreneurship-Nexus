@@ -396,8 +396,14 @@ to fetch the full record if needed.
 | `interaction.logged` | A new interaction was logged for a person by your ESO |
 | `referral.received` | A new referral was made to your ESO |
 | `referral.updated` | Status or notes changed on an existing referral to your ESO |
-| `organization.created` | A new organization was created in your ecosystem |
-| `organization.updated` | An organization in your ecosystem was updated |
+| `organization.created` | *(reserved — accepted at registration, delivery not yet implemented)* |
+| `organization.updated` | *(reserved — accepted at registration, delivery not yet implemented)* |
+
+Note: only `interaction.logged`, `referral.received`, and `referral.updated`
+are delivered today (see the Firestore triggers in `functions/src/partnerApi.ts`).
+The organization events are reserved names — you can subscribe now, but until
+delivery ships, pick up organization changes by polling `partnerGetPerson` /
+re-reading the records you care about.
 
 ---
 
