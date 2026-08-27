@@ -104,6 +104,58 @@ export const FEDERATION_COMPACT_CONTENT: AgreementContent = {
   ],
 };
 
+// The organization-facing membership agreement. The compact explains the
+// network to entrepreneurs; the DUA governs how staff handle data. Neither
+// states what an organization commits to in order to JOIN — so this does.
+export const NETWORK_MEMBERSHIP_CONTENT: AgreementContent = {
+  title: 'Joining the network: what your organization agrees to',
+  badge: 'Network Membership',
+  badgeColor: 'bg-sky-400/10 border-sky-400/30 text-sky-300',
+  checkLabel: 'I am authorized to commit my organization to these terms',
+  sections: [
+    {
+      heading: 'Who can join',
+      body: 'Membership is open to organizations that provide direct support to entrepreneurs — support organizations, funders, and resource providers — operating in the region a network covers. An organization joins a network; it may join more than one, and its obligations are the same in each.',
+    },
+    {
+      heading: 'You keep your own systems and your own data',
+      body: 'Joining does not require you to adopt anyone else\'s software, migrate your records, or hand over your database. You keep your own tools, your own record identifiers, and your own client relationships. You share only the agreed common fields, and only for the entrepreneurs you actually work with.',
+    },
+    {
+      heading: 'What you contribute',
+      body: 'You agree to map your terms onto the shared data standard, to record referrals you send and receive through the network so they can be tracked to a conclusion, and to keep the status of your own records reasonably current. You are never obliged to collect data you do not already collect.',
+    },
+    {
+      heading: 'You honour the entrepreneur\'s choices',
+      body: 'Consent travels with the person, not with your copy of their record. You agree to respect directory and sharing choices as they are recorded in the network, to seek consent before requesting another organization\'s operational data, and to stop using data an entrepreneur has withdrawn from sharing.',
+    },
+    {
+      heading: 'You answer referrals',
+      body: 'A referral sent to your organization is a commitment made to an entrepreneur. You agree to accept or decline referrals within a reasonable period, to name someone responsible when you accept, and to record the outcome — including when the outcome is that you were not the right fit.',
+    },
+    {
+      heading: 'You protect your credentials',
+      body: 'API keys and sign-in integrations are issued to your organization and identify every action it takes in the network. You agree to store them as secrets, to limit them to staff who need them, and to notify the network administrator promptly if one may have been exposed so it can be revoked.',
+    },
+    {
+      heading: 'You participate in governance',
+      body: 'Members share responsibility for the standard and the compact. Each member organization is entitled to a seat in the governance of the network, and agrees that changes to the shared standard, the agreements, and the operator arrangement are made collectively rather than by any single organization.',
+    },
+    {
+      heading: 'Aggregate reporting',
+      body: 'Anonymous, aggregate statistics — entrepreneurs served, businesses started and still operating, jobs, capital — may be published by the network to describe the ecosystem\'s impact. Individual entrepreneur data is never published, and no member may present the network\'s aggregate results as solely its own.',
+    },
+    {
+      heading: 'Leaving, and being asked to leave',
+      body: 'You may leave a network at any time; your own systems and records are unaffected, your keys are revoked, and records you contributed remain subject to the entrepreneurs\' own consent choices. Membership may be suspended for breach of this agreement or the data usage agreement — including misuse of another member\'s data or an entrepreneur\'s information — by decision of the network\'s governance body.',
+    },
+    {
+      heading: 'This is not an exclusivity arrangement',
+      body: 'Membership does not restrict who you may serve, partner with, fund, or compete against. Nothing here obliges you to refer to any particular member, and the network takes no position on relationships between members outside it.',
+    },
+  ],
+};
+
 // Short version of the use-of-data terms shown to ESO staff at point-of-access
 // (banner above another ESO's operational data). Distills the DUA + compact
 // into 3 bullets that mirror the entrepreneur-facing privacy notice, so what
@@ -117,6 +169,7 @@ export const COMPACT_SUMMARY: string[] = [
 export function getContent(type: AgreementType): AgreementContent {
   if (type === 'privacy_policy') return PRIVACY_POLICY_CONTENT;
   if (type === 'data_usage_agreement') return DUA_CONTENT;
+  if (type === 'network_membership') return NETWORK_MEMBERSHIP_CONTENT;
   return FEDERATION_COMPACT_CONTENT;
 }
 

@@ -31,11 +31,13 @@ const sig = (overrides: Partial<OrgAgreementAcceptance>): OrgAgreementAcceptance
 const VERSIONS_DRAFT: Record<OrgAgreementType, string> = {
   data_usage_agreement: '1.0',
   federation_compact: '0.1-draft',
+  network_membership: '0.1-draft',
 };
 
 const VERSIONS_FINAL: Record<OrgAgreementType, string> = {
   data_usage_agreement: '1.0',
   federation_compact: '1.0',
+  network_membership: '1.0',
 };
 
 // ---------------------------------------------------------------------------
@@ -53,7 +55,7 @@ describe('computeSignatureStatus', () => {
     const signatures = [sig({ agreement_type: 'federation_compact', version: '1.0' })];
     const status = computeSignatureStatus(signatures, ORG_REQUIRED_AGREEMENTS, VERSIONS_FINAL);
     expect(status.signed).toBe(false);
-    expect(status.missingTypes).toEqual(['data_usage_agreement']);
+    expect(status.missingTypes).toEqual(['network_membership', 'data_usage_agreement']);
     expect(status.staleTypes).toEqual([]);
   });
 
@@ -61,6 +63,7 @@ describe('computeSignatureStatus', () => {
     const signatures = [
       sig({ agreement_type: 'federation_compact', version: '0.1-draft' }),
       sig({ id: 's2', agreement_type: 'data_usage_agreement', version: '1.0' }),
+      sig({ id: 's3', agreement_type: 'network_membership', version: '1.0' }),
     ];
     const status = computeSignatureStatus(signatures, ORG_REQUIRED_AGREEMENTS, VERSIONS_FINAL);
     expect(status.signed).toBe(false);
@@ -76,6 +79,7 @@ describe('computeSignatureStatus', () => {
         revoked_at: '2026-05-02T00:00:00.000Z',
       }),
       sig({ id: 's2', agreement_type: 'data_usage_agreement', version: '1.0' }),
+      sig({ id: 's3', agreement_type: 'network_membership', version: '1.0' }),
     ];
     const status = computeSignatureStatus(signatures, ORG_REQUIRED_AGREEMENTS, VERSIONS_FINAL);
     expect(status.signed).toBe(false);
@@ -87,6 +91,7 @@ describe('computeSignatureStatus', () => {
     const signatures = [
       sig({ agreement_type: 'federation_compact', version: '1.0' }),
       sig({ id: 's2', agreement_type: 'data_usage_agreement', version: '1.0' }),
+      sig({ id: 's3', agreement_type: 'network_membership', version: '1.0' }),
     ];
     const status = computeSignatureStatus(signatures, ORG_REQUIRED_AGREEMENTS, VERSIONS_FINAL);
     expect(status.signed).toBe(true);
@@ -101,6 +106,7 @@ describe('computeSignatureStatus', () => {
     const signatures = [
       sig({ agreement_type: 'federation_compact', version: AGREEMENT_VERSIONS.federation_compact }),
       sig({ id: 's2', agreement_type: 'data_usage_agreement', version: AGREEMENT_VERSIONS.data_usage_agreement }),
+      sig({ id: 's3', agreement_type: 'network_membership', version: AGREEMENT_VERSIONS.network_membership }),
     ];
     const status = computeSignatureStatus(signatures, ORG_REQUIRED_AGREEMENTS, AGREEMENT_VERSIONS);
     expect(status.signed).toBe(true);
@@ -110,6 +116,7 @@ describe('computeSignatureStatus', () => {
     const signatures = [
       sig({ agreement_type: 'federation_compact', version: '1.0' }),
       sig({ id: 's2', agreement_type: 'data_usage_agreement', version: '1.0' }),
+      sig({ id: 's3', agreement_type: 'network_membership', version: '1.0' }),
       // An extra "old" record at a now-superseded type would not affect status;
       // none of our required types match its agreement_type. Use a cast to
       // simulate stale unknown-type rows.
@@ -136,6 +143,7 @@ describe('isHardEnforcementForVersions', () => {
     expect(isHardEnforcementForVersions({
       data_usage_agreement: '2.0-draft',
       federation_compact: '1.0',
+      network_membership: '1.0',
     })).toBe(false);
   });
 });

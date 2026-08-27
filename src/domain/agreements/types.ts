@@ -1,7 +1,16 @@
 
 import type { SystemRole } from '../people/types';
 
-export type AgreementType = 'privacy_policy' | 'data_usage_agreement' | 'federation_compact';
+export type AgreementType =
+  | 'privacy_policy'
+  | 'data_usage_agreement'
+  | 'federation_compact'
+  // What an organization commits to in order to JOIN a network. The compact
+  // explains the network to entrepreneurs and the DUA governs how staff handle
+  // data day to day; neither states the obligations of membership itself —
+  // conformance to the standard, honouring consent, answering referrals,
+  // protecting keys, and the terms of suspension and exit.
+  | 'network_membership';
 
 export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
   privacy_policy: '1.0',
@@ -11,6 +20,7 @@ export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
   // and published, bump to 1.0 and text_hash-based re-prompting can be
   // turned on in App.tsx's acceptance check.
   federation_compact: '0.1-draft',
+  network_membership: '0.1-draft',
 };
 
 export interface AgreementAcceptance {
@@ -45,9 +55,13 @@ export const REQUIRED_AGREEMENTS: Partial<Record<SystemRole, AgreementType[]>> =
 // organization, per ecosystem it participates in. Acceptance carries legal
 // weight for the whole org, not just the signing user.
 
-export type OrgAgreementType = Extract<AgreementType, 'federation_compact' | 'data_usage_agreement'>;
+export type OrgAgreementType = Extract<
+  AgreementType,
+  'federation_compact' | 'data_usage_agreement' | 'network_membership'
+>;
 
 export const ORG_REQUIRED_AGREEMENTS: OrgAgreementType[] = [
+  'network_membership',
   'federation_compact',
   'data_usage_agreement',
 ];
