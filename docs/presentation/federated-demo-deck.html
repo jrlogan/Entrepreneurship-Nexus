@@ -671,27 +671,69 @@
     <div class="slide-inner">
       <p class="eyebrow">Day to day · the two actions that build the timeline</p>
       <h2>How a referral happens · how a session gets logged</h2>
+      <figure style="margin:0 0 16px;">
+        <svg viewBox="0 0 960 240" role="img" aria-label="Two referral entry paths — plain email and an integrated system — converge on one shared referral record, which notifies the receiving organization; acceptance, owner, and follow-up flow back to the same record." style="max-width:100%; height:auto; display:block; color:var(--ink); font-family:'IBM Plex Sans',sans-serif;">
+          <defs>
+            <marker id="rarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <!-- entry path 1: email -->
+          <rect x="30" y="30" width="255" height="58" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
+          <text x="157" y="54" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">Plain email — CC the network address</text>
+          <text x="157" y="74" text-anchor="middle" font-size="11" fill="currentColor">zero integration · start today</text>
+
+          <!-- entry path 2: integrated -->
+          <rect x="30" y="152" width="255" height="58" rx="8" fill="none" stroke="var(--req)" stroke-width="1.8"/>
+          <text x="157" y="176" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">One click in their own system</text>
+          <text x="157" y="196" text-anchor="middle" font-size="11" fill="currentColor">partner API, fires on save</text>
+
+          <!-- converge -->
+          <line x1="285" y1="59" x2="386" y2="102" stroke="currentColor" stroke-width="1.4" marker-end="url(#rarr)"/>
+          <line x1="285" y1="181" x2="386" y2="138" stroke="currentColor" stroke-width="1.4" marker-end="url(#rarr)"/>
+
+          <!-- the one record -->
+          <rect x="390" y="88" width="230" height="64" rx="8" fill="none" stroke="var(--ok)" stroke-width="1.8"/>
+          <text x="505" y="112" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">One referral record</text>
+          <text x="505" y="132" text-anchor="middle" font-size="11" fill="currentColor">id · purpose · owner · follow-up date</text>
+          <text x="505" y="182" text-anchor="middle" font-size="11.5" fill="var(--ok)" font-family="IBM Plex Mono,monospace">pending → accepted / declined → completed</text>
+
+          <!-- receiving org -->
+          <rect x="705" y="88" width="225" height="64" rx="8" fill="none" stroke="var(--res)" stroke-width="1.8"/>
+          <text x="817" y="112" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">Receiving organization</text>
+          <text x="817" y="132" text-anchor="middle" font-size="11" fill="currentColor">their queue, their named owner</text>
+
+          <!-- notify + respond -->
+          <line x1="620" y1="104" x2="702" y2="104" stroke="currentColor" stroke-width="1.4" marker-end="url(#rarr)"/>
+          <text x="661" y="92" text-anchor="middle" font-size="11" fill="currentColor">email links / webhook</text>
+          <line x1="702" y1="136" x2="622" y2="136" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#rarr)"/>
+          <text x="661" y="158" text-anchor="middle" font-size="11" fill="currentColor">accept / decline, no login</text>
+
+          <!-- status back to sender -->
+          <line x1="388" y1="145" x2="300" y2="215" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#rarr)"/>
+          <text x="368" y="205" text-anchor="end" font-size="11" fill="currentColor">status visible to the sender</text>
+        </svg>
+        <figcaption style="font-size:13px; color:var(--muted); margin-top:6px;">Two ways in, one record out. The email path needs zero integration — and because both paths write the same record, a referral can never vanish into an inbox, whichever way it started.</figcaption>
+      </figure>
       <div class="cols">
-        <div class="card">
-          <span class="tag req">Referrals — start with plain email</span>
-          <h3>From cold intro to closed loop</h3>
-          <ul class="tight">
-            <li><strong>Easiest start, zero integration:</strong> staff send (or CC) the referral to the network's email address. It becomes a tracked record with an ID; the receiving org <strong>accepts or declines from links in the email</strong> — no login, no new tool.</li>
-            <li><strong>Integrated orgs:</strong> one click in their own system; a signed webhook lands in the receiver's queue; an owner and follow-up date get assigned; status flows back to the sender.</li>
-            <li>Both paths write the <em>same</em> referral record: <span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px;">pending → accepted / declined → completed</span> — so nothing vanishes into an inbox, whichever way it started.</li>
-          </ul>
-        </div>
         <div class="card">
           <span class="tag res">Sessions &amp; milestones — logged where staff already work</span>
           <h3>Facts on the timeline, details at home</h3>
           <ul class="tight">
             <li><strong>Coaching / mentoring:</strong> staff log the meeting in their own CRM as they do today; the system pushes a dated event — type, date, org. <strong>Notes never leave the recording org</strong>; sharing "it happened" is a per-event choice.</li>
-            <li><strong>Memberships &amp; programs:</strong> starts, completions, and lapses flow automatically from each org's own records (<span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px;">active → past</span>, history kept).</li>
-            <li><strong>Outcomes:</strong> jobs and revenue can be recorded as standard metrics, each marked self-reported or staff-verified.</li>
+            <li><strong>Memberships &amp; programs:</strong> starts, completions, and lapses flow automatically (<span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px;">active → past</span>, history kept). <strong>Outcomes</strong> (jobs, revenue) recorded as standard metrics, self-reported or verified.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag ok">The day-to-day payoff</span>
+          <h3>Coordinate, don't duplicate</h3>
+          <ul class="tight">
+            <li>Before reaching out about a shared client, staff see <strong>who's already helping and how recently</strong> — and can call that agency to coordinate.</li>
+            <li>Start at the email level today; integrate later. Every level feeds the same timeline — and the statistics — with no extra reporting work.</li>
           </ul>
         </div>
       </div>
-      <p class="footnote">Result: before contacting a shared client's other org, staff can see who's already helping and how recently — coordinate the outreach instead of duplicating it.</p>
     </div>
   </section>
 
