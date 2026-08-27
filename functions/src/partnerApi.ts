@@ -244,6 +244,49 @@ const indexExternalRef = async (
   });
 };
 
+/**
+ * Grants a person membership in an ecosystem if they don't already have it.
+ *
+ * Idempotent by construction: the membership id is
+ * `{personId}_{ecosystemId}_none`, so repeated pushes converge rather than
+ * accumulating rows. An existing elevated role (staff, manager) is preserved —
+ * a partner push must never silently demote someone to 'entrepreneur'.
+ */
+const ensureEcosystemMembership = async (
+  db: FirebaseFirestore.Firestore,
+  personId: string,
+  ecosystemId: string
+) => {
+  if (!personId || !ecosystemId) return;
+
+  const membershipRef = db.collection('person_memberships').doc(`${personId}_${ecosystemId}_none`);
+  const existing = await membershipRef.get();
+  const existingRole = existing.data()?.system_role as string | undefined;
+  if (existing.exists && existing.data()?.status === 'active') return;
+
+  await membershipRef.set(
+    {
+      id: membershipRef.id,
+      person_id: personId,
+      ecosystem_id: ecosystemId,
+      organization_id: '',
+      system_role: existingRole && existingRole !== 'entrepreneur' ? existingRole : 'entrepreneur',
+      status: 'active',
+      joined_at: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+
+  // Also union the denormalized array inline. The trigger does this too, but
+  // the pushing org may read the record immediately and should not race it.
+  const personRef = db.collection('people').doc(personId);
+  const personSnap = await personRef.get();
+  const current = (personSnap.get('ecosystem_ids') as string[] | undefined) || [];
+  if (!current.includes(ecosystemId)) {
+    await personRef.set({ ecosystem_ids: [...current, ecosystemId] }, { merge: true });
+  }
+};
+
 const findByExternalRef = async (
   db: FirebaseFirestore.Firestore,
   ref: ExternalRef,
@@ -574,9 +617,23 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
       { merge: true }
     );
     await indexExternalRef(db, ref, 'person', existing.id);
+
+    // Identity is global; ecosystem membership is not. A person first created
+    // in one ecosystem (say a county cluster) who is now pushed by an org in
+    // another (a statewide or interest-based network) must gain membership
+    // there too — otherwise the push "succeeds" while Firestore rules, which
+    // gate on people/{id}.ecosystem_ids, keep them invisible to the very org
+    // that just pushed them.
+    //
+    // person_memberships is the source of truth; the syncPersonEcosystems
+    // trigger denormalizes it onto the person. Writing the membership (rather
+    // than the array directly) keeps that single path intact.
+    await ensureEcosystemMembership(db, existing.id, ecosystemId);
+
     await logAudit(db, 'partner_person_linked', authContext.organization_id, {
       nexus_id: existing.id,
       external_ref: ref,
+      ecosystem_id: ecosystemId,
     });
     res.json({ ok: true, nexus_id: existing.id, action: 'linked' });
     return;
