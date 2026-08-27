@@ -1870,16 +1870,24 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       });
       return;
     } else if (
-      personMatch.tier === 'email_exact' &&
       !(
-        (provider.ecosystem_id && (personDoc.get('ecosystem_id') as string) === provider.ecosystem_id) ||
+        (provider.ecosystem_id &&
+          ((personDoc.get('ecosystem_id') as string) === provider.ecosystem_id ||
+            ((personDoc.get('ecosystem_ids') as string[] | undefined) || []).includes(provider.ecosystem_id))) ||
         ((personDoc.get('primary_organization_id') || personDoc.get('organization_id') || '') === provider.organization_id)
       )
     ) {
-      // An email-only match must stay within the provider's own scope —
-      // otherwise a provider could assert any email in the platform and
-      // capture accounts from other ecosystems.
-      console.warn(`OIDC email auto-link out of scope: person ${personMatch.person_id} vs provider ${providerId}`);
+      // Any auto-link must stay within the provider's own scope, whichever
+      // tier matched.
+      //
+      // This guard used to apply only to `email_exact`, which left the
+      // external_ref tier unscoped — and that tier is attacker-reachable: a
+      // partner key can attach its own ref to someone else's person record
+      // (the link-by-email path), register an OIDC provider mapping that ref
+      // source, and then have its own userinfo endpoint assert the ref. The
+      // result was a session as that person, in any org or ecosystem. Scope
+      // is now checked before any tier mints a session.
+      console.warn(`OIDC auto-link out of scope (tier=${personMatch.tier}): person ${personMatch.person_id} vs provider ${providerId}`);
       res.status(403).json({
         error: 'An account with this email already exists outside this provider\'s network. Sign in with your Nexus credentials and link the provider from account settings.',
       });
