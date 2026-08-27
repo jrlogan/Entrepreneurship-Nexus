@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Interaction, Organization } from '../../domain/types';
-import { Card, Badge, CompanyLogo } from '../../shared/ui/Components';
+import { Card, CompanyLogo } from '../../shared/ui/Components';
 import { IconEye, IconLock } from '../../shared/ui/Icons';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 
@@ -271,10 +271,19 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                                             {/* Wrap to two lines rather than truncating mid-word;
                                                 break-words stops an unbroken long name overflowing. */}
                                             <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-indigo-600 transition-colors line-clamp-2 break-words">{org.name}</h3>
-                                            <div className="flex gap-1 flex-wrap mt-1.5">
-                                                {org.org_type && <Badge key="type" color="blue">{org.org_type.replace(/_/g, ' ')}</Badge>}
-                                                {org.roles.map(r => <Badge key={r} color="indigo">{r}</Badge>)}
-                                                {org.verified && <Badge color="blue">Verified</Badge>}
+                                            {/* Type and role are reference detail, not signal: keep
+                                                them quiet so the only colour on a card is the access
+                                                state a staff member is actually scanning for. */}
+                                            <div className="flex gap-x-1.5 gap-y-0.5 flex-wrap mt-1 text-xs text-gray-500">
+                                                {[
+                                                    org.org_type?.replace(/_/g, ' '),
+                                                    ...org.roles,
+                                                    org.verified ? 'verified' : null,
+                                                ].filter(Boolean).map((label, i) => (
+                                                    <span key={`${label}-${i}`} className="after:content-['·'] after:ml-1.5 after:text-gray-300 last:after:content-none">
+                                                        {label}
+                                                    </span>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
