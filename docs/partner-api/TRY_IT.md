@@ -21,22 +21,20 @@ test data and is purged periodically — **use made-up people only**.
 
 ## Fastest path: curl
 
-Create an entrepreneur (as your org, from "your system"):
+Create an entrepreneur (as your org, from "your system"). Paste the whole
+block into any terminal, editing only the two `PASTE_` placeholders:
 
 ```bash
 BASE=https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net
-KEY=<your sandbox key>
-ORG=<your org id>            # e.g. org_ef
 
-curl -s -X POST "$BASE/partnerUpsertPerson" \
-  -H "Content-Type: application/json" -H "X-Nexus-API-Key: $KEY" \
-  -d '{
-    "external_ref": { "source": "my_crm", "id": "contact-1" },
-    "ecosystem_id": "eco_connecticut",
-    "eso_org_id": "'$ORG'",
-    "first_name": "Ada", "last_name": "Founder",
-    "email": "ada.trial@example.com", "tags": ["entrepreneur"]
-  }'
+curl -s -X POST $BASE/partnerUpsertPerson \
+  -H "Content-Type: application/json" \
+  -H "X-Nexus-API-Key: PASTE_YOUR_KEY" \
+  -d '{"external_ref":{"source":"my_crm","id":"contact-1"},
+      "ecosystem_id":"eco_connecticut",
+      "eso_org_id":"PASTE_YOUR_ORG",
+      "first_name":"Ada","last_name":"Founder",
+      "email":"ada.trial@example.com","tags":["entrepreneur"]}'
 # → {"ok":true,"nexus_id":"…","action":"created"}
 # Run it again → "action":"updated", same nexus_id (idempotent — no duplicates, ever)
 ```

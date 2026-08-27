@@ -726,20 +726,21 @@
       <h2>Try it from your laptop — nothing to install</h2>
       <div class="cols">
         <div>
-          <div class="wire"><span class="dim"># the live sandbox:</span>
-https://us-central1-entrepreneurship-nexus-staging
-  .cloudfunctions.net
+          <div class="wire" id="tryit-cmd"><span class="dim"># paste into any terminal — edit only the two PASTE_ placeholders:</span>
+BASE=https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net
 
-<span class="dim"># one call, any terminal:</span>
-curl -s -X POST "$BASE/partnerUpsertPerson" \\
-  -H "Content-Type: application/json" \\
-  -H "X-Nexus-API-Key: <span class="res">$YOUR_KEY</span>" \\
-  -d '{ "external_ref": {"source":"my_crm","id":"1"},
-        "ecosystem_id": "eco_connecticut",
-        "eso_org_id": "<span class="res">$YOUR_ORG</span>",
-        "first_name":"Test", "last_name":"Person",
-        "email":"test@example.com" }'
-<span class="dim">→</span> { "ok": true, <span class="ok">"action": "created"</span> }</div>
+curl -s -X POST $BASE/partnerUpsertPerson \
+  -H "Content-Type: application/json" \
+  -H "X-Nexus-API-Key: <span class="res">PASTE_YOUR_KEY</span>" \
+  -d '{"external_ref":{"source":"my_crm","id":"1"},
+      "ecosystem_id":"eco_connecticut",
+      "eso_org_id":"<span class="res">PASTE_YOUR_ORG</span>",
+      "first_name":"Test","last_name":"Person",
+      "email":"test@example.com"}'</div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+            <button id="tryit-copy" style="font-family:'IBM Plex Sans',sans-serif; font-size:13px; font-weight:600; background:var(--panel); color:var(--ink); border:1px solid var(--panel-edge); border-radius:6px; padding:6px 14px; cursor:pointer;">Copy command</button>
+            <span class="mono" style="font-size:12.5px; color:var(--muted);">expected reply: { "ok": true, <span style="color:var(--ok); font-weight:600;">"action": "created"</span> }</span>
+          </div>
         </div>
         <div>
           <div class="card" style="margin-bottom:12px;">
@@ -854,6 +855,24 @@ curl -s -X POST "$BASE/partnerUpsertPerson" \\
   document.getElementById('prev').addEventListener('click', () => { if (docMode) { docMode = false; applyMode(); } go(idx - 1); });
   document.getElementById('next').addEventListener('click', () => { if (docMode) { docMode = false; applyMode(); } go(idx + 1); });
   modeBtn.addEventListener('click', () => { docMode = !docMode; applyMode(); });
+
+  const copyBtn = document.getElementById('tryit-copy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      const raw = document.getElementById('tryit-cmd').textContent
+        .split('\n').filter((l) => !l.trim().startsWith('#')).join('\n').trim();
+      let ok = false;
+      try { await navigator.clipboard.writeText(raw); ok = true; } catch (e) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = raw; document.body.appendChild(ta); ta.select();
+          ok = document.execCommand('copy'); ta.remove();
+        } catch (e2) {}
+      }
+      copyBtn.textContent = ok ? 'Copied ✓' : 'Select & copy manually';
+      setTimeout(() => { copyBtn.textContent = 'Copy command'; }, 2500);
+    });
+  }
 
   applyMode();
 </script>
