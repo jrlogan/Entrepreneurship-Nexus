@@ -306,7 +306,8 @@
         <h3 style="margin-bottom:6px;">Three ways to try it, right now</h3>
         <p style="margin:2px 0;"><strong>1 · The compact, as an app</strong> — <a href="https://nexus-compact-demo.web.app/" target="_blank" rel="noreferrer" class="mono" style="font-size:13.5px; color:var(--req); font-weight:600;">nexus-compact-demo.web.app</a><br>
         <span style="color:var(--muted); font-size:14px;">Just the interoperability core: shared records, referrals, the entrepreneur's view, the API console. This is what the consortium would actually adopt.</span></p>
-        <p style="margin:8px 0 2px;"><strong>2 · The live API sandbox</strong> — call it from your own system; see "Try it yourself" near the end. <span style="color:var(--muted); font-size:14px;">Ask me for the invite code that mints your sandbox key.</span></p>
+        <p style="margin:8px 0 2px;"><strong>2 · The live API sandbox</strong> — call it from your own system; see "Try it yourself" near the end.<br>
+        <span style="color:var(--muted); font-size:14px;">Ask me for the invite code that mints your sandbox key. If you'd rather let an assistant do it, hand it <a href="https://github.com/jrlogan/Entrepreneurship-Nexus/blob/main/docs/partner-api/AI_AGENT_ACCEPTANCE_TEST.md" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">this prompt</a> — it provisions, tests, and reports back.</span></p>
         <p style="margin:8px 0 2px;"><strong>3 · The wider prototype</strong> — <a href="https://entrepreneurship-nexus-demo.web.app/" target="_blank" rel="noreferrer" class="mono" style="font-size:13.5px; color:var(--req); font-weight:600;">entrepreneurship-nexus-demo.web.app</a><br>
         <span style="color:var(--muted); font-size:14px;">MakeHaven's fuller build, with the extra modules we run locally (grants, calendar, scout). Shown for context — those are optional per organization, not part of the compact.</span></p>
         <p style="margin:8px 0 0; color:var(--faint); font-size:13px;">No signup on either app; sample data resets on reload. Switch personas from the bottom-left to view as an entrepreneur or as agency staff.</p>
@@ -654,12 +655,16 @@ curl -s -X POST $BASE/partnerUpsertPerson \
         </div>
         <div>
           <div class="card" style="margin-bottom:12px;">
-            <h3>Three ways in</h3>
+            <h3>Four ways in</h3>
             <ul class="tight">
+              <li><strong>Hand it to your AI</strong> — increasingly the fastest path. Two ready-made prompts, written to be pasted straight into Claude, ChatGPT, Cursor or Copilot:<br>
+                <a href="https://github.com/jrlogan/Entrepreneurship-Nexus/blob/main/docs/partner-api/AI_AGENT_ACCEPTANCE_TEST.md" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">AI_AGENT_ACCEPTANCE_TEST.md</a> — self-provisions a sandbox key, runs eight checks against the live API, prints a pass/fail table.<br>
+                <a href="https://github.com/jrlogan/Entrepreneurship-Nexus/blob/main/docs/partner-api/AI_INTEGRATION_PROMPT.md" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">AI_INTEGRATION_PROMPT.md</a> — writes the integration for your stack once the checks pass.</li>
               <li><strong>curl</strong> — copy the command at left</li>
               <li><strong>Hoppscotch.io</strong> — in the browser, no account, no install</li>
-              <li><strong>Postman / Insomnia / Bruno</strong> — import the ready-made collection from the repo: <span style="font-family:'IBM Plex Mono',monospace; font-size:12px;">github.com/jrlogan/Entrepreneurship-Nexus → docs/partner-api/</span></li>
+              <li><strong>Postman / Insomnia / Bruno</strong> — import the <a href="https://github.com/jrlogan/Entrepreneurship-Nexus/blob/main/docs/partner-api/nexus-partner-api.postman_collection.json" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">ready-made collection</a></li>
             </ul>
+            <p style="font-size:13px; color:var(--muted); margin-top:8px;">Full quickstart with expected responses: <a href="https://github.com/jrlogan/Entrepreneurship-Nexus/blob/main/docs/partner-api/TRY_IT.md" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">TRY_IT.md</a></p>
           </div>
           <div class="card" style="margin-bottom:12px;">
             <h3>Get your own key — one call, once you have the code</h3>
