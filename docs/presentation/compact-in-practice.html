@@ -390,41 +390,61 @@
   <!-- ══════════════ TAXONOMY ══════════════ -->
   <div class="tabpane ref" id="t-tax">
     <h2>The shared taxonomy</h2>
-    <p class="lede">Deliberately tiny, and versioned. Each org maps its own program names onto these terms once ("Business Plan Competition '26" → <span class="code">program</span>); everything not listed here stays local vocabulary. <strong>Ratifying this list is consortium decision #3.</strong></p>
+    <p class="lede">Deliberately <strong>generous, not minimal</strong>, and versioned. Being expansive costs a member nothing: you map your own program names onto these once ("Business Plan Competition '26" → <span class="code">program</span>) and keep your own vocabulary internally. What you can't map, you don't send. <strong>Ratifying this list is consortium decision #3.</strong></p>
     <div class="refgrid">
       <div class="refcard">
-        <h3>Participation types <span class="pill p-m" style="margin-left:6px;">7</span></h3>
+        <h3>Participation &amp; referral</h3>
         <div class="tscroll"><table>
-          <tr><th>Type</th><th>Use for</th></tr>
-          <tr><td><code>membership</code></td><td>Makerspace, accelerator, association membership</td></tr>
-          <tr><td><code>program</code></td><td>Cohorts, competitions, incubator enrollment</td></tr>
-          <tr><td><code>application</code></td><td>Submitted, pre-acceptance</td></tr>
-          <tr><td><code>residency</code></td><td>Physical or virtual residencies</td></tr>
-          <tr><td><code>rental</code></td><td>Workspace, storage, equipment</td></tr>
-          <tr><td><code>event</code></td><td>Registration or attendance</td></tr>
-          <tr><td><code>service</code></td><td>One-on-one: mentoring, advising</td></tr>
+          <tr><th>Vocabulary</th><th>Values</th></tr>
+          <tr><td><strong>Participation type</strong></td><td><code>program · application · membership · residency · rental · event · service</code></td></tr>
+          <tr><td><strong>Participation status</strong></td><td><code>active · past · applied · waitlisted</code></td></tr>
+          <tr><td><strong>Referral status</strong></td><td><code>pending · accepted · rejected · completed</code></td></tr>
+          <tr><td><strong>Referral outcome</strong></td><td><code>enrolled · services_provided · connected_to_resource · advice_only · not_a_fit</code></td></tr>
+          <tr><td><strong>Interaction type</strong></td><td><code>meeting · email · call · event · note</code></td></tr>
+          <tr><td><strong>Interaction visibility</strong></td><td><code>eso_private</code> (default) · <code>network_shared</code></td></tr>
         </table></div>
       </div>
       <div class="refcard">
-        <h3>Statuses</h3>
+        <h3>The entrepreneur &amp; the venture</h3>
         <div class="tscroll"><table>
-          <tr><th>Participation</th><th>Referral</th></tr>
-          <tr><td><code>active</code></td><td><code>pending</code> — awaiting review</td></tr>
-          <tr><td><code>past</code> — ended, history kept</td><td><code>accepted</code></td></tr>
-          <tr><td><code>applied</code></td><td><code>rejected</code> — declined, with reason</td></tr>
-          <tr><td><code>waitlisted</code></td><td><code>completed</code> — outcome recorded</td></tr>
+          <tr><th>Vocabulary</th><th>Values</th></tr>
+          <tr><td><strong>Venture stage</strong></td><td><code>idea · prototype · early_revenue · sustaining · multi_person · established · unknown</code></td></tr>
+          <tr><td><strong>Support needs</strong></td><td><code>business_coaching · product_development · manufacturing · legal · funding · sales · marketing · hiring · workspace · networking · other</code></td></tr>
+          <tr><td><strong>Organization type</strong></td><td><code>startup · small_business · business · nonprofit · government_agency · other</code></td></tr>
+          <tr><td><strong>Ecosystem role</strong></td><td><code>eso · funder · resource</code></td></tr>
+          <tr><td><strong>Tax status</strong></td><td><code>non_profit · for_profit · government · other</code></td></tr>
         </table></div>
-        <p style="margin-top:10px;"><strong>Interaction visibility</strong> (per note): <code>eso_private</code> — private to the recording org (the default posture) · <code>network_shared</code> — explicitly shared with trusted ESOs.</p>
       </div>
       <div class="refcard">
-        <h3>Tags</h3>
-        <p>Free-form, merged across orgs, never overwritten: <code>entrepreneur</code> · <code>maker</code> · <code>seeking_funding</code> · <code>active_business</code> · <code>patent</code>…</p>
-        <p>Tags are the release valve: shared signal without expanding the required core.</p>
+        <h3>Outcomes — the funding case</h3>
+        <div class="tscroll"><table>
+          <tr><th>Vocabulary</th><th>Values</th></tr>
+          <tr><td><strong>Metric type</strong></td><td><code>revenue · capital_raised · grant_funding · jobs_ft · jobs_pt · patents_filed · customer_count</code></td></tr>
+          <tr><td><strong>Metric source</strong></td><td><code>self_reported · verified · interaction_log</code></td></tr>
+        </table></div>
+        <p style="margin-top:8px;">Note <code>patents_filed</code> and <code>capital_raised</code> — the interim datapoints makerspaces were asked for, already in the vocabulary.</p>
       </div>
       <div class="refcard">
-        <h3>Organization vocabulary</h3>
-        <p><strong>Roles:</strong> <code>eso</code> · <code>startup</code> · <code>funder</code> &nbsp;·&nbsp; <strong>Tax status:</strong> <code>non_profit</code> · <code>for_profit</code> · <code>government</code> · <code>other</code></p>
-        <p><strong>Outcome metrics</strong> (for aggregate reporting): <code>revenue</code> · <code>jobs_ft</code> · <code>jobs_pt</code>, each marked <code>self_reported</code> or <code>verified</code>.</p>
+        <h3>Equity &amp; eligibility reporting</h3>
+        <div class="tscroll"><table>
+          <tr><th>Vocabulary</th><th>Values</th></tr>
+          <tr><td><strong>Owner characteristics</strong></td><td><code>woman_owned · minority_owned · veteran_owned · lgbtq_owned · youth_owned · refugee_owned · justice_involved · disabled_owned · low_income</code></td></tr>
+          <tr><td><strong>Certifications</strong></td><td><code>sba_8a · wosb · hubzone · mbe · wbe · sdvosb · vosb · dbe</code></td></tr>
+        </table></div>
+        <p style="margin-top:8px;">Optional and consent-gated — but standardized, so equity reporting doesn't require a separate survey per organization.</p>
+      </div>
+      <div class="refcard">
+        <h3>Tags — the release valve</h3>
+        <p>Free-form, merged across orgs, never overwritten: <code>entrepreneur</code> · <code>maker</code> · <code>seeking_funding</code> · <code>active_business</code> · <code>patent</code>… Shared signal without expanding the required core.</p>
+      </div>
+      <div class="refcard">
+        <h3>Why generous beats minimal</h3>
+        <ul>
+          <li>A member maps once, then keeps its own words forever.</li>
+          <li>Unmapped fields simply aren't sent — nobody is forced to collect anything.</li>
+          <li>A wider shared vocabulary means richer statistics without a second data call.</li>
+          <li>Versioned: v1.0 → v1.1 additions are explicit, and old integrations keep working.</li>
+        </ul>
       </div>
     </div>
   </div>
@@ -432,7 +452,7 @@
   <!-- ══════════════ AGREEMENT ══════════════ -->
   <div class="tabpane ref on" id="t-agree">
     <h2>The group agreement — three tiers, enforced in code</h2>
-    <p class="lede">Two signable, versioned documents back this: an entrepreneur-facing <strong>Privacy Notice</strong> and an organization-facing <strong>Data Usage Agreement</strong>, both drafted and both edited by this group before v1.0. The tiers below are what the software actually enforces.</p>
+    <p class="lede"><strong>Three</strong> signable, versioned documents back this — all drafted, all edited by this group before v1.0: the entrepreneur-facing <strong>Network Compact</strong> and <strong>Privacy Notice</strong>, and the staff-facing <strong>Data Usage Agreement</strong>. The tiers below are what the software actually enforces.</p>
     <div class="refgrid three">
       <div class="refcard">
         <span class="pill p-c">Always · by the compact</span>
@@ -464,7 +484,14 @@
         </ul>
       </div>
     </div>
-    <div class="refgrid" style="margin-top:14px;">
+    <div class="refgrid three" style="margin-top:14px;">
+      <div class="refcard">
+        <h3>From the Network Compact (entrepreneur-facing)</h3>
+        <p>"You are joining something shared by design… Each organization runs its own tools and keeps control of its own data."</p>
+        <p>"No single organization holds everyone's data… we agree on shared standards so your information can move between organizations with your permission rather than being duplicated or locked behind one system."</p>
+        <p>"Data sharing between specific organizations requires your consent each time a new organization asks for access. You can revoke access at any time."</p>
+        <p>"Organizations violating the compact can be removed from the network."</p>
+      </div>
       <div class="refcard">
         <h3>From the Privacy Notice (entrepreneur-facing)</h3>
         <p>"Each ESO only sees records they have created or that you have explicitly shared with them."</p>

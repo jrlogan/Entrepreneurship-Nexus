@@ -412,6 +412,10 @@
           <p>"Each ESO only sees records they have created or that you have explicitly shared with them." · "We do not sell your data… notes are confidential between you and the recording organization."</p>
         </div>
         <div class="card">
+          <h3>Network Compact — the entrepreneur signs</h3>
+          <p>"You are joining something shared by design." Five plain-language sections covering what becomes visible, that consent is required each time a new organization asks, that access is revocable, and that <strong>"organizations violating the compact can be removed from the network."</strong></p>
+        </div>
+        <div class="card">
           <h3>Data Usage Agreement — each org signs</h3>
           <p>"Access entrepreneur information solely to provide ecosystem support services." Versioned signatures, in-app; both documents are <strong>drafts this group edits</strong> before v1.0.</p>
         </div>
@@ -591,7 +595,7 @@
           </table></div>
         </div>
       </div>
-      <p class="lede" style="margin-top:16px;">The shared vocabulary is deliberately tiny — <strong>7 participation types, 4 statuses, versioned field definitions</strong> (data-standards v1.0, HSDS-compatible). Ratifying it is a consortium decision, which is exactly why it's on the agenda.</p>
+      <p class="lede" style="margin-top:16px;">The shared vocabulary is deliberately <strong>generous, not minimal</strong> — 17 versioned vocabularies covering participation, referral outcomes, venture stage, support needs, outcome metrics, owner characteristics, and certifications. Being expansive costs an organization nothing: <strong>you map your terms onto it once and keep your own internally</strong>. What you can't map, you simply don't send. Ratifying the list is a consortium decision, which is exactly why it's on the agenda.</p>
     </div>
   </section>
 
@@ -1059,14 +1063,12 @@ curl -s -X POST $BASE/partnerUpsertPerson \
       <h2>What the group must decide — in order</h2>
       <ol class="spec decisions">
         <li><div><strong>Ratify the compact</strong> — the governance principles: sovereignty, consent, permitted uses.
-          <details><summary>Draft starting point</summary>
-            <ul class="tight">
-              <li>Each organization owns its own data and systems; the shared node holds only the agreed core.</li>
-              <li>Entrepreneur data is shared to provide support services — not sold, not used for commercial gain.</li>
-              <li>Notes stay confidential to the recording organization unless explicitly shared.</li>
-              <li>Any org may leave; keys are revocable and the software is forkable.</li>
-            </ul>
-            <p class="ask">Open question: does the compact bind organizations, or individuals at them?</p>
+          <details><summary>Draft starting point — three signed documents, already written</summary>
+            <p><strong>Network Compact</strong> (entrepreneur-facing, 5 sections): "You are joining something shared by design" · "What becomes visible across organizations" · "You stay in control of what moves" · "Why this is better than a central database" · "What this organization will not do."</p>
+            <p><strong>Data Usage Agreement</strong> (staff-facing, 6 sections): permitted uses · confidentiality obligations · prohibited activities · audit and accountability · reporting obligations · consequences of violation.</p>
+            <p><strong>Privacy Notice</strong> (entrepreneur-facing, 5 sections): what is stored · who can see it · cross-org sharing · your rights · what we do not do.</p>
+            <p>Sample language, verbatim: <em>"No single organization holds everyone's data… we agree on shared standards so your information can move between organizations with your permission rather than being duplicated or locked behind one system."</em> and <em>"Organizations violating the compact can be removed from the network."</em></p>
+            <p class="ask">Open question: does the compact bind organizations, or individuals at them — and who enforces removal?</p>
           </details></div></li>
 
         <li><div><strong>Fix the common core fields</strong> — the small set every org shares.
@@ -1078,11 +1080,15 @@ curl -s -X POST $BASE/partnerUpsertPerson \
           </details></div></li>
 
         <li><div><strong>Agree the shared taxonomy</strong> — participation types, referral statuses, tags.
-          <details><summary>Draft starting point — 7 types, 4 statuses</summary>
-            <p><strong>Participation:</strong> membership · program · application · residency · rental · event · service<br>
-            <strong>Status:</strong> active · past · applied · waitlisted<br>
-            <strong>Referral:</strong> pending · accepted · rejected · completed</p>
-            <p class="ask">Open question: trim or extend? Each org maps its own program names onto these once.</p>
+          <details><summary>Draft starting point — 17 vocabularies, already defined</summary>
+            <p><strong>Participation</strong> program · application · membership · residency · rental · event · service &nbsp;·&nbsp; <strong>Status</strong> active · past · applied · waitlisted</p>
+            <p><strong>Referral status</strong> pending · accepted · rejected · completed &nbsp;·&nbsp; <strong>Referral outcome</strong> enrolled · services_provided · connected_to_resource · advice_only · not_a_fit</p>
+            <p><strong>Venture stage</strong> idea · prototype · early_revenue · sustaining · multi_person · established · unknown</p>
+            <p><strong>Support needs</strong> business_coaching · product_development · manufacturing · legal · funding · sales · marketing · hiring · workspace · networking · other</p>
+            <p><strong>Outcome metrics</strong> revenue · capital_raised · grant_funding · jobs_ft · jobs_pt · patents_filed · customer_count &nbsp;·&nbsp; <strong>source</strong> self_reported · verified · interaction_log</p>
+            <p><strong>Owner characteristics</strong> woman · minority · veteran · lgbtq · youth · refugee · justice_involved · disabled · low_income &nbsp;·&nbsp; <strong>Certifications</strong> 8(a) · WOSB · HUBZone · MBE · WBE · SDVOSB · VOSB · DBE</p>
+            <p><strong>Org type</strong> startup · small_business · business · nonprofit · government_agency · other &nbsp;·&nbsp; <strong>Role</strong> eso · funder · resource &nbsp;·&nbsp; <strong>Interaction</strong> meeting · email · call · event · note</p>
+            <p class="ask">Open question: this is deliberately generous — you map your terms onto it once and keep your own internally. What's missing, and what would you never collect?</p>
           </details></div></li>
 
         <li><div><strong>Set the entrepreneur agreement text</strong> — the consent language every org presents.
