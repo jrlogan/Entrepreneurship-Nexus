@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Interaction, Organization } from '../../domain/types';
 import { Card, Badge, CompanyLogo } from '../../shared/ui/Components';
 import { IconEye, IconLock } from '../../shared/ui/Icons';
-import { useViewer } from '../../data/AppDataContext';
+import { useRepos, useViewer } from '../../data/AppDataContext';
 
 // Extend Organization type to include the _access property injected by the repo
 type ExtendedOrganization = Organization & {
@@ -22,6 +22,7 @@ interface DirectoryViewProps {
 
 export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, onRefresh }: DirectoryViewProps) => {
     const viewer = useViewer();
+    const repos = useRepos();
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [scopeFilter, setScopeFilter] = useState<string>('all');
     const [sortBy, setSortBy] = useState<'activity' | 'name'>('activity');
@@ -34,9 +35,12 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
         const next = isClient
             ? (org.managed_by_ids || []).filter(id => id !== viewer.orgId)
             : [...(org.managed_by_ids || []), viewer.orgId];
-        await repos.organizations.update(org.id, { managed_by_ids: next });
-        setTogglingClientId(null);
-        onRefresh();
+        try {
+            await repos.organizations.update(org.id, { managed_by_ids: next });
+            onRefresh();
+        } finally {
+            setTogglingClientId(null);
+        }
     };
 
     const activityByOrganizationId = useMemo(() => {
@@ -146,15 +150,15 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
     const getAccessIndicator = (org: ExtendedOrganization) => {
         if (org._access?.level === 'detailed') {
             return (
-                <div className="flex items-center gap-1 bg-white/90 text-green-700 px-2 py-1 rounded-full border border-green-200 shadow-sm backdrop-blur-sm transition-transform group-hover:scale-105" title={`Access Granted: ${org._access.reason}`}>
-                    <IconEye className="w-3 h-3" />
+                <div className="flex items-center gap-1 bg-green-50 text-green-700 px-2 py-1 rounded-full border border-green-200 whitespace-nowrap" title={`Access Granted: ${org._access.reason}`}>
+                    <IconEye className="w-3 h-3 shrink-0" />
                     <span className="text-[10px] font-bold uppercase tracking-wider">Full Access</span>
                 </div>
             );
         }
         return (
-            <div className="flex items-center gap-1 bg-white/90 text-gray-500 px-2 py-1 rounded-full border border-gray-200 shadow-sm backdrop-blur-sm cursor-help" title="You can see this organization's public profile and activity history, but detailed notes and metrics require access approval.">
-                <IconLock className="w-3 h-3" />
+            <div className="flex items-center gap-1 bg-gray-50 text-gray-500 px-2 py-1 rounded-full border border-gray-200 cursor-help whitespace-nowrap" title="You can see this organization's public profile and activity history, but detailed notes and metrics require access approval.">
+                <IconLock className="w-3 h-3 shrink-0" />
                 <span className="text-[10px] font-bold uppercase tracking-wider">Directory Only</span>
             </div>
         );
@@ -243,35 +247,39 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                         >
                             <div className={`bg-white border rounded-lg shadow-sm hover:shadow-md transition-all h-full flex flex-col relative overflow-hidden ${isClient ? 'border-indigo-300 ring-1 ring-indigo-100' : 'border-gray-200'}`}>
                                 
-                                {/* Status Indicators (Top Right) */}
-                                <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
+                                {/* Access/relationship status — its own row so it can never
+                                    collide with a long organization name. Reserved height keeps
+                                    titles on a shared baseline across the grid. */}
+                                <div className="px-5 pt-4 flex flex-wrap items-start justify-end gap-1.5 min-h-[2rem]">
                                     {isClient && (
-                                        <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-1 rounded-full border border-indigo-200 shadow-sm">
+                                        <span className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-2 py-1 rounded-full border border-indigo-200 whitespace-nowrap">
                                             OUR CLIENT
                                         </span>
                                     )}
                                     {hasExplicitConsent && isPrivate && (
-                                        <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-1 rounded-full border border-green-200 shadow-sm" title="You have been granted access to view operational details">
+                                        <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-1 rounded-full border border-green-200 whitespace-nowrap" title="You have been granted access to view operational details">
                                             CONSENT
                                         </span>
                                     )}
                                     {getAccessIndicator(org)}
                                 </div>
 
-                                <div className="p-6 flex-1">
-                                    <div className="flex items-start gap-4 mb-4">
-                                        <CompanyLogo src={org.logo_url} name={org.name} size="md" className="mt-1" />
+                                <div className="px-5 pb-5 pt-2 flex-1">
+                                    <div className="flex items-start gap-3 mb-3">
+                                        <CompanyLogo src={org.logo_url} name={org.name} size="md" className="shrink-0" />
                                         <div className="flex flex-col flex-1 min-w-0">
-                                            <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-indigo-600 transition-colors truncate pr-16">{org.name}</h3>
-                                            <div className="flex gap-1 flex-wrap mt-2">
+                                            {/* Wrap to two lines rather than truncating mid-word;
+                                                break-words stops an unbroken long name overflowing. */}
+                                            <h3 className="font-bold text-gray-900 text-lg leading-snug group-hover:text-indigo-600 transition-colors line-clamp-2 break-words">{org.name}</h3>
+                                            <div className="flex gap-1 flex-wrap mt-1.5">
                                                 {org.org_type && <Badge key="type" color="blue">{org.org_type.replace(/_/g, ' ')}</Badge>}
                                                 {org.roles.map(r => <Badge key={r} color="indigo">{r}</Badge>)}
                                                 {org.verified && <Badge color="blue">Verified</Badge>}
                                             </div>
                                         </div>
                                     </div>
-                                    <p className="text-sm text-gray-600 line-clamp-3 mb-2">{org.description}</p>
-                                    <div className="mt-4 text-xs text-gray-500">
+                                    <p className="text-sm text-gray-600 line-clamp-3">{org.description}</p>
+                                    <div className="mt-3 text-xs text-gray-500">
                                         {formatRelativeActivity(lastActivity)}
                                         {lastActivity && (
                                             <span className="ml-1 text-gray-400">
@@ -280,13 +288,13 @@ export const DirectoryView = ({ organizations, interactions, onSelect, onAdd, on
                                         )}
                                     </div>
                                 </div>
-                                <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-100 rounded-b-lg flex justify-between items-center text-xs text-gray-500">
-                                    <span className="font-medium text-gray-600">{org.classification.industry_tags[0] || 'General Industry'}</span>
+                                <div className="px-5 py-2.5 bg-gray-50 border-t border-gray-100 rounded-b-lg flex justify-between items-center gap-3 text-xs text-gray-500">
+                                    <span className="font-medium text-gray-600 truncate">{org.classification.industry_tags[0] || 'General Industry'}</span>
                                     <button
                                         type="button"
                                         onClick={(e) => handleToggleClient(e, org)}
                                         disabled={togglingClientId === org.id}
-                                        className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                                        className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap ${
                                             isClient
                                                 ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
                                                 : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100 hover:text-gray-700'
