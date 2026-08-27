@@ -113,9 +113,13 @@ node scripts/nexus-call.mjs --as new partnerUpsertParticipation \
 # → HTTP 201 — dated journey context other orgs can build on.
 ```
 
-(On the hosted sandbox, precede this with the real onboarding beat: the
-network admin mints the new org's key with `generatePartnerApiKey` — one
-call, and the key is scoped to that org alone.)
+(On the hosted sandbox this moment is even better live: provision the
+volunteer's org on the spot —
+`curl -s -X POST $BASE/provisionDemoAgency -H "Content-Type: application/json" -d '{"name":"Their Org"}'`
+returns a fresh org id + key in one call, and their first push can run
+seconds later. Attendees can also self-provision from their own laptops; see
+`docs/partner-api/TRY_IT.md`. On a real network, keys are issued by each
+org's admin via `generatePartnerApiKey` instead.)
 
 ### Security guards — worth showing to a technical group
 

@@ -17,7 +17,23 @@ test data and is purged periodically — **use made-up people only**.
 |---|---|
 | Base URL | `https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net` |
 | `ecosystem_id` | `eco_connecticut` |
-| Your org + key | Ask JR (jrlogan@makehaven.org) for a sandbox org id + `X-Nexus-API-Key` — or use the seeded demo pairs from `docs/live-demo-script.md` if you were given them |
+| Your org + key | **Self-service — mint your own in one call** (see below), or ask JR (jrlogan@makehaven.org) |
+
+Mint your own demo org + key (returned once — save it):
+
+```bash
+BASE=https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net
+
+curl -s -X POST $BASE/provisionDemoAgency \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Your Org Name"}'
+# → { "organization": { "id": "org_demo_your_org_name_ab12cd", ... },
+#     "api_key": "nxk_demo_…", "ecosystem_id": "eco_connecticut" }
+```
+
+Use the returned `organization.id` as your `eso_org_id` and the `api_key` as
+your `X-Nexus-API-Key` in everything below. (Self-provisioning exists only on
+this sandbox; on a real network, keys are issued by each org's admin.)
 
 ## Fastest path: curl
 

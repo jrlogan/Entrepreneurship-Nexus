@@ -752,8 +752,9 @@ curl -s -X POST $BASE/partnerUpsertPerson \
             </ul>
           </div>
           <div class="card" style="margin-bottom:12px;">
-            <h3>Keys</h3>
-            <p>Ask JR for a sandbox org + API key — handed out today. Keys are org-scoped: everything you write is attributable to you, and only you see your own IDs.</p>
+            <h3>Get your own key — one call, self-service</h3>
+            <p style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; overflow-wrap:anywhere; margin-bottom:6px;">curl -s -X POST $BASE/provisionDemoAgency -H "Content-Type: application/json" -d '{"name":"Your Org Name"}'</p>
+            <p>Returns your demo org id + a fresh API key (shown once). Keys are org-scoped: everything you write is attributable to you, and only you see your own IDs.</p>
           </div>
           <div class="card">
             <h3>The two-person trick</h3>
