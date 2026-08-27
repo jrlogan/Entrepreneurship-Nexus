@@ -275,7 +275,7 @@
       <h1>The Federated Compact</h1>
       <p class="lede">Connecticut's entrepreneur support organizations each keep their own systems and their own client relationships — yet entrepreneurs retell their story at every door, referrals vanish into cold emails, and nobody can show the state what the ecosystem achieves together.</p>
       <p class="lede">This is a working prototype of the <strong>federated</strong> answer: instead of everyone joining one central registry, each organization keeps its own software and data, and agrees to a small shared compact — a handful of common fields, consent rules the entrepreneur controls, and a way to recognize the same person across systems.</p>
-      <p class="lede"><strong>No new UI. No new platform. No central owner of the list.</strong><br>
+      <p class="lede"><strong>No new UI. No new platform. And the shared list is held in common — jointly governed, no single organization owns it.</strong><br>
       Just a small protocol your existing systems already speak — five plain HTTPS calls:</p>
       <div class="wire"><span class="req">▶ POST /partnerUpsertPerson</span>   <span class="dim">…an agency's system talks…</span>
 <span class="res">◀ HTTP 201</span> { "ok": true, "action": "created" }   <span class="dim">…the network answers.</span>
@@ -637,7 +637,7 @@
           <p style="font-family:'IBM Plex Mono',monospace; font-size:13px;">X-Nexus-API-Key: nxk_…IPF</p>
         </div>
       </div>
-      <p class="lede" style="margin-top:18px;">Between them sits a <strong>shared record</strong> — jointly written, owned by no one, holding only the fields the compact agrees to share. A and B never call each other, and never see each other's internal IDs.</p>
+      <p class="lede" style="margin-top:18px;">Between them sits a <strong>shared record</strong> — jointly written and jointly governed: owned by the compact's members together, not by any one organization, and holding only the fields the compact agrees to share. A and B never call each other, and never see each other's internal IDs.</p>
       <p class="footnote">The node hosting the shared record is MIT-licensed open source — this group can host it jointly, and any member could stand up a replacement.</p>
     </div>
   </section>
@@ -779,7 +779,7 @@ curl -s -X POST "$BASE/partnerUpsertPerson" \\
         <li><div><strong>Run a pilot</strong> — two orgs integrate against the sandbox, real referrals flow for 30 days, group reviews. <em>Keys and integration packet are ready today.</em></div></li>
         <li><div><strong>Define the shared metrics</strong> — the aggregate numbers we report to the state: startups, survival, jobs. <em>Falls out of participation records automatically.</em></div></li>
       </ol>
-      <p class="kicker">5 HTTPS calls · 2 independent systems · 0 new UIs · 0 central owner of the list</p>
+      <p class="kicker">5 HTTPS calls · 2 independent systems · 0 new UIs · 1 shared core, 0 single owners</p>
     </div>
   </section>
 

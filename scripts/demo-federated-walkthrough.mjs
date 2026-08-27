@@ -13,8 +13,9 @@
  *
  * "Service provider A" is the Entrepreneurship Foundation and "B" is the
  * IP Factory — two independent systems, each holding its own API key, sharing
- * one entrepreneur record. No central authority owns the record: each ESO
- * keeps its own IDs (external_refs) and only ever sees its own.
+ * one entrepreneur record. The shared record is jointly governed — no single
+ * org owns it; each ESO keeps its own IDs (external_refs) and only ever sees
+ * its own.
  *
  * Prerequisites (local): emulators running and seeded —
  *   ./scripts/start-local-dev.sh
@@ -190,8 +191,8 @@ const linked = await call('partnerUpsertPerson', {
 assert.ok(linked.status < 300, `Link failed: ${JSON.stringify(linked.body)}`);
 assert.equal(linked.body.action, 'linked', `Expected linked, got: ${JSON.stringify(linked.body)}`);
 assert.equal(linked.body.nexus_id, nexusId);
-takeaway(`action: "linked" — SAME record ${nexusId}. One shared identity, and no central`);
-console.log('     entity ever owned "the list". A and B never talked to each other directly.');
+takeaway(`action: "linked" — SAME record ${nexusId}. One shared identity on a jointly`);
+console.log('     governed core — no single org owns the list, and A and B never talked directly.');
 
 // ── 4. Sovereignty + resilience: B operates with A offline ───────────────────
 await step(4, `${ESO_B.name} works — with ${ESO_A.name} completely offline`,
@@ -229,4 +230,4 @@ console.log('     (HMAC-signed). Referrals get an ID, an owner, and a follow-up 
 
 console.log(`\n${bold(green('✔ Federated prototype spec demonstrated end-to-end.'))}`);
 console.log(`  Shared record: ${nexusId} · ${entrepreneur.email}`);
-console.log(dim('  5 HTTPS calls. 2 independent systems. 0 new UIs. 0 central owner of the list.'));
+console.log(dim('  5 HTTPS calls. 2 independent systems. 0 new UIs. 1 shared core, 0 single owners.'));
