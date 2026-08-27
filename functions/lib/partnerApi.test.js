@@ -20,7 +20,8 @@
  *   - Tests run sequentially (node:test). Emulator state persists between tests
  *     in the same describe block intentionally so we can assert on created docs.
  *   - The `seedLocalReferenceData` function must exist in your deployed functions
- *     and create the org_makehaven org with its api_keys array before each suite.
+ *     and create the org_makehaven org with its api_keys subcollection before
+ *     each suite (validateApiKey resolves keys via collectionGroup('api_keys')).
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;

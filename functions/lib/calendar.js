@@ -33,8 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resolveEventFlag = exports.flagEvent = exports.generateCalendarFeed = exports.submitEventUrl = exports.processCalendarSubmissionEmail = exports.triggerEventSourcePoll = exports.pollEventSources = exports.ingestEventCandidate = exports.classifyEventCandidate = exports.parseRss = exports.parseIcal = exports.eventFingerprint = void 0;
+exports.resolveEventFlag = exports.flagEvent = exports.generateCalendarFeed = exports.detectFeedFromUrl = exports.submitEventUrl = exports.processCalendarSubmissionEmail = exports.triggerEventSourcePoll = exports.pollEventSources = exports.ingestEventCandidate = exports.classifyEventCandidate = exports.parseRss = exports.parseIcal = exports.eventFingerprint = void 0;
 const crypto_1 = require("crypto");
+const urlGuard_1 = require("./urlGuard");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
@@ -399,14 +400,16 @@ exports.ingestEventCandidate = ingestEventCandidate;
 const fetchSource = async (source) => {
     if (!source.url)
         return [];
-    const res = await fetch(source.url, {
+    if (source.type === 'url_scrape') {
+        return extractEventsFromUrl(source.url);
+    }
+    const res = await (0, urlGuard_1.fetchPublicUrl)(source.url, {
         headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
-        redirect: 'follow',
-    });
+    }, { timeoutMs: 15_000 });
     if (!res.ok) {
         throw new Error(`HTTP ${res.status} from ${source.url}`);
     }
-    const body = await res.text();
+    const body = await (0, urlGuard_1.readTextCapped)(res, 5_000_000);
     if (source.type === 'ical')
         return (0, exports.parseIcal)(body);
     if (source.type === 'rss')
@@ -417,12 +420,13 @@ const runSourceCheck = async (source) => {
     const candidates = await fetchSource(source);
     let added = 0;
     let deduped = 0;
+    const submissionType = source.type === 'ical' ? 'ical' : source.type === 'rss' ? 'rss' : 'url_source_poll';
     for (const c of candidates) {
         try {
             const result = await (0, exports.ingestEventCandidate)(c, {
                 source,
                 ecosystem_id: source.ecosystem_id,
-                source_type: source.type === 'ical' ? 'ical' : 'rss',
+                source_type: submissionType,
             });
             if (result.status === 'added')
                 added += 1;
@@ -471,8 +475,11 @@ const pollAllSources = async () => {
     let errors = 0;
     for (const doc of snap.docs) {
         const source = doc.data();
-        if (source.type !== 'ical' && source.type !== 'rss')
-            continue; // url_scrape/email handled elsewhere
+        // email_route sources are ingested via the inbound email webhook; skip them here.
+        if (source.type === 'email_route')
+            continue;
+        if (source.type !== 'ical' && source.type !== 'rss' && source.type !== 'url_scrape')
+            continue;
         const intervalMs = (source.check_interval_hours || 24) * 60 * 60 * 1000;
         if (source.last_checked_at && Date.now() - new Date(source.last_checked_at).getTime() < intervalMs) {
             continue; // not due yet
@@ -501,8 +508,9 @@ exports.triggerEventSourcePoll = (0, https_1.onRequest)({ invoker: 'public' }, a
         res.status(503).json({ error: 'CALENDAR_POLL_SECRET not configured' });
         return;
     }
-    const provided = (req.query.secret || req.get('x-calendar-poll-secret') || '').toString().trim();
-    if (provided !== expected) {
+    const provided = (req.get('x-calendar-poll-secret') || req.query.secret || '').toString().trim();
+    const matches = provided.length > 0 && (0, crypto_1.timingSafeEqual)((0, crypto_1.createHash)('sha256').update(provided).digest(), (0, crypto_1.createHash)('sha256').update(expected).digest());
+    if (!matches) {
         res.status(401).json({ error: 'Unauthorized' });
         return;
     }
@@ -581,6 +589,76 @@ JSON only.`;
 };
 exports.processCalendarSubmissionEmail = processCalendarSubmissionEmail;
 // ----------------------------------------------------------------------------
+// URL extraction — shared by submitEventUrl (single-page) and pollEventSources
+// (recurring url_scrape sources, where the page may list many events).
+// ----------------------------------------------------------------------------
+const fetchPageText = async (url) => {
+    const res = await (0, urlGuard_1.fetchPublicUrl)(url, {
+        headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
+    }, { timeoutMs: 15_000 });
+    if (!res.ok)
+        throw new Error(`HTTP ${res.status}`);
+    const html = await (0, urlGuard_1.readTextCapped)(res, 5_000_000);
+    return stripTags(html).slice(0, 12000);
+};
+const URL_EXTRACT_PROMPT = (url, pageText) => `Extract entrepreneurial events listed on this page. The page may describe one event or list several upcoming events. Skip anything that isn't a dated event (e.g. blog posts, generic program descriptions).
+
+Return JSON exactly:
+{ "events": [
+  { "title": string, "description": string, "start_time": string (ISO 8601), "end_time": string|null, "location_text": string|null, "organizer_name": string|null, "url": string|null }
+] }
+
+Use the page URL to resolve relative event links. If no events are present, return {"events": []}.
+
+URL: ${url}
+
+Page text:
+${pageText}
+
+JSON only.`;
+const extractEventsFromUrl = async (url) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        console.warn('[calendar] GEMINI_API_KEY missing — cannot extract from url_scrape source');
+        return [];
+    }
+    let pageText;
+    try {
+        pageText = await fetchPageText(url);
+    }
+    catch (err) {
+        throw new Error(`Could not fetch ${url}: ${err?.message || err}`);
+    }
+    const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const prompt = URL_EXTRACT_PROMPT(url, pageText);
+    for (const modelName of ['gemini-2.5-flash', 'gemini-1.5-flash']) {
+        try {
+            const model = genAI.getGenerativeModel({ model: modelName });
+            const result = await model.generateContent(prompt);
+            const cleaned = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            const events = Array.isArray(parsed?.events) ? parsed.events : [];
+            return events
+                .filter((e) => e && e.title && e.start_time)
+                .slice(0, 25)
+                .map((e) => ({
+                title: String(e.title),
+                description: String(e.description || ''),
+                start_time: String(e.start_time),
+                end_time: e.end_time || undefined,
+                location_text: e.location_text || undefined,
+                organizer_name: e.organizer_name || undefined,
+                url: e.url || url,
+            }));
+        }
+        catch (err) {
+            console.warn(`[calendar] URL extract via ${modelName} failed:`, err?.message || err);
+        }
+    }
+    return [];
+};
+// ----------------------------------------------------------------------------
 // URL submission (callable) — primary user-facing submission path
 // ----------------------------------------------------------------------------
 exports.submitEventUrl = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (request) => {
@@ -590,58 +668,18 @@ exports.submitEventUrl = (0, https_1.onCall)({ timeoutSeconds: 60 }, async (requ
     const ecosystemId = String(request.data?.ecosystem_id || '').trim();
     if (!url || !ecosystemId)
         throw new https_1.HttpsError('invalid-argument', 'url and ecosystem_id required');
-    // Pull page HTML and let Gemini extract. URL is server-validated; user-provided text not passed through.
-    let pageText = '';
+    let candidates;
     try {
-        const res = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' } });
-        if (!res.ok)
-            throw new Error(`HTTP ${res.status}`);
-        const html = await res.text();
-        pageText = stripTags(html).slice(0, 8000);
+        candidates = await extractEventsFromUrl(url);
     }
     catch (err) {
-        throw new https_1.HttpsError('failed-precondition', `Could not fetch ${url}: ${err?.message || err}`);
+        throw new https_1.HttpsError('failed-precondition', err?.message || String(err));
     }
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey)
-        throw new https_1.HttpsError('failed-precondition', 'GEMINI_API_KEY not configured');
-    const { GoogleGenerativeAI } = await Promise.resolve().then(() => __importStar(require('@google/generative-ai')));
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const prompt = `Extract one primary event from this page. Return JSON exactly:
-{ "title": string, "description": string, "start_time": string (ISO 8601), "end_time": string|null, "location_text": string|null, "organizer_name": string|null }
-If no event present, return {"title": ""}.
-
-URL: ${url}
-
-Page text:
-${pageText}
-
-JSON only.`;
-    let extracted = null;
-    for (const modelName of ['gemini-2.5-flash', 'gemini-1.5-flash']) {
-        try {
-            const model = genAI.getGenerativeModel({ model: modelName });
-            const result = await model.generateContent(prompt);
-            const cleaned = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-            extracted = JSON.parse(cleaned);
-            break;
-        }
-        catch (err) {
-            console.warn(`[calendar] URL extract via ${modelName} failed:`, err?.message || err);
-        }
-    }
-    if (!extracted || !extracted.title || !extracted.start_time) {
+    if (candidates.length === 0) {
         throw new https_1.HttpsError('not-found', 'Could not extract an event from that URL');
     }
-    const result = await (0, exports.ingestEventCandidate)({
-        title: extracted.title,
-        description: extracted.description || '',
-        url,
-        start_time: extracted.start_time,
-        end_time: extracted.end_time || undefined,
-        location_text: extracted.location_text || undefined,
-        organizer_name: extracted.organizer_name || undefined,
-    }, {
+    // User submission ingests the primary (first) extracted event to preserve existing UX.
+    const result = await (0, exports.ingestEventCandidate)(candidates[0], {
         source: null,
         ecosystem_id: ecosystemId,
         source_type: 'url_submission',
@@ -649,6 +687,96 @@ JSON only.`;
         submitted_url: url,
     });
     return result;
+});
+// ----------------------------------------------------------------------------
+// Feed detection (callable) — when an admin adds a URL source, sniff the page
+// for a linked RSS/Atom feed and return a small preview so they can opt to use
+// the feed instead of LLM scraping.
+// ----------------------------------------------------------------------------
+const FEED_LINK_RE = /<link[^>]+rel=["']alternate["'][^>]*>/gi;
+const ATTR_RE = (name) => new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i');
+const resolveUrl = (base, ref) => {
+    try {
+        return new URL(ref, base).toString();
+    }
+    catch {
+        return ref;
+    }
+};
+const findFeedLinks = (html, baseUrl) => {
+    const out = [];
+    const head = html.slice(0, 30000); // feed links are in <head>; cap to keep regex fast
+    const matches = head.match(FEED_LINK_RE) || [];
+    for (const tag of matches) {
+        const typeAttr = tag.match(ATTR_RE('type'))?.[1] || '';
+        const href = tag.match(ATTR_RE('href'))?.[1];
+        if (!href)
+            continue;
+        let kind = null;
+        if (/application\/rss\+xml/i.test(typeAttr))
+            kind = 'rss';
+        else if (/application\/atom\+xml/i.test(typeAttr))
+            kind = 'atom';
+        if (!kind)
+            continue;
+        const title = tag.match(ATTR_RE('title'))?.[1];
+        out.push({ url: resolveUrl(baseUrl, href), type: kind, title });
+    }
+    return out;
+};
+exports.detectFeedFromUrl = (0, https_1.onCall)({ timeoutSeconds: 30 }, async (request) => {
+    if (!request.auth)
+        throw new https_1.HttpsError('unauthenticated', 'Sign in to add sources');
+    const url = String(request.data?.url || '').trim();
+    if (!url)
+        throw new https_1.HttpsError('invalid-argument', 'url required');
+    let html = '';
+    try {
+        const res = await (0, urlGuard_1.fetchPublicUrl)(url, {
+            headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
+        }, { timeoutMs: 15_000 });
+        if (!res.ok)
+            throw new Error(`HTTP ${res.status}`);
+        html = await (0, urlGuard_1.readTextCapped)(res, 5_000_000);
+    }
+    catch {
+        // Don't echo fetch internals back to the caller — that turns this
+        // endpoint into a blind-SSRF oracle.
+        return { ok: false, reason: 'fetch_failed' };
+    }
+    const feeds = findFeedLinks(html, url);
+    if (feeds.length === 0) {
+        return { ok: true, found: false };
+    }
+    // Try the first feed; if it parses, return a preview. We don't try every link — most pages
+    // declare one or two and the first is almost always the canonical one.
+    const candidate = feeds[0];
+    try {
+        const feedRes = await (0, urlGuard_1.fetchPublicUrl)(candidate.url, {
+            headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
+        }, { timeoutMs: 15_000 });
+        if (!feedRes.ok) {
+            return { ok: true, found: true, feed_url: candidate.url, feed_type: candidate.type, preview: [], reason: `feed_http_${feedRes.status}` };
+        }
+        const body = await (0, urlGuard_1.readTextCapped)(feedRes, 5_000_000);
+        const parsed = (0, exports.parseRss)(body);
+        return {
+            ok: true,
+            found: true,
+            feed_url: candidate.url,
+            feed_type: candidate.type,
+            feed_title: candidate.title || null,
+            preview: parsed.slice(0, 3).map((e) => ({
+                title: e.title,
+                start_time: e.start_time,
+                url: e.url || null,
+            })),
+            total_items: parsed.length,
+        };
+    }
+    catch (err) {
+        return { ok: true, found: true, feed_url: candidate.url, feed_type: candidate.type, preview: [], reason: 'parse_failed', message: err?.message || String(err) };
+    }
 });
 // ----------------------------------------------------------------------------
 // iCal feed generation

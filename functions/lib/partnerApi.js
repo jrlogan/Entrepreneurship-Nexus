@@ -70,8 +70,11 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const crypto_1 = require("crypto");
+const urlGuard_1 = require("./urlGuard");
 const payloadRedaction_1 = require("./payloadRedaction");
 const federationDedup_1 = require("./federationDedup");
+const recordMerge_1 = require("./recordMerge");
+const rateLimit_1 = require("./rateLimit");
 // ─── Helpers (mirrors of index.ts utilities; extract to shared.ts in cleanup) ──
 const normalize = (value) => (value || '').trim().toLowerCase();
 const setCors = (res) => {
@@ -163,26 +166,112 @@ const logAudit = async (db, action, actorId, details) => {
  */
 const indexExternalRef = async (db, ref, entityType, entityId) => {
     const docId = `${entityType}:${ref.source}:${ref.id}`;
-    await db.collection('external_ref_index').doc(docId).set({
+    const indexRef = db.collection('external_ref_index').doc(docId);
+    // First writer owns the (source, id) namespace entry. Without this, any key
+    // could re-point another organization's ref at a record of its choosing —
+    // "pre-claiming" a competitor's ID scheme and hijacking their next push.
+    const existing = await indexRef.get();
+    if (existing.exists) {
+        const owner = existing.get('owner_org_id');
+        if (owner && ref.owner_org_id && owner !== ref.owner_org_id) {
+            console.warn(`external_ref_index owner mismatch for ${docId}: owned by ${owner}, write attempted by ${ref.owner_org_id}`);
+            return;
+        }
+    }
+    await indexRef.set({
         ref_key: `${ref.source}:${ref.id}`,
         source: ref.source,
         external_id: ref.id,
         entity_type: entityType,
         entity_id: entityId,
+        ...(ref.owner_org_id ? { owner_org_id: ref.owner_org_id } : {}),
         indexed_at: new Date().toISOString(),
     });
 };
-const findByExternalRef = async (db, ref, entityType) => {
+/**
+ * Grants a person membership in an ecosystem if they don't already have it.
+ *
+ * Idempotent by construction: the membership id is
+ * `{personId}_{ecosystemId}_none`, so repeated pushes converge rather than
+ * accumulating rows. An existing elevated role (staff, manager) is preserved —
+ * a partner push must never silently demote someone to 'entrepreneur'.
+ */
+const ensureEcosystemMembership = async (db, personId, ecosystemId) => {
+    if (!personId || !ecosystemId)
+        return;
+    const membershipRef = db.collection('person_memberships').doc(`${personId}_${ecosystemId}_none`);
+    const existing = await membershipRef.get();
+    const existingRole = existing.data()?.system_role;
+    if (existing.exists && existing.data()?.status === 'active')
+        return;
+    await membershipRef.set({
+        id: membershipRef.id,
+        person_id: personId,
+        ecosystem_id: ecosystemId,
+        organization_id: '',
+        system_role: existingRole && existingRole !== 'entrepreneur' ? existingRole : 'entrepreneur',
+        status: 'active',
+        joined_at: new Date().toISOString(),
+    }, { merge: true });
+    // Also union the denormalized array inline. The trigger does this too, but
+    // the pushing org may read the record immediately and should not race it.
+    const personRef = db.collection('people').doc(personId);
+    const personSnap = await personRef.get();
+    const current = personSnap.get('ecosystem_ids') || [];
+    if (!current.includes(ecosystemId)) {
+        await personRef.set({ ecosystem_ids: [...current, ecosystemId] }, { merge: true });
+    }
+};
+/**
+ * Resolves an external ref to its entity.
+ *
+ * `callerOrgId` scopes the lookup to refs the calling organization actually
+ * owns. External refs are a partner's OWN identifiers — `{source, id}` pairs
+ * are guessable by design (`makehaven_civicrm` + small integers), so an
+ * unscoped lookup let any valid key resolve, read, and overwrite records
+ * belonging to other organizations by iterating another org's ref scheme.
+ *
+ * Pass `callerOrgId` on every partner-facing path. It is omitted only for
+ * internal resolution (e.g. SSO provider ref matching), where the caller is
+ * not an API key acting on behalf of one organization.
+ */
+/**
+ * Verifies the calling organization actually belongs to the ecosystem it is
+ * writing into.
+ *
+ * `ecosystem_id` arrives in the request body, and without this check a key
+ * could create records in — or drag existing people into — networks its
+ * organization has no part in, mutating the very `ecosystem_ids` array the
+ * Firestore rules use for tenancy. pushInteraction already enforces the
+ * equivalent rule; the partner upserts did not.
+ */
+const orgIsInEcosystem = async (db, orgId, ecosystemId) => {
+    if (!orgId || !ecosystemId)
+        return false;
+    const orgDoc = await db.collection('organizations').doc(orgId).get();
+    if (!orgDoc.exists)
+        return false;
+    const ecosystems = orgDoc.get('ecosystem_ids') || [];
+    return ecosystems.includes(ecosystemId);
+};
+const findByExternalRef = async (db, ref, entityType, callerOrgId) => {
     const docId = `${entityType}:${ref.source}:${ref.id}`;
     const indexDoc = await db.collection('external_ref_index').doc(docId).get();
     if (!indexDoc.exists)
         return null;
+    if (callerOrgId) {
+        const ownerOrgId = indexDoc.get('owner_org_id');
+        // Legacy index entries predate owner tracking; fall back to the ref stored
+        // on the entity itself rather than failing closed on historical data.
+        if (ownerOrgId && ownerOrgId !== callerOrgId)
+            return null;
+    }
     const entityId = indexDoc.get('entity_id');
-    const collection = entityType === 'person' ? 'people' : 'organizations';
-    const entityDoc = await db.collection(collection).doc(entityId).get();
-    if (!entityDoc.exists)
-        return null;
-    return { id: entityDoc.id, data: entityDoc.data() };
+    // Follow `merged_into` so a ref that pointed at a record an admin later
+    // merged away resolves to the survivor instead of writing to a tombstone.
+    // Index entries are repointed on merge; this is the belt-and-braces path
+    // for entries written before the merge, or by another code path.
+    return (0, recordMerge_1.followMergePointer)(db, entityType, entityId);
 };
 // ─── Outbound webhook delivery ────────────────────────────────────────────────
 const signPayload = (secret, body) => (0, crypto_1.createHmac)('sha256', secret).update(body).digest('hex');
@@ -391,6 +480,8 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
         return;
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
+        return;
     const externalRef = req.body?.external_ref;
     const ecosystemId = normalize(req.body?.ecosystem_id);
     const esoOrgId = normalize(req.body?.eso_org_id) || authContext.organization_id;
@@ -411,6 +502,10 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         res.status(403).json({ error: 'API key organization does not match eso_org_id' });
         return;
     }
+    if (!(await orgIsInEcosystem(db, esoOrgId, ecosystemId))) {
+        res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+        return;
+    }
     const ref = {
         source: externalRef.source,
         id: externalRef.id,
@@ -418,7 +513,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     };
     const now = new Date().toISOString();
     // 1. Try ExternalRef index lookup (O(1))
-    const byRef = await findByExternalRef(db, ref, 'person');
+    const byRef = await findByExternalRef(db, ref, 'person', authContext.organization_id);
     if (byRef) {
         const existingRefs = (byRef.data.external_refs || []);
         const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
@@ -450,9 +545,21 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             updated_via_api_key_id: authContext.key_id,
         }, { merge: true });
         await indexExternalRef(db, ref, 'person', existing.id);
+        // Identity is global; ecosystem membership is not. A person first created
+        // in one ecosystem (say a county cluster) who is now pushed by an org in
+        // another (a statewide or interest-based network) must gain membership
+        // there too — otherwise the push "succeeds" while Firestore rules, which
+        // gate on people/{id}.ecosystem_ids, keep them invisible to the very org
+        // that just pushed them.
+        //
+        // person_memberships is the source of truth; the syncPersonEcosystems
+        // trigger denormalizes it onto the person. Writing the membership (rather
+        // than the array directly) keeps that single path intact.
+        await ensureEcosystemMembership(db, existing.id, ecosystemId);
         await logAudit(db, 'partner_person_linked', authContext.organization_id, {
             nexus_id: existing.id,
             external_ref: ref,
+            ecosystem_id: ecosystemId,
         });
         res.json({ ok: true, nexus_id: existing.id, action: 'linked' });
         return;
@@ -540,6 +647,8 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
         return;
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
+        return;
     const externalRef = req.body?.external_ref;
     const ecosystemId = normalize(req.body?.ecosystem_id);
     const esoOrgId = normalize(req.body?.eso_org_id) || authContext.organization_id;
@@ -561,6 +670,10 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
         res.status(403).json({ error: 'API key organization does not match eso_org_id' });
         return;
     }
+    if (!(await orgIsInEcosystem(db, esoOrgId, ecosystemId))) {
+        res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+        return;
+    }
     const ref = {
         source: externalRef.source,
         id: externalRef.id,
@@ -568,7 +681,7 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
     };
     const now = new Date().toISOString();
     // 1. ExternalRef index lookup
-    const byRef = await findByExternalRef(db, ref, 'organization');
+    const byRef = await findByExternalRef(db, ref, 'organization', authContext.organization_id);
     if (byRef) {
         const existingRefs = (byRef.data.external_refs || []);
         const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
@@ -664,13 +777,22 @@ exports.partnerGetPerson = (0, https_1.onRequest)({ invoker: 'public' }, async (
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
         return;
-    const source = normalize(req.query?.source);
-    const externalId = normalize(req.query?.id);
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'read', res)))
+        return;
+    // External refs are stored verbatim on write (partnerUpsertPerson keeps
+    // externalRef.source/id exactly as the partner sent them), and the index
+    // doc id is built from those raw values. Lowercasing here made the read
+    // path disagree with the write path for any partner whose primary keys
+    // aren't lowercase — Salesforce ("0035f00000ABC") and HubSpot IDs are the
+    // common case. Those pushes succeeded and then 404'd on read-back. Treat
+    // identifiers as opaque: trim only.
+    const source = req.query?.source?.trim() || '';
+    const externalId = req.query?.id?.trim() || '';
     if (!source || !externalId) {
         res.status(400).json({ error: 'source and id query parameters are required' });
         return;
     }
-    const found = await findByExternalRef(db, { source, id: externalId }, 'person');
+    const found = await findByExternalRef(db, { source, id: externalId }, 'person', authContext.organization_id);
     if (!found) {
         res.status(404).json({ error: 'No person found for the given external reference' });
         return;
@@ -730,11 +852,22 @@ exports.partnerRegisterWebhook = (0, https_1.onRequest)({ invoker: 'public' }, a
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
         return;
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'register', res)))
+        return;
     const url = (req.body?.url || '').toString().trim();
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
     const description = (req.body?.description || '').toString().trim();
     if (!url.startsWith('https://')) {
         res.status(400).json({ error: 'url is required and must use HTTPS' });
+        return;
+    }
+    try {
+        // Webhook deliveries originate from our infrastructure, so refuse
+        // endpoints that point into private address space (SSRF via triggers).
+        await (0, urlGuard_1.assertPublicHttpUrl)(url, { httpsOnly: true });
+    }
+    catch {
+        res.status(400).json({ error: 'url must resolve to a public host' });
         return;
     }
     const validEvents = [
@@ -826,6 +959,8 @@ exports.partnerUpsertParticipation = (0, https_1.onRequest)({ invoker: 'public' 
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
         return;
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
+        return;
     const personExtRef = req.body?.person_external_ref;
     const partExtRef = req.body?.participation_external_ref;
     const ecosystemId = normalize(req.body?.ecosystem_id);
@@ -848,6 +983,10 @@ exports.partnerUpsertParticipation = (0, https_1.onRequest)({ invoker: 'public' 
         res.status(403).json({ error: 'API key organization does not match eso_org_id' });
         return;
     }
+    if (!(await orgIsInEcosystem(db, esoOrgId, ecosystemId))) {
+        res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+        return;
+    }
     const validTypes = ['program', 'application', 'membership', 'residency', 'rental', 'event', 'service'];
     if (!validTypes.includes(participationType)) {
         res.status(400).json({ error: `Invalid participation_type. Valid values: ${validTypes.join(', ')}` });
@@ -859,7 +998,7 @@ exports.partnerUpsertParticipation = (0, https_1.onRequest)({ invoker: 'public' 
         return;
     }
     // Resolve person by external ref.
-    const person = await findByExternalRef(db, { source: personExtRef.source, id: personExtRef.id }, 'person');
+    const person = await findByExternalRef(db, { source: personExtRef.source, id: personExtRef.id }, 'person', authContext.organization_id);
     if (!person) {
         res.status(404).json({ error: 'No person found for the given person_external_ref. Push the person first via partnerUpsertPerson.' });
         return;
@@ -1112,6 +1251,8 @@ exports.partnerRegisterOidcProvider = (0, https_1.onRequest)({ invoker: 'public'
     const db = admin.firestore();
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
+        return;
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'register', res)))
         return;
     const displayName = (req.body?.display_name || '').toString().trim();
     const authorizationEndpoint = (req.body?.authorization_endpoint || '').toString().trim();
@@ -1511,6 +1652,38 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
             // Index drift — the external_ref_index pointed at a deleted record.
             // Fall through to creation by treating this as a miss.
             console.warn('dedup pointed at missing person, creating fresh:', personMatch);
+        }
+        else if (['platform_admin', 'ecosystem_manager'].includes(personDoc.get('system_role') || '')) {
+            // NEVER silently auto-link a privileged account. A provider controls
+            // what its userinfo endpoint asserts, so an email match alone must not
+            // mint a session for an admin — that would let any org with an API key
+            // take over admin accounts. Privileged users must sign in directly and
+            // use the interactive oidcLinkAccount flow.
+            console.warn(`OIDC auto-link blocked for privileged account ${personMatch.person_id} via provider ${providerId}`);
+            res.status(403).json({
+                error: 'This account cannot be linked via SSO sign-in. Sign in with your Nexus credentials and link the provider from account settings.',
+            });
+            return;
+        }
+        else if (!((provider.ecosystem_id &&
+            (personDoc.get('ecosystem_id') === provider.ecosystem_id ||
+                (personDoc.get('ecosystem_ids') || []).includes(provider.ecosystem_id))) ||
+            ((personDoc.get('primary_organization_id') || personDoc.get('organization_id') || '') === provider.organization_id))) {
+            // Any auto-link must stay within the provider's own scope, whichever
+            // tier matched.
+            //
+            // This guard used to apply only to `email_exact`, which left the
+            // external_ref tier unscoped — and that tier is attacker-reachable: a
+            // partner key can attach its own ref to someone else's person record
+            // (the link-by-email path), register an OIDC provider mapping that ref
+            // source, and then have its own userinfo endpoint assert the ref. The
+            // result was a session as that person, in any org or ecosystem. Scope
+            // is now checked before any tier mints a session.
+            console.warn(`OIDC auto-link out of scope (tier=${personMatch.tier}): person ${personMatch.person_id} vs provider ${providerId}`);
+            res.status(403).json({
+                error: 'An account with this email already exists outside this provider\'s network. Sign in with your Nexus credentials and link the provider from account settings.',
+            });
+            return;
         }
         else {
             personId = personDoc.id;
