@@ -115,55 +115,35 @@ the next consortium meeting.
 
 ## 4. Meeting walkthrough (10 minutes, code-only)
 
-Deliberately no UI: the pitch is a protocol, not a product. Slides: the
-"Federated Compact" deck (published artifact) frames the demo; the demo itself
-is the terminal. For sharing after (or instead of) the live session, "The
-Compact in Practice" (published artifact) is a self-guided interactive
-walkthrough: six scenario players with three columns (Agency A / shared node /
-Agency B) that make explicit what updates locally vs. centrally at every step,
-plus reference tabs for the data model, taxonomy, agreement tiers, and
-required-vs-extended fields. It simulates the verbatim request/response
-exchanges verified against the sandbox.
+The deck is now a **9-slide spine followed by a Reference section**. Present
+the spine; the reference exists so the deck stands on its own once you send
+the link, and so questions have an answer to turn to rather than a promise.
 
-1. **Frame** (3 min, "Title" → "Life of one shared record"): "Centralized
-   asks everyone to join one registry. Federated asks everyone to agree on a
-   small compact — and keep their own systems." The deck now leads with the
-   agreement slide (three sharing tiers + the signable documents) and a flow
-   diagram of one record's life; "How to read the wire" decodes the
-   call/response format for non-developers before the terminal appears.
-2. **Live demo — near the end of the deck, right before Decisions** (5 min,
-   "Two independent systems…" → "…A offline"): the deck's demo trio cues it;
-   run `node scripts/demo-federated-walkthrough.mjs --step` against the
-   hosted sandbox (presenter-only — attendees need no downloads; they follow
-   along with curl/Postman/Hoppscotch per `docs/partner-api/TRY_IT.md`).
-   Improvise with `scripts/nexus-call.mjs` — any call, as any of the three
-   seeded agencies (including a "new agency joins live" slot), driven by the
-   room. Full command script: `docs/live-demo-script.md`. Adoption principle
-   to state out loud: **no bulk imports** — the shared record set grows only
-   from real activity, with the consent email sent to each entrepreneur as
-   they enter.
-3. **Adoption ladder** (2 min): levels 0–3, from "keep using email" to
-   SSO/webhooks — value add, not extra work; no bulk imports at any level;
-   Entrepreneur Central can plug in at level 3 as one identity provider
-   among peers.
-4. **Make it real** (2 min, "It already runs at MakeHaven"): the real
-   screenshots — the member's opt-in toggle and the push confirmation in
-   MakeHaven's own logs — beside an illustrative partner-side panel showing
-   the same shared record. Hand out the Postman collection here for the
-   technical crowd to try live against the hosted sandbox.
-5. **Deep-dive or Q&A reserve** ("Integration step by step", "Mapping",
-   "Same agreement, your app"): the six-step integration path, the
-   field/taxonomy mapping example, and the consent panels mocked inside each
-   org's own brand. Skippable live; they answer the questions directors ask.
-6. **Close** ("Already in the box" → "What the group must decide"): referral
-   loop, data standard, the signable compact (draft — v1.0 is the group's to
-   write); MIT-licensed, self-hostable; then the 8-item decision list.
+**Spine, in order:**
 
-Honest gap to state up front: today's implementation is still hub-shaped — one
-Nexus node holds the shared record. The federated claim is about *governance
-and control* (own keys, own IDs, own apps, replaceable host, open source), not
-yet about node-to-node replication. If the group wants true multi-node
-peering, that's the next design conversation (see §6).
+1. **The Federated Compact** — problem, approach, and the three things to try.
+2. **Always shared · by consent · never shared** — the agreement, which is the
+   clearest entry point for someone new.
+3. **The life of one shared record** — the mechanism diagram plus the journey
+   timeline (memberships starting and ending, sessions, outcomes).
+4. **What this asks of your organization** — the adoption ladder, levels 0–3,
+   no bulk imports at any level. The level-2 steps are a drawer inside it.
+5. **It already runs at MakeHaven** — real screenshots, real push, real log.
+6. **What the entrepreneur sees** — their whole support network, and the
+   consent controls. The strongest slide for a non-technical room.
+7. **Identity, duplicates, and how they get fixed** — avoid / flag / resolve /
+   reverse. Answer this before someone asks it.
+8. **Live demo** — one slide framing two agencies; run
+   `node scripts/demo-federated-walkthrough.mjs --step` against the sandbox,
+   then improvise with `scripts/nexus-call.mjs` (see `docs/live-demo-script.md`).
+9. **Try it from your laptop** — the sandbox, and the invite code (ask JR).
+10. **What the group must decide** — four headline decisions open, four more in
+    a drawer, each with the draft we would start from and an open question.
+
+**Reference (skip in the room):** how to read the wire · two prototypes, one
+spec · mapping keys and taxonomy · the referral email walkthrough · how
+referrals and sessions reach the timeline · the operator console · what the
+shared statistics can answer.
 
 ## 4b. MakeHaven bridge — end-to-end verified (2026-08-27)
 
