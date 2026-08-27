@@ -450,7 +450,7 @@
         <ul>
           <li>Listing in the cross-org directory — off until they click the consent email (<span class="code">network_directory_consent</span>)</li>
           <li>One org seeing another org's records about them — asked per share <em>(live today)</em></li>
-          <li><strong>Named trusted-partner grants</strong> — at intake or any time, the entrepreneur can grant specific orgs a wider scope (journey + shareable notes), per org, revocable — see Scenario 7 <em>(proposed compact feature, same consent rails)</em></li>
+          <li><strong>Named trusted-partner grants</strong> — the entrepreneur grants specific orgs a wider scope, per organization, revocable, with read / write / admin levels — shipped in the portal's "Trusted Partners (Consent Grants)" panel; see Scenario 7 <em>(offering it upfront at intake is the open compact question)</em></li>
           <li>Withdraw and full data-deletion request, built in</li>
         </ul>
       </div>
@@ -746,7 +746,7 @@ const SCENARIOS = [
   },
   {
     label: 'Opting into deeper sharing',
-    context: '<strong>Context:</strong> the compact minimum is deliberately thin — but entrepreneurs can choose more. At intake (say, joining MakeHaven or EF), Grace can opt in <em>from the start</em> to share her fuller journey with <strong>specific trusted partners she names</strong> — per organization, per scope, revocable. <em>Honesty note: the per-request version of this (an org asks, Grace approves by email) and per-note visibility flags are live today; the upfront named-partner grant shown here is a proposed compact feature on the same consent rails — decision for the group.</em>',
+    context: '<strong>Context:</strong> the compact minimum is deliberately thin — but entrepreneurs can choose more. At intake (say, joining MakeHaven or EF), Grace can opt in <em>from the start</em> to share her fuller journey with <strong>specific trusted partners she names</strong> — per organization, per scope, revocable. <em>Status: this is built, not hypothetical — the entrepreneur portal ships a "Trusted Partners (Consent Grants)" panel with per-organization grant/revoke and access levels, alongside per-note visibility flags and the request-and-approve-by-email flow. What the group still decides is the compact language and whether the grant is offered upfront at intake, as shown here.</em>',
     baseline: afterReferral,
     steps: [
       { apply() {},
