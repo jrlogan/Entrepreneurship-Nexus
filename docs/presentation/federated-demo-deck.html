@@ -282,7 +282,7 @@
 
 <span class="dim">The sandbox is online now. Nothing to install — any HTTP tool can call it.</span></div>
       <p class="kicker">Everything in this deck is running code — and the live demo at the end runs against the same sandbox you can call from your own laptop.</p>
-      <p><span class="hint">15 slides · advance with → or the buttons below · "View as document" shows them all at once</span></p>
+      <p><span class="hint">16 slides · advance with → or the buttons below · "View as document" shows them all at once</span></p>
     </div>
   </section>
 
@@ -716,6 +716,51 @@
         <li><strong>Login survives outages too</strong> — any org can register its existing sign-in as an identity provider; sessions are minted independently, so entrepreneurs still get in when their home org is down.</li>
         <li><strong>Entrepreneur consent gates visibility</strong> — pushed records stay out of the shared directory until the person opts in by email; data-removal is built in.</li>
       </ul>
+    </div>
+  </section>
+
+  <!-- 15 · Try it yourself -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">Your turn · the sandbox is live right now</p>
+      <h2>Try it from your laptop — nothing to install</h2>
+      <div class="cols">
+        <div>
+          <div class="wire"><span class="dim"># the live sandbox:</span>
+https://us-central1-entrepreneurship-nexus-staging
+  .cloudfunctions.net
+
+<span class="dim"># one call, any terminal:</span>
+curl -s -X POST "$BASE/partnerUpsertPerson" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Nexus-API-Key: <span class="res">$YOUR_KEY</span>" \\
+  -d '{ "external_ref": {"source":"my_crm","id":"1"},
+        "ecosystem_id": "eco_connecticut",
+        "eso_org_id": "<span class="res">$YOUR_ORG</span>",
+        "first_name":"Test", "last_name":"Person",
+        "email":"test@example.com" }'
+<span class="dim">→</span> { "ok": true, <span class="ok">"action": "created"</span> }</div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:12px;">
+            <h3>Three ways in</h3>
+            <ul class="tight">
+              <li><strong>curl</strong> — copy the command at left</li>
+              <li><strong>Hoppscotch.io</strong> — in the browser, no account, no install</li>
+              <li><strong>Postman / Insomnia / Bruno</strong> — import the ready-made collection from the repo: <span style="font-family:'IBM Plex Mono',monospace; font-size:12px;">github.com/jrlogan/Entrepreneurship-Nexus → docs/partner-api/</span></li>
+            </ul>
+          </div>
+          <div class="card" style="margin-bottom:12px;">
+            <h3>Keys</h3>
+            <p>Ask JR for a sandbox org + API key — handed out today. Keys are org-scoped: everything you write is attributable to you, and only you see your own IDs.</p>
+          </div>
+          <div class="card">
+            <h3>The two-person trick</h3>
+            <p>Pair up. Both push the <strong>same email</strong> from your two different orgs. The second push comes back <span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ok); font-weight:600;">"action": "linked"</span> — you just federated.</p>
+          </div>
+        </div>
+      </div>
+      <p class="footnote">Sandbox etiquette: made-up people only, no real client data; everything is purged periodically. Full quickstart with expected responses: <span style="font-family:'IBM Plex Mono',monospace;">docs/partner-api/TRY_IT.md</span> in the repo.</p>
     </div>
   </section>
 
