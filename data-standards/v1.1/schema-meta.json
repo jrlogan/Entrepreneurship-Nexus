@@ -1,0 +1,28 @@
+{
+  "version": "1.1.0",
+  "status": "stable",
+  "maintainer": "Entrepreneurship Nexus Core Team",
+  "generated_from": [
+    "src/domain/standards/enums.ts",
+    "src/domain/standards/dictionary.ts"
+  ],
+  "generator": "scripts/generate-data-standard.mjs",
+  "counts": {
+    "vocabularies": 17,
+    "entities": 6,
+    "fields": 57
+  },
+  "changelog": [
+    {
+      "version": "1.1.0",
+      "description": "Regenerated from the application definitions. Adds OrganizationType, OwnerCharacteristic, OrgCertification, SupportNeed, VentureStage, ReferralOutcome, OperationalVisibility and ServiceParticipationType; expands MetricType (capital_raised, grant_funding, patents_filed, customer_count) and MetricSource (interaction_log); corrects OrganizationRole to eso/funder/resource."
+    },
+    {
+      "version": "1.0.0",
+      "description": "Initial hand extraction of schema definitions from the application codebase."
+    }
+  ],
+  "compatibility": {
+    "hsds_version": "3.0"
+  }
+}

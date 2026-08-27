@@ -16,6 +16,7 @@ import { CONFIG } from '../../app/config';
 export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) => {
     const repos = useRepos();
     const viewer = useViewer();
+    const [showMetricBreakdown, setShowMetricBreakdown] = useState(false);
     const [organizations, setOrganizations] = useState<Organization[]>([]);
     const [people, setPeople] = useState<Person[]>([]);
     const [interactions, setInteractions] = useState<Interaction[]>([]);
@@ -158,13 +159,32 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
             });
         });
 
-        return { 
-            totalJobs, 
-            totalRevenue, 
-            totalCapital, 
-            verifiedCount, 
+        // Per-organization rows behind the headline totals, so "where does this
+        // number come from?" is answerable in place rather than by leaving for
+        // a separate reporting tool.
+        const breakdown = Object.entries(latestValues)
+            .map(([orgId, orgMetrics]) => ({
+                organizationId: orgId,
+                jobs: orgMetrics['jobs_ft'] ? Number(orgMetrics['jobs_ft'].value) : null,
+                revenue: orgMetrics['revenue'] ? Number(orgMetrics['revenue'].value) : null,
+                capital: orgMetrics['capital_raised'] ? Number(orgMetrics['capital_raised'].value) : null,
+                latestDate: Object.values(orgMetrics)
+                    .map((m) => m.date)
+                    .sort()
+                    .pop() || '',
+                sources: Array.from(new Set(Object.values(orgMetrics).map((m) => m.source))),
+            }))
+            .filter((r) => r.jobs !== null || r.revenue !== null || r.capital !== null)
+            .sort((a, b) => (b.capital || 0) + (b.revenue || 0) - ((a.capital || 0) + (a.revenue || 0)));
+
+        return {
+            totalJobs,
+            totalRevenue,
+            totalCapital,
+            verifiedCount,
             selfReportedCount,
-            totalSources: verifiedCount + selfReportedCount
+            totalSources: verifiedCount + selfReportedCount,
+            breakdown,
         };
     }, [metricsLogs]);
 
@@ -242,10 +262,80 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
                                 {impactStats.selfReportedCount} Self-Reported
                             </span>
                         </div>
-                        <DemoLink href="/reports" className="text-indigo-600 font-bold hover:underline flex items-center gap-1">
-                            <IconChart className="w-3 h-3" /> Full Metrics Report
-                        </DemoLink>
+                        <button
+                            type="button"
+                            onClick={() => setShowMetricBreakdown(v => !v)}
+                            className="text-indigo-600 font-bold hover:underline flex items-center gap-1"
+                            aria-expanded={showMetricBreakdown}
+                        >
+                            <IconChart className="w-3 h-3" />
+                            {showMetricBreakdown ? 'Hide breakdown' : 'Show breakdown'}
+                        </button>
                     </div>
+
+                    {showMetricBreakdown && (
+                        <div className="border-t border-gray-100 bg-white rounded-b-lg overflow-x-auto">
+                            {impactStats.breakdown.length === 0 ? (
+                                <p className="p-4 text-sm text-gray-500">
+                                    No outcome metrics recorded yet. Numbers appear here as organizations log jobs,
+                                    revenue, and capital against the ventures they support.
+                                </p>
+                            ) : (
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-gray-100">
+                                            <th className="px-4 py-2 font-medium">Venture</th>
+                                            <th className="px-4 py-2 font-medium text-right">Jobs (FT)</th>
+                                            <th className="px-4 py-2 font-medium text-right">Revenue</th>
+                                            <th className="px-4 py-2 font-medium text-right">Capital raised</th>
+                                            <th className="px-4 py-2 font-medium">Latest</th>
+                                            <th className="px-4 py-2 font-medium">Source</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="tabular-nums">
+                                        {impactStats.breakdown.map(row => {
+                                            const org = organizations.find(o => o.id === row.organizationId);
+                                            return (
+                                                <tr key={row.organizationId} className="border-b border-gray-50 last:border-0">
+                                                    <td className="px-4 py-2 font-medium text-gray-800">
+                                                        {org?.name || 'Restricted venture'}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-gray-700">{row.jobs ?? '—'}</td>
+                                                    <td className="px-4 py-2 text-right text-gray-700">
+                                                        {row.revenue === null ? '—' : `$${row.revenue.toLocaleString()}`}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-gray-700">
+                                                        {row.capital === null ? '—' : `$${row.capital.toLocaleString()}`}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-gray-500">{row.latestDate || '—'}</td>
+                                                    <td className="px-4 py-2">
+                                                        <span className="flex flex-wrap gap-1">
+                                                            {row.sources.map(s => (
+                                                                <span
+                                                                    key={s}
+                                                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                                                        s === 'verified'
+                                                                            ? 'bg-green-50 text-green-700 border-green-200'
+                                                                            : 'bg-gray-50 text-gray-600 border-gray-200'
+                                                                    }`}
+                                                                >
+                                                                    {s.replace(/_/g, ' ')}
+                                                                </span>
+                                                            ))}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            )}
+                            <p className="px-4 py-2 text-xs text-gray-500 border-t border-gray-100">
+                                Latest value per venture per metric. These roll up into the ecosystem totals above —
+                                no separate reporting exercise.
+                            </p>
+                        </div>
+                    )}
                 </Card>
             )}
 

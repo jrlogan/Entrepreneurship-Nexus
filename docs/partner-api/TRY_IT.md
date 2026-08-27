@@ -110,7 +110,7 @@ the browser, no account needed.
 
 Full reference: `openapi.yaml` (importable) · integration walkthrough:
 `PLAYBOOK.md` · AI-assisted scaffolding: `AI_INTEGRATION_PROMPT.md` ·
-field standard: `../../data-standards/v1.0/`.
+field standard: `../../data-standards/v1.1/`.
 
 ## Ground rules
 

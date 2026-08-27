@@ -62,7 +62,7 @@ There are three ways a self-hosted node relates to the wider network today:
    instance with their account from your system, and keep working even if your
    server is later offline (sessions are minted independently).
 3. **Run fully independent, share the standards.** Adopt
-   `data-standards/v1.0/` so records exported from your node aggregate cleanly
+   `data-standards/v1.1/` so records exported from your node aggregate cleanly
    with others' (the "FirstName vs First Name" problem). Periodic exports or
    partner-API bridges between two Nexus nodes work today because every node
    exposes the same idempotent upsert API — a bridge is just a script that

@@ -53,7 +53,7 @@ Plus the consortium's adjacent asks:
 - **Referrals**: referral records with status, owner assignment, follow-up due
   dates, reminder/decision emails, and HMAC-signed webhooks
   (`referral.received` / `referral.updated`) to the receiving org's system.
-- **Data standards**: `data-standards/v1.0/` — versioned field and enum
+- **Data standards**: `data-standards/v1.1/` — versioned field and enum
   definitions (HSDS 3.0-compatible), the starting point for the group's
   "FirstName vs First Name" standardization discussion.
 - **Consent**: partner-pushed people are invisible in the shared directory until
@@ -106,7 +106,7 @@ the next consortium meeting.
    - `docs/partner-api/openapi.yaml` (importable API reference)
    - `docs/partner-api/AI_INTEGRATION_PROMPT.md` — hand it to an AI assistant
      and get an integration scaffolded (fits how the group is building)
-   - `data-standards/v1.0/` (shared field standard draft)
+   - `data-standards/v1.1/` (shared field standard draft)
    - sandbox base URL + their org's API key
 5. **Optional stretch**: register IP Factory's real matching app as an OIDC
    provider (their `EntrepreneurLink` already redirects to it) so "Sign in with
@@ -223,7 +223,7 @@ needed.
   (one seat per member org), or each org self-hosts and peers? (Mike's four
   scenarios from the April thread.)
 - **Compact v1**: ratify a minimal shared-field standard (start from
-  `data-standards/v1.0`), consent rules, and referral status vocabulary.
+  `data-standards/v1.1`), consent rules, and referral status vocabulary.
 - **Identity**: which orgs will register OIDC providers vs. rely on
   email/Google linking.
 - **Node-to-node roadmap**: if joint hosting is unacceptable to anyone, design

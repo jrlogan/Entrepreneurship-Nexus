@@ -1,0 +1,529 @@
+[
+  {
+    "id": "organization_id",
+    "entity": "organization",
+    "name": "id",
+    "label": "id",
+    "description": "Unique system identifier.",
+    "type": "string (uuid)",
+    "required": true
+  },
+  {
+    "id": "organization_name",
+    "entity": "organization",
+    "name": "name",
+    "label": "name",
+    "description": "Legal or common name of the entity.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "organization_roles",
+    "entity": "organization",
+    "name": "roles",
+    "label": "roles",
+    "description": "Functional roles in the ecosystem: eso (support org), funder (provides capital), workspace (physical space).",
+    "type": "array",
+    "required": true,
+    "enum_ref": "OrganizationRole"
+  },
+  {
+    "id": "organization_org_type",
+    "entity": "organization",
+    "name": "org_type",
+    "label": "org_type",
+    "description": "Entity classification — startup, small_business, business, nonprofit, government_agency, or other.",
+    "type": "string",
+    "required": false,
+    "enum_ref": "OrganizationType"
+  },
+  {
+    "id": "organization_tax_status",
+    "entity": "organization",
+    "name": "tax_status",
+    "label": "tax_status",
+    "description": "IRS tax designation.",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "TaxStatus"
+  },
+  {
+    "id": "organization_support_offerings",
+    "entity": "organization",
+    "name": "support_offerings",
+    "label": "support_offerings",
+    "description": "Support areas this organization provides (for ESOs) or needs (for ventures).",
+    "type": "array",
+    "required": false,
+    "enum_ref": "SupportNeed"
+  },
+  {
+    "id": "organization_industry_tags",
+    "entity": "organization",
+    "name": "industry_tags",
+    "label": "industry_tags",
+    "description": "Flexible tagging for sector (e.g. BioTech, SaaS).",
+    "type": "array<string>",
+    "required": false
+  },
+  {
+    "id": "organization_naics_code",
+    "entity": "organization",
+    "name": "naics_code",
+    "label": "naics_code",
+    "description": "North American Industry Classification System code.",
+    "type": "string",
+    "required": false
+  },
+  {
+    "id": "organization_logo_url",
+    "entity": "organization",
+    "name": "logo_url",
+    "label": "logo_url",
+    "description": "Brand image/logo URL.",
+    "type": "string (url)",
+    "required": false
+  },
+  {
+    "id": "organization_operational_visibility",
+    "entity": "organization",
+    "name": "operational_visibility",
+    "label": "operational_visibility",
+    "description": "Controls whether operational data (metrics, initiatives) is shared.",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "OperationalVisibility"
+  },
+  {
+    "id": "organization_managed_by_ids",
+    "entity": "organization",
+    "name": "managed_by_ids",
+    "label": "managed_by_ids",
+    "description": "List of ESOs that claim this org as a client.",
+    "type": "array<string>",
+    "required": false
+  },
+  {
+    "id": "organization_ecosystem_ids",
+    "entity": "organization",
+    "name": "ecosystem_ids",
+    "label": "ecosystem_ids",
+    "description": "Ecosystems this organization participates in (Multi-tenancy).",
+    "type": "array<string>",
+    "required": true
+  },
+  {
+    "id": "organization_owner_characteristics",
+    "entity": "organization",
+    "name": "owner_characteristics",
+    "label": "owner_characteristics",
+    "description": "Demographic characteristics of the owner(s).",
+    "type": "array",
+    "required": false,
+    "enum_ref": "OwnerCharacteristic"
+  },
+  {
+    "id": "organization_certifications",
+    "entity": "organization",
+    "name": "certifications",
+    "label": "certifications",
+    "description": "Formal government or third-party certifications held.",
+    "type": "array",
+    "required": false,
+    "enum_ref": "OrgCertification"
+  },
+  {
+    "id": "organization_tags",
+    "entity": "organization",
+    "name": "tags",
+    "label": "tags",
+    "description": "Ad-hoc system tags.",
+    "type": "array<string>",
+    "required": false
+  },
+  {
+    "id": "organization_external_refs",
+    "entity": "organization",
+    "name": "external_refs",
+    "label": "external_refs",
+    "description": "IDs from external systems (Salesforce, HubSpot, State Registry).",
+    "type": "array",
+    "required": false
+  },
+  {
+    "id": "person_id",
+    "entity": "person",
+    "name": "id",
+    "label": "id",
+    "description": "Unique system identifier.",
+    "type": "string (uuid)",
+    "required": true
+  },
+  {
+    "id": "person_first_name",
+    "entity": "person",
+    "name": "first_name",
+    "label": "first_name",
+    "description": "First Name.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "person_last_name",
+    "entity": "person",
+    "name": "last_name",
+    "label": "last_name",
+    "description": "Last Name.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "person_email",
+    "entity": "person",
+    "name": "email",
+    "label": "email",
+    "description": "Primary contact email.",
+    "type": "string (email)",
+    "required": true
+  },
+  {
+    "id": "person_avatar_url",
+    "entity": "person",
+    "name": "avatar_url",
+    "label": "avatar_url",
+    "description": "Profile picture.",
+    "type": "string (url)",
+    "required": false
+  },
+  {
+    "id": "person_system_role",
+    "entity": "person",
+    "name": "system_role",
+    "label": "system_role",
+    "description": "Platform permission level.",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "SystemRole"
+  },
+  {
+    "id": "person_organization_id",
+    "entity": "person",
+    "name": "organization_id",
+    "label": "organization_id",
+    "description": "Primary affiliation.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "person_role",
+    "entity": "person",
+    "name": "role",
+    "label": "role",
+    "description": "Job title (e.g. CEO, Program Manager).",
+    "type": "string",
+    "required": false
+  },
+  {
+    "id": "person_memberships",
+    "entity": "person",
+    "name": "memberships",
+    "label": "memberships",
+    "description": "Explicit ecosystem memberships and join dates.",
+    "type": "array",
+    "required": true
+  },
+  {
+    "id": "person_secondary_profile",
+    "entity": "person",
+    "name": "secondary_profile",
+    "label": "secondary_profile",
+    "description": "Allows staff to also act as entrepreneurs (Dual-Role).",
+    "type": "object",
+    "required": false
+  },
+  {
+    "id": "interaction_date",
+    "entity": "interaction",
+    "name": "date",
+    "label": "date",
+    "description": "When the interaction occurred.",
+    "type": "date (ISO)",
+    "required": true
+  },
+  {
+    "id": "interaction_type",
+    "entity": "interaction",
+    "name": "type",
+    "label": "type",
+    "description": "The medium of interaction.",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "InteractionType"
+  },
+  {
+    "id": "interaction_visibility",
+    "entity": "interaction",
+    "name": "visibility",
+    "label": "visibility",
+    "description": "Sharing scope (Network vs Private to your org).",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "InteractionVisibility"
+  },
+  {
+    "id": "interaction_notes",
+    "entity": "interaction",
+    "name": "notes",
+    "label": "notes",
+    "description": "Unstructured summary of the event.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "interaction_note_confidential",
+    "entity": "interaction",
+    "name": "note_confidential",
+    "label": "note_confidential",
+    "description": "Strict privacy override. If true, content is hidden from network partners.",
+    "type": "boolean",
+    "required": false
+  },
+  {
+    "id": "interaction_advisor_suggestions",
+    "entity": "interaction",
+    "name": "advisor_suggestions",
+    "label": "advisor_suggestions",
+    "description": "Snapshot of AI recommendations generated during logging.",
+    "type": "array",
+    "required": false
+  },
+  {
+    "id": "initiative_name",
+    "entity": "initiative",
+    "name": "name",
+    "label": "name",
+    "description": "Project Title.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "initiative_description",
+    "entity": "initiative",
+    "name": "description",
+    "label": "description",
+    "description": "Project narrative/goals.",
+    "type": "string",
+    "required": false
+  },
+  {
+    "id": "initiative_pipeline_id",
+    "entity": "initiative",
+    "name": "pipeline_id",
+    "label": "pipeline_id",
+    "description": "Which journey map this initiative follows (Optional for checklist-only).",
+    "type": "string",
+    "required": false
+  },
+  {
+    "id": "initiative_current_stage_index",
+    "entity": "initiative",
+    "name": "current_stage_index",
+    "label": "current_stage_index",
+    "description": "Current position in the pipeline.",
+    "type": "integer",
+    "required": true
+  },
+  {
+    "id": "initiative_status",
+    "entity": "initiative",
+    "name": "status",
+    "label": "status",
+    "description": "Active state of work.",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "InitiativeStatus"
+  },
+  {
+    "id": "initiative_start_date",
+    "entity": "initiative",
+    "name": "start_date",
+    "label": "start_date",
+    "description": "Target start date.",
+    "type": "date",
+    "required": false
+  },
+  {
+    "id": "initiative_target_end_date",
+    "entity": "initiative",
+    "name": "target_end_date",
+    "label": "target_end_date",
+    "description": "Target completion date.",
+    "type": "date",
+    "required": false
+  },
+  {
+    "id": "initiative_checklists",
+    "entity": "initiative",
+    "name": "checklists",
+    "label": "checklists",
+    "description": "Flexible task lists attached to the project.",
+    "type": "array",
+    "required": false
+  },
+  {
+    "id": "initiative_stage_history",
+    "entity": "initiative",
+    "name": "stage_history",
+    "label": "stage_history",
+    "description": "Longitudinal log of stage movements for velocity tracking.",
+    "type": "array",
+    "required": false
+  },
+  {
+    "id": "referral_referring_org_id",
+    "entity": "referral",
+    "name": "referring_org_id",
+    "label": "referring_org_id",
+    "description": "Sender.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "referral_receiving_org_id",
+    "entity": "referral",
+    "name": "receiving_org_id",
+    "label": "receiving_org_id",
+    "description": "Recipient.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "referral_status",
+    "entity": "referral",
+    "name": "status",
+    "label": "status",
+    "description": "Workflow state.",
+    "type": "enum",
+    "required": true,
+    "enum_ref": "ReferralStatus"
+  },
+  {
+    "id": "referral_outcome",
+    "entity": "referral",
+    "name": "outcome",
+    "label": "outcome",
+    "description": "Result of the referral (e.g. Funding Secured).",
+    "type": "enum",
+    "required": false,
+    "enum_ref": "ReferralOutcome"
+  },
+  {
+    "id": "referral_outcome_tags",
+    "entity": "referral",
+    "name": "outcome_tags",
+    "label": "outcome_tags",
+    "description": "Free-text tags describing specific results.",
+    "type": "array<string>",
+    "required": false
+  },
+  {
+    "id": "referral_owner_id",
+    "entity": "referral",
+    "name": "owner_id",
+    "label": "owner_id",
+    "description": "Staff member responsible for managing the referral.",
+    "type": "string",
+    "required": false
+  },
+  {
+    "id": "referral_follow_up_date",
+    "entity": "referral",
+    "name": "follow_up_date",
+    "label": "follow_up_date",
+    "description": "Reminder date for check-in.",
+    "type": "date",
+    "required": false
+  },
+  {
+    "id": "service_id",
+    "entity": "service",
+    "name": "id",
+    "label": "id",
+    "description": "Unique system identifier.",
+    "type": "string (uuid)",
+    "required": true
+  },
+  {
+    "id": "service_name",
+    "entity": "service",
+    "name": "name",
+    "label": "name",
+    "description": "Name of the program or service (e.g. \"Incubator Cohort 3\", \"Makerspace Membership\").",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "service_provider_org_id",
+    "entity": "service",
+    "name": "provider_org_id",
+    "label": "provider_org_id",
+    "description": "The ESO delivering the service.",
+    "type": "string",
+    "required": true
+  },
+  {
+    "id": "service_recipient_org_id",
+    "entity": "service",
+    "name": "recipient_org_id",
+    "label": "recipient_org_id",
+    "description": "The venture or organization receiving the service.",
+    "type": "string",
+    "required": false
+  },
+  {
+    "id": "service_participation_type",
+    "entity": "service",
+    "name": "participation_type",
+    "label": "participation_type",
+    "description": "The nature of the engagement.",
+    "type": "enum",
+    "required": false,
+    "enum_ref": "ServiceParticipationType"
+  },
+  {
+    "id": "service_status",
+    "entity": "service",
+    "name": "status",
+    "label": "status",
+    "description": "Current enrollment state: active, past, applied, or waitlisted.",
+    "type": "enum",
+    "required": true
+  },
+  {
+    "id": "service_start_date",
+    "entity": "service",
+    "name": "start_date",
+    "label": "start_date",
+    "description": "When the participation began.",
+    "type": "date",
+    "required": true
+  },
+  {
+    "id": "service_end_date",
+    "entity": "service",
+    "name": "end_date",
+    "label": "end_date",
+    "description": "When participation ended. Null if ongoing.",
+    "type": "date",
+    "required": false
+  },
+  {
+    "id": "service_description",
+    "entity": "service",
+    "name": "description",
+    "label": "description",
+    "description": "Optional notes about the service or enrollment context.",
+    "type": "string",
+    "required": false
+  }
+]
