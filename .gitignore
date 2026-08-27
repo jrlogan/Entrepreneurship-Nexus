@@ -34,3 +34,10 @@ dist-demo
 
 # Meeting notes / email exports with personal contact info — never commit
 docs/discussion/
+dist-demo-compact
+
+# Never commit credentials or emulator dumps to a public repo
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+firebase-export-*/
+emulator-data/

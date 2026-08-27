@@ -49,6 +49,7 @@ import {
   type ExternalRef as FedExternalRef,
 } from './federationDedup';
 import { followMergePointer } from './recordMerge';
+import { enforceRateLimit } from './rateLimit';
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -234,12 +235,29 @@ const indexExternalRef = async (
   entityId: string
 ) => {
   const docId = `${entityType}:${ref.source}:${ref.id}`;
-  await db.collection('external_ref_index').doc(docId).set({
+  const indexRef = db.collection('external_ref_index').doc(docId);
+
+  // First writer owns the (source, id) namespace entry. Without this, any key
+  // could re-point another organization's ref at a record of its choosing —
+  // "pre-claiming" a competitor's ID scheme and hijacking their next push.
+  const existing = await indexRef.get();
+  if (existing.exists) {
+    const owner = existing.get('owner_org_id') as string | undefined;
+    if (owner && ref.owner_org_id && owner !== ref.owner_org_id) {
+      console.warn(
+        `external_ref_index owner mismatch for ${docId}: owned by ${owner}, write attempted by ${ref.owner_org_id}`
+      );
+      return;
+    }
+  }
+
+  await indexRef.set({
     ref_key: `${ref.source}:${ref.id}`,
     source: ref.source,
     external_id: ref.id,
     entity_type: entityType,
     entity_id: entityId,
+    ...(ref.owner_org_id ? { owner_org_id: ref.owner_org_id } : {}),
     indexed_at: new Date().toISOString(),
   });
 };
@@ -287,14 +305,57 @@ const ensureEcosystemMembership = async (
   }
 };
 
+/**
+ * Resolves an external ref to its entity.
+ *
+ * `callerOrgId` scopes the lookup to refs the calling organization actually
+ * owns. External refs are a partner's OWN identifiers — `{source, id}` pairs
+ * are guessable by design (`makehaven_civicrm` + small integers), so an
+ * unscoped lookup let any valid key resolve, read, and overwrite records
+ * belonging to other organizations by iterating another org's ref scheme.
+ *
+ * Pass `callerOrgId` on every partner-facing path. It is omitted only for
+ * internal resolution (e.g. SSO provider ref matching), where the caller is
+ * not an API key acting on behalf of one organization.
+ */
+/**
+ * Verifies the calling organization actually belongs to the ecosystem it is
+ * writing into.
+ *
+ * `ecosystem_id` arrives in the request body, and without this check a key
+ * could create records in — or drag existing people into — networks its
+ * organization has no part in, mutating the very `ecosystem_ids` array the
+ * Firestore rules use for tenancy. pushInteraction already enforces the
+ * equivalent rule; the partner upserts did not.
+ */
+const orgIsInEcosystem = async (
+  db: FirebaseFirestore.Firestore,
+  orgId: string,
+  ecosystemId: string
+): Promise<boolean> => {
+  if (!orgId || !ecosystemId) return false;
+  const orgDoc = await db.collection('organizations').doc(orgId).get();
+  if (!orgDoc.exists) return false;
+  const ecosystems = (orgDoc.get('ecosystem_ids') as string[] | undefined) || [];
+  return ecosystems.includes(ecosystemId);
+};
+
 const findByExternalRef = async (
   db: FirebaseFirestore.Firestore,
   ref: ExternalRef,
-  entityType: 'person' | 'organization'
+  entityType: 'person' | 'organization',
+  callerOrgId?: string
 ): Promise<{ id: string; data: admin.firestore.DocumentData } | null> => {
   const docId = `${entityType}:${ref.source}:${ref.id}`;
   const indexDoc = await db.collection('external_ref_index').doc(docId).get();
   if (!indexDoc.exists) return null;
+
+  if (callerOrgId) {
+    const ownerOrgId = indexDoc.get('owner_org_id') as string | undefined;
+    // Legacy index entries predate owner tracking; fall back to the ref stored
+    // on the entity itself rather than failing closed on historical data.
+    if (ownerOrgId && ownerOrgId !== callerOrgId) return null;
+  }
 
   const entityId = indexDoc.get('entity_id') as string;
   // Follow `merged_into` so a ref that pointed at a record an admin later
@@ -547,6 +608,7 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await enforceRateLimit(db, authContext.key_id, 'write', res))) return;
 
   const externalRef = req.body?.external_ref as Partial<ExternalRef> | undefined;
   const ecosystemId = normalize(req.body?.ecosystem_id);
@@ -569,6 +631,10 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
     res.status(403).json({ error: 'API key organization does not match eso_org_id' });
     return;
   }
+  if (!(await orgIsInEcosystem(db, esoOrgId, ecosystemId))) {
+    res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+    return;
+  }
 
   const ref: ExternalRef = {
     source: externalRef.source,
@@ -578,7 +644,7 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
   const now = new Date().toISOString();
 
   // 1. Try ExternalRef index lookup (O(1))
-  const byRef = await findByExternalRef(db, ref, 'person');
+  const byRef = await findByExternalRef(db, ref, 'person', authContext.organization_id);
   if (byRef) {
     const existingRefs = (byRef.data.external_refs || []) as ExternalRef[];
     const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
@@ -729,6 +795,7 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await enforceRateLimit(db, authContext.key_id, 'write', res))) return;
 
   const externalRef = req.body?.external_ref as Partial<ExternalRef> | undefined;
   const ecosystemId = normalize(req.body?.ecosystem_id);
@@ -752,6 +819,10 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
     res.status(403).json({ error: 'API key organization does not match eso_org_id' });
     return;
   }
+  if (!(await orgIsInEcosystem(db, esoOrgId, ecosystemId))) {
+    res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+    return;
+  }
 
   const ref: ExternalRef = {
     source: externalRef.source,
@@ -761,7 +832,7 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
   const now = new Date().toISOString();
 
   // 1. ExternalRef index lookup
-  const byRef = await findByExternalRef(db, ref, 'organization');
+  const byRef = await findByExternalRef(db, ref, 'organization', authContext.organization_id);
   if (byRef) {
     const existingRefs = (byRef.data.external_refs || []) as ExternalRef[];
     const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
@@ -868,6 +939,7 @@ export const partnerGetPerson = onRequest({ invoker: 'public' }, async (req, res
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await enforceRateLimit(db, authContext.key_id, 'read', res))) return;
 
   // External refs are stored verbatim on write (partnerUpsertPerson keeps
   // externalRef.source/id exactly as the partner sent them), and the index
@@ -884,7 +956,7 @@ export const partnerGetPerson = onRequest({ invoker: 'public' }, async (req, res
     return;
   }
 
-  const found = await findByExternalRef(db, { source, id: externalId }, 'person');
+  const found = await findByExternalRef(db, { source, id: externalId }, 'person', authContext.organization_id);
   if (!found) {
     res.status(404).json({ error: 'No person found for the given external reference' });
     return;
@@ -950,6 +1022,7 @@ export const partnerRegisterWebhook = onRequest({ invoker: 'public' }, async (re
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await enforceRateLimit(db, authContext.key_id, 'register', res))) return;
 
   const url = (req.body?.url || '').toString().trim();
   const events: string[] = Array.isArray(req.body?.events) ? req.body.events : [];
@@ -1065,6 +1138,7 @@ export const partnerUpsertParticipation = onRequest({ invoker: 'public' }, async
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await enforceRateLimit(db, authContext.key_id, 'write', res))) return;
 
   const personExtRef = req.body?.person_external_ref as Partial<ExternalRef> | undefined;
   const partExtRef = req.body?.participation_external_ref as Partial<ExternalRef> | undefined;
@@ -1089,6 +1163,10 @@ export const partnerUpsertParticipation = onRequest({ invoker: 'public' }, async
     res.status(403).json({ error: 'API key organization does not match eso_org_id' });
     return;
   }
+  if (!(await orgIsInEcosystem(db, esoOrgId, ecosystemId))) {
+    res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+    return;
+  }
 
   const validTypes = ['program', 'application', 'membership', 'residency', 'rental', 'event', 'service'];
   if (!validTypes.includes(participationType)) {
@@ -1102,7 +1180,7 @@ export const partnerUpsertParticipation = onRequest({ invoker: 'public' }, async
   }
 
   // Resolve person by external ref.
-  const person = await findByExternalRef(db, { source: personExtRef.source, id: personExtRef.id }, 'person');
+  const person = await findByExternalRef(db, { source: personExtRef.source, id: personExtRef.id }, 'person', authContext.organization_id);
   if (!person) {
     res.status(404).json({ error: 'No person found for the given person_external_ref. Push the person first via partnerUpsertPerson.' });
     return;
@@ -1417,6 +1495,7 @@ export const partnerRegisterOidcProvider = onRequest({ invoker: 'public' }, asyn
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await enforceRateLimit(db, authContext.key_id, 'register', res))) return;
 
   const displayName = (req.body?.display_name || '').toString().trim();
   const authorizationEndpoint = (req.body?.authorization_endpoint || '').toString().trim();

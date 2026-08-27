@@ -1,4 +1,5 @@
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
+import { fetchPublicUrl, readTextCapped } from './urlGuard';
 import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -487,14 +488,13 @@ const fetchSource = async (source: EventSourceDoc): Promise<RawEventCandidate[]>
   if (source.type === 'url_scrape') {
     return extractEventsFromUrl(source.url);
   }
-  const res = await fetch(source.url, {
+  const res = await fetchPublicUrl(source.url, {
     headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
-    redirect: 'follow',
-  });
+  }, { timeoutMs: 15_000 });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} from ${source.url}`);
   }
-  const body = await res.text();
+  const body = await readTextCapped(res, 5_000_000);
   if (source.type === 'ical') return parseIcal(body);
   if (source.type === 'rss') return parseRss(body);
   throw new Error(`Source type ${source.type} not supported by pollEventSources`);
@@ -600,8 +600,12 @@ export const triggerEventSourcePoll = onRequest({ invoker: 'public' }, async (re
     res.status(503).json({ error: 'CALENDAR_POLL_SECRET not configured' });
     return;
   }
-  const provided = (req.query.secret || req.get('x-calendar-poll-secret') || '').toString().trim();
-  if (provided !== expected) {
+  const provided = (req.get('x-calendar-poll-secret') || req.query.secret || '').toString().trim();
+  const matches = provided.length > 0 && timingSafeEqual(
+    createHash('sha256').update(provided).digest(),
+    createHash('sha256').update(expected).digest(),
+  );
+  if (!matches) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
@@ -700,12 +704,11 @@ JSON only.`;
 // ----------------------------------------------------------------------------
 
 const fetchPageText = async (url: string): Promise<string> => {
-  const res = await fetch(url, {
-    redirect: 'follow',
+  const res = await fetchPublicUrl(url, {
     headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
-  });
+  }, { timeoutMs: 15_000 });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const html = await res.text();
+  const html = await readTextCapped(res, 5_000_000);
   return stripTags(html).slice(0, 12000);
 };
 
@@ -837,14 +840,15 @@ export const detectFeedFromUrl = onCall({ timeoutSeconds: 30 }, async (request) 
 
   let html = '';
   try {
-    const res = await fetch(url, {
-      redirect: 'follow',
+    const res = await fetchPublicUrl(url, {
       headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
-    });
+    }, { timeoutMs: 15_000 });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    html = await res.text();
-  } catch (err: any) {
-    return { ok: false, reason: `fetch_failed`, message: err?.message || String(err) };
+    html = await readTextCapped(res, 5_000_000);
+  } catch {
+    // Don't echo fetch internals back to the caller — that turns this
+    // endpoint into a blind-SSRF oracle.
+    return { ok: false, reason: 'fetch_failed' };
   }
 
   const feeds = findFeedLinks(html, url);
@@ -856,14 +860,13 @@ export const detectFeedFromUrl = onCall({ timeoutSeconds: 30 }, async (request) 
   // declare one or two and the first is almost always the canonical one.
   const candidate = feeds[0];
   try {
-    const feedRes = await fetch(candidate.url, {
-      redirect: 'follow',
+    const feedRes = await fetchPublicUrl(candidate.url, {
       headers: { 'User-Agent': 'Entrepreneurship-Nexus-Calendar/1.0' },
-    });
+    }, { timeoutMs: 15_000 });
     if (!feedRes.ok) {
       return { ok: true, found: true, feed_url: candidate.url, feed_type: candidate.type, preview: [], reason: `feed_http_${feedRes.status}` };
     }
-    const body = await feedRes.text();
+    const body = await readTextCapped(feedRes, 5_000_000);
     const parsed = parseRss(body);
     return {
       ok: true,

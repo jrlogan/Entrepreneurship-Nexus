@@ -46,6 +46,18 @@ const get = async (path: string) => {
   return { status: res.status, body: text };
 };
 
+// Mirrors the confirm-page <form method="POST"> submit: GET renders the
+// confirmation, this POST performs the action.
+const postForm = async (path: string, fields: Record<string, string>) => {
+  const res = await fetch(`${FUNCTIONS_BASE}/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(fields).toString(),
+  });
+  const text = await res.text();
+  return { status: res.status, body: text };
+};
+
 const getDoc = async (collection: string, id: string) => {
   const snap = await db.collection(collection).doc(id).get();
   return snap.exists ? snap.data() : null;
@@ -173,13 +185,18 @@ describe('one-click accept', () => {
     completeToken = result.tokens.find(t => t.action === 'complete')!.id;
   });
 
-  it('returns 200 HTML on valid accept token', async () => {
+  it('GET shows a confirmation page and does NOT change the referral', async () => {
     const { status, body } = await get(`referralEmailAction?token=${acceptToken}`);
     assert.equal(status, 200);
-    assert.ok(body.includes('accepted') || body.includes('Referral accepted'), `Unexpected body: ${body.slice(0, 200)}`);
+    assert.ok(body.includes('form') && body.includes('Accept'), `Expected confirm form, got: ${body.slice(0, 200)}`);
+    const referral = await getDoc('referrals', referralId);
+    assert.equal(referral!.status, 'pending', 'GET (e.g. a mail-scanner prefetch) must not mutate');
   });
 
-  it('referral status is now accepted', async () => {
+  it('POST accepts the referral', async () => {
+    const { status, body } = await postForm('referralEmailAction', { token: acceptToken });
+    assert.equal(status, 200);
+    assert.ok(body.includes('accepted') || body.includes('Referral accepted'), `Unexpected body: ${body.slice(0, 200)}`);
     const referral = await getDoc('referrals', referralId);
     assert.equal(referral!.status, 'accepted');
     assert.ok(referral!.accepted_at, 'Should have accepted_at timestamp');
@@ -191,13 +208,13 @@ describe('one-click accept', () => {
   });
 
   it('using the same accept token again returns already-actioned page', async () => {
-    const { status, body } = await get(`referralEmailAction?token=${acceptToken}`);
+    const { status, body } = await postForm('referralEmailAction', { token: acceptToken });
     assert.equal(status, 200);
     assert.ok(body.includes('Already') || body.includes('already'), `Expected already-actioned message, got: ${body.slice(0, 200)}`);
   });
 
   it('complete token still works after accept', async () => {
-    const { status, body } = await get(`referralEmailAction?token=${completeToken}`);
+    const { status, body } = await postForm('referralEmailAction', { token: completeToken });
     assert.equal(status, 200);
     assert.ok(body.includes('complete') || body.includes('Complete'), `Unexpected body: ${body.slice(0, 200)}`);
     const referral = await getDoc('referrals', referralId);
@@ -218,16 +235,17 @@ describe('one-click complete (direct from pending)', () => {
     completeToken = result.tokens.find(t => t.action === 'complete')!.id;
   });
 
-  it('returns 200 HTML on valid complete token', async () => {
-    const { status, body } = await get(`referralEmailAction?token=${completeToken}`);
+  it('POST completes the referral', async () => {
+    const { status, body } = await postForm('referralEmailAction', { token: completeToken });
     assert.equal(status, 200);
     assert.ok(body.includes('complete') || body.includes('Complete'), `Unexpected body: ${body.slice(0, 200)}`);
   });
 
-  it('referral status is now completed', async () => {
+  it('referral status is now completed with an implied acceptance', async () => {
     const referral = await getDoc('referrals', referralId);
     assert.equal(referral!.status, 'completed');
     assert.ok(referral!.closed_at, 'Should have closed_at timestamp');
+    assert.ok(referral!.accepted_at, 'One-click complete from pending records the implied acceptance');
     assert.equal(referral!.outcome, 'completed_via_email');
   });
 

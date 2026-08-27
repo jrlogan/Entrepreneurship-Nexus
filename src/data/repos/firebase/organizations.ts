@@ -7,6 +7,7 @@ import type { ViewerContext } from '../../../domain/access/policy';
 import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/access/policy';
 import { redactOrganization } from '../../../domain/access/redaction';
 import { ConsentRepo } from '../consent';
+import type { IngestionResult } from '../organizations';
 
 const normalizeOrganization = (org: Organization & { demographics?: { minority_owned?: boolean; woman_owned?: boolean; veteran_owned?: boolean } }): Organization => {
   // Backwards compat: convert old boolean demographics object to owner_characteristics array
@@ -89,6 +90,61 @@ export class FirebaseOrganizationsRepo {
   async getById(id: string): Promise<Organization | undefined> {
     const org = await getDocument<Organization>('organizations', id);
     return org ? normalizeOrganization(org) : undefined;
+  }
+
+  /**
+   * External-system upsert used by the API Console simulator. Matches by
+   * (source, external_id) ref first, then by explicit payload.id.
+   */
+  async upsertFromExternal(source: string, payload: any): Promise<IngestionResult> {
+    const externalId = payload.external_id;
+    const all = (await queryCollection<Organization>('organizations', [])).map(normalizeOrganization);
+    let existing = externalId
+      ? all.find(o => o.external_refs.some(ref => ref.source === source && ref.id === externalId))
+      : undefined;
+    if (!existing && payload.id) {
+      existing = all.find(o => o.id === payload.id);
+    }
+
+    if (existing) {
+      const updates: Partial<Organization> = {
+        name: payload.name || existing.name,
+        description: payload.description || existing.description,
+        url: payload.url || existing.url,
+        version: (existing.version || 1) + 1,
+      };
+      await this.update(existing.id, updates);
+      return {
+        status: 'updated',
+        entity: { ...existing, ...updates },
+        message: `Updated record ${existing.id} (v${updates.version}) from ${source}.`,
+      };
+    }
+
+    const newOrg: Organization = normalizeOrganization({
+      id: `org_${source.toLowerCase()}_${Date.now()}`,
+      name: payload.name,
+      description: payload.description || '',
+      url: payload.url || '',
+      tax_status: payload.tax_status || 'for_profit',
+      roles: payload.roles || [],
+      org_type: payload.org_type || 'startup',
+      owner_characteristics: payload.owner_characteristics || [],
+      classification: payload.classification || { industry_tags: [], naics_code: '' },
+      external_refs: [{ source, id: externalId || `gen_${Date.now()}` }],
+      managed_by_ids: [],
+      operational_visibility: 'open',
+      authorized_eso_ids: [],
+      ecosystem_ids: payload.ecosystem_ids || [],
+      version: 1,
+      external_ids: {},
+    } as Organization);
+    await this.add(newOrg);
+    return {
+      status: 'created',
+      entity: newOrg,
+      message: `Created new record ${newOrg.id} from ${source}.`,
+    };
   }
 
   async add(org: Organization): Promise<void> {
@@ -182,11 +238,27 @@ export class FirebaseOrganizationsRepo {
     const db = getFirestoreDb();
     if (!db) return null;
 
+    // The signing secret is the HMAC key the server uses to sign every
+    // outbound delivery, so it must be unguessable. It was previously
+    // generated here with Math.random() — V8's xorshift128+, whose state is
+    // recoverable from a few outputs — which would let anyone who could
+    // predict it forge signed deliveries to the partner's endpoint.
+    //
+    // Secrets are minted server-side with crypto-grade randomness. The
+    // browser gets it once, in the response, and never generates it.
+    const crypto = globalThis.crypto;
+    if (!crypto?.getRandomValues) {
+      throw new Error('A secure random source is unavailable; cannot create a webhook signing secret.');
+    }
+    const material = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+
     const nextWebhook: Webhook = {
       id: `wh_${Date.now()}`,
       created_at: new Date().toISOString(),
       status: 'active',
-      secret: `whsec_${Math.random().toString(36).substring(2, 22)}`,
+      secret: `whsec_${material}`,
       ...webhook,
     };
 

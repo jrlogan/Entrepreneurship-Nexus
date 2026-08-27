@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { fetchPublicUrl, readTextCapped } from './urlGuard';
+import { enforceRateLimit } from './rateLimit';
 import {
   extractEmails,
   extractNameFromSubject,
@@ -4515,6 +4516,45 @@ export const provisionDemoAgency = onRequest({ invoker: 'public' }, async (req, 
   }
 
   if (!requireLocalOnlyEnvironment(res)) {
+    return;
+  }
+
+  // This endpoint is public and the repository is public, so without a gate it
+  // is an open invitation for bots to mint organizations and API keys against
+  // the shared sandbox. Three cheap defences, in order of cost to an attacker:
+  //
+  //   1. An invite code, shared with the consortium out of band. Absent on a
+  //      local emulator (no code configured → open), required anywhere else.
+  //   2. Per-IP rate limiting, so a leaked code cannot be used at volume.
+  //   3. A hard ceiling on demo organizations, so even a slow trickle cannot
+  //      fill the sandbox indefinitely.
+  const configuredCode = getRequiredEnv('DEMO_PROVISION_INVITE_CODE');
+  if (configuredCode) {
+    const provided = (req.body?.invite_code || req.get('X-Demo-Invite-Code') || '').toString();
+    if (!secretsMatch(provided, configuredCode)) {
+      res.status(401).json({
+        error: 'A demo invite code is required. Ask the network admin for the code shared with the consortium.',
+      });
+      return;
+    }
+  }
+
+  const callerIp = (req.get('x-forwarded-for') || req.ip || 'unknown').split(',')[0].trim();
+  if (!(await enforceRateLimit(db, `provision:${callerIp}`, 'register', res))) {
+    return;
+  }
+
+  const MAX_DEMO_ORGS = 250;
+  const demoCount = await db.collection('organizations')
+    .where('ecosystem_ids', 'array-contains', 'eco_connecticut')
+    .count()
+    .get()
+    .then((s) => s.data().count)
+    .catch(() => 0);
+  if (demoCount >= MAX_DEMO_ORGS) {
+    res.status(503).json({
+      error: 'The demo sandbox has reached its organization limit and is due for a purge. Contact the network admin.',
+    });
     return;
   }
 

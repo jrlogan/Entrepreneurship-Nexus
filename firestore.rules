@@ -52,6 +52,30 @@ service cloud.firestore {
       );
     }
 
+    // --- Ecosystem tenancy -------------------------------------------------
+    // `ecosystem_ids` is denormalized onto the person doc from the
+    // person_memberships collection by the syncPersonEcosystems trigger
+    // (functions/src/index.ts) — rules can get() a document but cannot query
+    // a collection, so this array is the only way to check membership here.
+    // Falls back to the legacy single `ecosystem_id` for person docs written
+    // before the denormalization existed.
+    function personEcosystemIds() {
+      return hasPersonDoc() ? (
+        'ecosystem_ids' in personDoc().data ?
+          personDoc().data.ecosystem_ids :
+          [personDoc().data.ecosystem_id]
+      ) : [];
+    }
+
+    // Tenancy gate for ecosystem-scoped records. Platform admins operate
+    // across ecosystems by design; everyone else is confined to the
+    // ecosystems they actually hold a membership in.
+    function inCallerEcosystem(ecosystemId) {
+      return isPlatformAdmin() || (
+        hasPersonDoc() && ecosystemId in personEcosystemIds()
+      );
+    }
+
     function isReceivingOrgMember(referral) {
       return isEsoOperator() &&
         currentOrgId() != null &&
@@ -203,14 +227,35 @@ service cloud.firestore {
     }
 
     match /referrals/{referralId} {
-      allow read: if isAuthenticated();
-      allow create: if canCreateReferral();
-      allow update, delete: if canManageReferral(resource.data);
+      // Tenancy-scoped: clients always query with
+      // where('ecosystem_id','==',scope), so this matches the real read path.
+      // Party-level narrowing (referring/receiving/subject org) is still
+      // applied client-side in FirebaseReferralsRepo.getAll — enforcing it
+      // here too would require the client to issue per-party queries.
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      allow create: if canCreateReferral() && inCallerEcosystem(request.resource.data.ecosystem_id);
+      allow update, delete: if canManageReferral(resource.data) && inCallerEcosystem(resource.data.ecosystem_id);
     }
 
     match /interactions/{interactionId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      // Tenancy-scoped: a signed-in user can no longer read case notes from
+      // ecosystems they are not a member of.
+      // NOTE: within an ecosystem, eso_private / note_confidential content
+      // filtering is still applied client-side (domain/access/policy.ts).
+      // Closing that gap needs either per-author queries or a redacting
+      // Cloud Function read path — tracked as remaining work.
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      // Writers may only author interactions attributed to their own org —
+      // previously any ESO operator could forge another org's case notes.
+      allow create: if isPlatformAdmin() || (
+        isEsoOperator() &&
+        request.resource.data.author_org_id == currentOrgId()
+      );
+      allow update: if isPlatformAdmin() || (
+        isEsoOperator() &&
+        resource.data.author_org_id == currentOrgId() &&
+        request.resource.data.author_org_id == resource.data.author_org_id
+      );
       allow delete: if isPlatformAdmin();
     }
 
@@ -219,32 +264,44 @@ service cloud.firestore {
       allow write: if isPlatformAdmin();
     }
 
+    // The collections below are always queried with an ecosystem_id filter by
+    // the Firebase repos, so tenancy scoping here matches the real read path.
     match /initiatives/{initiativeId} {
-      allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin() || isEsoOperator();
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      allow create: if (isPlatformAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
+      allow update, delete: if (isPlatformAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
     }
 
     match /grants/{grantId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
+      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
       allow delete: if isPlatformAdmin();
     }
 
     match /monitored_grant_sources/{sourceId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
+      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
       allow delete: if isPlatformAdmin();
     }
 
     match /grant_drafts/{draftId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
+      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
       allow delete: if isPlatformAdmin();
     }
 
+    // Participation records are service-utilization data — who is enrolled in
+    // which program at which agency. Reads are scoped to the caller's own
+    // ecosystems; writes additionally require the caller to be an operator in
+    // that ecosystem, so an ESO in one network cannot author or rewrite
+    // another network's participation history.
     match /participations/{participationId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isPlatformAdmin() || isEsoOperator();
+      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      allow create: if isPlatformAdmin() || (isEsoOperator() && inCallerEcosystem(request.resource.data.ecosystem_id));
+      allow update: if isPlatformAdmin() || (isEsoOperator() && inCallerEcosystem(resource.data.ecosystem_id));
       allow delete: if isPlatformAdmin();
     }
 
@@ -410,6 +467,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Rate-limit counters — written exclusively by Cloud Functions. Client
+    // read would disclose other organizations' call volumes; client write
+    // would let a caller reset its own budget.
+    match /rate_limits/{bucketId} {
+      allow read, write: if false;
+    }
+
+    // Security signals (rate-limit breaches, abuse alerts). Function-written;
+    // platform admins may review them in-app.
+    match /security_events/{eventId} {
+      allow read: if isPlatformAdmin();
+      allow write: if false;
+    }
+
     // Community Calendar
     // Events: public read for approved/auto-approved + public visibility; admins see everything.
     match /events/{eventId} {
@@ -438,6 +509,16 @@ service cloud.firestore {
       allow read: if isNetworkAdmin() || isEsoOperator();
       allow create: if true;
       allow update: if isNetworkAdmin() || isEsoOperator();
+      allow delete: if isPlatformAdmin();
+    }
+
+    match /ecosystems/{ecosystemId} {
+      // Ecosystem config (name, region, feature flags) — read by every client
+      // on boot. This collection previously had no rule at all, so it fell
+      // through to the deny-all catch-all and config silently failed to load
+      // in production (the client swallowed the error and used mock defaults).
+      allow read: if isAuthenticated();
+      allow create, update: if isNetworkAdmin();
       allow delete: if isPlatformAdmin();
     }
 
