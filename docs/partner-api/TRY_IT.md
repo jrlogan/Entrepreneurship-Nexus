@@ -1,5 +1,12 @@
 # Try the Nexus Partner API — 5 minutes, any HTTP tool
 
+> **Just want to click around?** The full UI with sample data is at
+> **https://entrepreneurship-nexus-demo.web.app** — no signup, nothing to
+> install, and it resets on reload. Switch personas from the bottom-left to
+> see it as an entrepreneur (their support network, activity, and sharing
+> controls) or as agency staff. The API sandbox below is the other half:
+> calling the network from your own system.
+
 A live, throwaway sandbox of the federated entrepreneur network is running
 at:
 
