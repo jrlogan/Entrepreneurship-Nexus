@@ -68,9 +68,13 @@
     font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
     font-size: 16px;
     line-height: 1.55;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
   }
 
-  .deck { height: 100dvh; display: flex; flex-direction: column; }
+  .deck { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
   .slide {
     display: none;
@@ -282,7 +286,10 @@
 
 <span class="dim">The sandbox is online now. Nothing to install — any HTTP tool can call it.</span></div>
       <p class="kicker">Everything in this deck is running code, open source under MIT — github.com/jrlogan/Entrepreneurship-Nexus — and the live demo at the end runs against a sandbox you can call from your own laptop.</p>
-      <p><span class="hint">18 slides · advance with → or the buttons below · "View as document" shows them all at once</span></p>
+      <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:20px;">
+        <button id="start-btn" style="font-family:'IBM Plex Sans Condensed','Arial Narrow',sans-serif; font-size:18px; font-weight:700; letter-spacing:.01em; background:var(--req); color:#fff; border:none; border-radius:8px; padding:12px 28px; cursor:pointer;">Start · next slide →</button>
+        <span class="hint" style="margin-top:0;">18 slides · → arrow key, the buttons below, or click Start · "View as document" shows all at once</span>
+      </div>
     </div>
   </section>
 
@@ -956,6 +963,9 @@ curl -s -X POST $BASE/partnerUpsertPerson \
   document.getElementById('prev').addEventListener('click', () => { if (docMode) { docMode = false; applyMode(); } go(idx - 1); });
   document.getElementById('next').addEventListener('click', () => { if (docMode) { docMode = false; applyMode(); } go(idx + 1); });
   modeBtn.addEventListener('click', () => { docMode = !docMode; applyMode(); });
+
+  const startBtn = document.getElementById('start-btn');
+  if (startBtn) startBtn.addEventListener('click', () => { if (docMode) { docMode = false; applyMode(); } go(1); });
 
   const copyBtn = document.getElementById('tryit-copy');
   if (copyBtn) {
