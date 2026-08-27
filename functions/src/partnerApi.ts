@@ -869,8 +869,15 @@ export const partnerGetPerson = onRequest({ invoker: 'public' }, async (req, res
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
 
-  const source = normalize(req.query?.source as string);
-  const externalId = normalize(req.query?.id as string);
+  // External refs are stored verbatim on write (partnerUpsertPerson keeps
+  // externalRef.source/id exactly as the partner sent them), and the index
+  // doc id is built from those raw values. Lowercasing here made the read
+  // path disagree with the write path for any partner whose primary keys
+  // aren't lowercase — Salesforce ("0035f00000ABC") and HubSpot IDs are the
+  // common case. Those pushes succeeded and then 404'd on read-back. Treat
+  // identifiers as opaque: trim only.
+  const source = (req.query?.source as string | undefined)?.trim() || '';
+  const externalId = (req.query?.id as string | undefined)?.trim() || '';
 
   if (!source || !externalId) {
     res.status(400).json({ error: 'source and id query parameters are required' });
