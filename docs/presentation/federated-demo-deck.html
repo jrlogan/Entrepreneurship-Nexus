@@ -281,8 +281,8 @@
 <span class="res">◀ HTTP 201</span> { "ok": true, "action": "created" }   <span class="dim">…the network answers.</span>
 
 <span class="dim">The sandbox is online now. Nothing to install — any HTTP tool can call it.</span></div>
-      <p class="kicker">Everything in this deck is running code — and the live demo at the end runs against the same sandbox you can call from your own laptop.</p>
-      <p><span class="hint">16 slides · advance with → or the buttons below · "View as document" shows them all at once</span></p>
+      <p class="kicker">Everything in this deck is running code, open source under MIT — github.com/jrlogan/Entrepreneurship-Nexus — and the live demo at the end runs against a sandbox you can call from your own laptop.</p>
+      <p><span class="hint">18 slides · advance with → or the buttons below · "View as document" shows them all at once</span></p>
     </div>
   </section>
 
@@ -659,6 +659,64 @@
     </div>
   </section>
 
+  <!-- 14 · Everyday actions -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">Day to day · the two actions that build the timeline</p>
+      <h2>How a referral happens · how a session gets logged</h2>
+      <div class="cols">
+        <div class="card">
+          <span class="tag req">Referrals — start with plain email</span>
+          <h3>From cold intro to closed loop</h3>
+          <ul class="tight">
+            <li><strong>Easiest start, zero integration:</strong> staff send (or CC) the referral to the network's email address. It becomes a tracked record with an ID; the receiving org <strong>accepts or declines from links in the email</strong> — no login, no new tool.</li>
+            <li><strong>Integrated orgs:</strong> one click in their own system; a signed webhook lands in the receiver's queue; an owner and follow-up date get assigned; status flows back to the sender.</li>
+            <li>Both paths write the <em>same</em> referral record: <span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px;">pending → accepted / declined → completed</span> — so nothing vanishes into an inbox, whichever way it started.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag res">Sessions &amp; milestones — logged where staff already work</span>
+          <h3>Facts on the timeline, details at home</h3>
+          <ul class="tight">
+            <li><strong>Coaching / mentoring:</strong> staff log the meeting in their own CRM as they do today; the system pushes a dated event — type, date, org. <strong>Notes never leave the recording org</strong>; sharing "it happened" is a per-event choice.</li>
+            <li><strong>Memberships &amp; programs:</strong> starts, completions, and lapses flow automatically from each org's own records (<span style="font-family:'IBM Plex Mono',monospace; font-size:12.5px;">active → past</span>, history kept).</li>
+            <li><strong>Outcomes:</strong> jobs and revenue can be recorded as standard metrics, each marked self-reported or staff-verified.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="footnote">Result: before contacting a shared client's other org, staff can see who's already helping and how recently — coordinate the outreach instead of duplicating it.</p>
+    </div>
+  </section>
+
+  <!-- 15 · Shared metrics -->
+  <section class="slide">
+    <div class="slide-inner">
+      <p class="eyebrow">The statistics payoff · aggregate &amp; anonymous, by design</p>
+      <h2>What the shared timeline can answer</h2>
+      <div class="cols">
+        <div class="card">
+          <span class="tag ok">For the state &amp; funders</span>
+          <ul class="tight">
+            <li><strong>Entrepreneurs served statewide — deduplicated.</strong> Linked identity means a founder helped by four orgs counts once, not four times. That's what makes the number credible.</li>
+            <li><strong>Businesses started, and still operating</strong> at 1 / 5 / 10 years — the survival-rate study EF assembled by hand via LinkedIn becomes a query, with national baselines for comparison.</li>
+            <li><strong>Jobs (FT/PT) and revenue</strong> — standard metrics, each tagged <span style="font-family:'IBM Plex Mono',monospace; font-size:12px;">self_reported</span> or <span style="font-family:'IBM Plex Mono',monospace; font-size:12px;">verified</span>, aggregated for the funding case.</li>
+            <li><strong>Retention in Connecticut</strong> — where network-supported ventures end up.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="tag req">For the network &amp; each org</span>
+          <ul class="tight">
+            <li><strong>Referral flow that closes:</strong> volume, acceptance rate, and time-to-first-meeting — by org pair, so bottlenecks are visible.</li>
+            <li><strong>Collaboration measured:</strong> how many entrepreneurs are served by 2+ organizations, and which hand-offs actually happen.</li>
+            <li><strong>Program reach:</strong> enrollments, completions, and coaching cadence across the ecosystem.</li>
+            <li><strong>Your own view:</strong> each org sees its clients' cross-org activity — support better, or call the other agency to coordinate.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="footnote">All of it is aggregate and anonymous — entrepreneur-level data never leaves the consent rules to produce a statistic. And none of it is extra reporting work: the numbers are a byproduct of referrals, enrollments, and sessions the orgs already record.</p>
+    </div>
+  </section>
+
   <!-- 3 · The cast -->
   <section class="slide">
     <div class="slide-inner">
@@ -822,6 +880,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
         <li><div><strong>Run a pilot</strong> — two orgs integrate against the sandbox, real referrals flow for 30 days, group reviews. <em>Keys and integration packet are ready today.</em></div></li>
         <li><div><strong>Define the shared metrics</strong> — the aggregate numbers we report to the state: startups, survival, jobs. <em>Falls out of participation records automatically.</em></div></li>
       </ol>
+      <p class="footnote" style="margin-top:18px;"><strong>Everything shown today is open source under the MIT license</strong> — the code, the partner API, the data standard, the agreement drafts, and these slides: <span style="font-family:'IBM Plex Mono',monospace;">github.com/jrlogan/Entrepreneurship-Nexus</span>. Fork it, self-host it, audit it — or let's run it jointly. No one is locked in, including to MakeHaven.</p>
       <p class="kicker">5 HTTPS calls · 2 independent systems · 0 new UIs · 1 shared core, 0 single owners</p>
     </div>
   </section>
