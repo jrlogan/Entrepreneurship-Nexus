@@ -120,6 +120,37 @@ Full reference: `openapi.yaml` (importable) · integration walkthrough:
 `PLAYBOOK.md` · AI-assisted scaffolding: `AI_INTEGRATION_PROMPT.md` ·
 field standard: `../../data-standards/v1.1/`.
 
+## Two different kinds of reset
+
+The web demos and the API sandbox behave differently, and it matters when you
+are testing:
+
+- **The web demos** (`nexus-compact-demo.web.app`, `entrepreneurship-nexus-demo.web.app`)
+  hold sample data in the browser session. Reload the page and it resets.
+- **The API sandbox** persists what you write. Records you create through the
+  partner API stay until the sandbox is purged, so your test data is still
+  there tomorrow — and so is everyone else's.
+
+Keep your `external_ref.source` distinctive (e.g. `acme_crm`) so your records
+are easy to recognise and easy to purge.
+
+## Handling your key
+
+The API key is returned **once** and is never retrievable again. Put it in your
+environment rather than retyping it into every command — that also keeps it out
+of your shell history:
+
+```bash
+export NEXUS_ORG_ID='org_demo_…'
+export NEXUS_API_KEY='nxk_demo_…'
+
+curl -s "$BASE/partnerGetPerson?source=my_crm&id=contact-1" \
+  -H "X-Nexus-API-Key: $NEXUS_API_KEY"
+```
+
+If you lose it, provision a new organization rather than asking for the old key
+— keys cannot be recovered, only reissued.
+
 ## Ground rules
 
 - Sandbox only: fake people, fake ventures. No real client data.

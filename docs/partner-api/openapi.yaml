@@ -12,9 +12,13 @@ info:
     accepted on these endpoints.
 
     **Identity resolution** — The API resolves records in this order:
-    1. `external_ref` index lookup (O(1), preferred)
-    2. Email / name match within the ecosystem
+    1. `external_ref` index lookup (O(1), preferred) — your own record ID
+    2. Exact email match — may link an existing person to your organization
     3. Create a new record
+
+    Names are never matched automatically. A similar name (with a matching
+    email domain) only raises a duplicate-review signal for a human to resolve;
+    it never causes an automatic link or merge.
 
     **Idempotency** — All upsert calls are safe to replay. Repeating the same
     call updates the existing record rather than creating a duplicate.
