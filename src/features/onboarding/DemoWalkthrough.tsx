@@ -358,7 +358,8 @@ export const DemoWalkthrough = ({
                             Entrepreneurship <span className="text-indigo-400">Nexus</span>
                         </h1>
                         <p className="text-slate-300 text-sm sm:text-base max-w-lg mx-auto">
-                            Prototype: AI-Driven Ecosystem Orchestration
+                            A working prototype of the federated compact — independent
+                            organizations sharing a little, by agreement, without a central owner
                         </p>
                     </div>
                 </div>
@@ -367,7 +368,12 @@ export const DemoWalkthrough = ({
                 <div className="p-5 sm:p-8 space-y-5 sm:space-y-6">
                     <div className="text-sm text-gray-600 leading-relaxed space-y-4">
                         <p>
-                            The underlying motive of this prototype is to <strong>explore the data structure</strong> and how it might exist if we followed the Agency Specification. It serves as a tool to better understand our requirements and rapidly iterate on potential solutions.
+                            Entrepreneur support organizations each run their own systems — and entrepreneurs
+                            end up retelling their story at every door, referrals vanish into cold emails, and
+                            nobody can show what the ecosystem achieves together. This prototype demonstrates the
+                            <strong> federated answer</strong>: every organization keeps its own software, data and
+                            client relationships, and agrees to a small shared compact — a handful of common fields,
+                            consent the entrepreneur controls, and a way to recognise the same person across systems.
                         </p>
                         <p>
                             Modern AI options make it feasible for us to build our own solution. This project is released under the <strong>MIT License</strong>, making it freely available for the community. The full source — application, partner API, data standard, and documentation — lives at <a href="https://github.com/jrlogan/Entrepreneurship-Nexus" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold hover:underline">github.com/jrlogan/Entrepreneurship-Nexus</a>.
@@ -376,17 +382,21 @@ export const DemoWalkthrough = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-                            <div className="text-xl mb-2">🔌</div>
+                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mb-2 text-indigo-700" aria-hidden="true">
+                                <path d="M4 12h6M14 12h6M10 8v8M14 8v8"/>
+                            </svg>
                             <h3 className="font-bold text-indigo-900 text-sm">API-First Architecture</h3>
                             <p className="text-indigo-800 text-xs mt-1 leading-relaxed">
-                                The interface you see is just one way to interact. The system is architected to <strong>ingest data</strong> from other systems (CRMs, State Registries) rather than replace them.
+                                This interface is optional. The system is built to <strong>exchange data with the systems organizations already run</strong> — CRMs, membership databases, registries — rather than replace them.
                             </p>
                         </div>
                         <div className="p-4 bg-green-50 border border-green-100 rounded-xl">
-                            <div className="text-xl mb-2">✅</div>
+                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-2 text-green-700" aria-hidden="true">
+                                <path d="M20 6L9 17l-5-5"/>
+                            </svg>
                             <h3 className="font-bold text-green-900 text-sm">Functional Prototype</h3>
                             <p className="text-green-800 text-xs mt-1 leading-relaxed">
-                                This is more than a slide deck. The app is <strong>functional</strong>. You can add orgs, log interactions, and see the <strong>real HSDS-compliant data structure</strong> in action. Data persists during your session but resets on reload.
+                                This is more than a slide deck. The app is <strong>functional</strong>: add organizations, log interactions, review duplicates, and see the shared data standard in action. Sample data persists during your session and resets on reload.
                             </p>
                         </div>
                     </div>

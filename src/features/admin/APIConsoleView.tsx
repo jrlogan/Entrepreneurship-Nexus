@@ -435,14 +435,14 @@ export const APIConsoleView = () => {
         setSimLog(prev => [...prev, { timestamp: new Date().toLocaleTimeString(), msg, type }]);
     };
 
-    const handleSimulateIngest = () => {
+    const handleSimulateIngest = async () => {
         try {
             const payload = JSON.parse(simPayload);
             const source = payload.source || 'Unknown';
-            
+
             logSim(`Received payload from ${source}...`, 'info');
-            
-            const result = repos.organizations.upsertFromExternal(source, payload);
+
+            const result = await repos.organizations.upsertFromExternal(source, payload);
             
             let eventType = '';
 
@@ -672,11 +672,26 @@ export const APIConsoleView = () => {
                     </Card>
                     <Card title="Quick Start">
                         <div className="space-y-4">
-                            <p className="text-sm text-gray-600">Authenticate requests by providing your key in the HTTP Header:</p>
-                            <CodeBlock code={`Authorization: Bearer sk_live_...`} />
-                            <p className="text-sm text-gray-600 mt-4">Example Request (Fetch Organizations):</p>
-                            <CodeBlock code={`curl https://api.nexus.org/v1/organizations \\
-  -H "Authorization: Bearer sk_live_..."`} />
+                            {/* This must mirror the partner API exactly — the scheme and host
+                                shown here are what an integrator will copy. It authenticates
+                                with X-Nexus-API-Key, not a bearer token. */}
+                            <p className="text-sm text-gray-600">Authenticate every request with your organization's key in this header:</p>
+                            <CodeBlock code={`X-Nexus-API-Key: nxk_live_...`} />
+                            <p className="text-sm text-gray-600 mt-4">Example — push a person from your own system (idempotent on <code>external_ref</code>):</p>
+                            <CodeBlock code={`curl -s -X POST $BASE/partnerUpsertPerson \\
+  -H "Content-Type: application/json" \\
+  -H "X-Nexus-API-Key: nxk_live_..." \\
+  -d '{"external_ref":{"source":"your_crm","id":"42"},
+      "ecosystem_id":"...","eso_org_id":"...",
+      "first_name":"Ada","last_name":"Founder",
+      "email":"ada@example.com"}'`} />
+                            <p className="text-sm text-gray-600 mt-4">Read it back — you only ever see your own identifiers:</p>
+                            <CodeBlock code={`curl "$BASE/partnerGetPerson?source=your_crm&id=42" \\
+  -H "X-Nexus-API-Key: nxk_live_..."`} />
+                            <p className="text-xs text-gray-500">
+                                Full reference, an importable OpenAPI spec, and prompts you can hand to an AI
+                                assistant are in <span className="font-mono">docs/partner-api/</span> in the repository.
+                            </p>
                         </div>
                     </Card>
                 </div>

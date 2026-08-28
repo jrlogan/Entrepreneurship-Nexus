@@ -90,7 +90,7 @@ export const NEW_HAVEN_ECOSYSTEM: Ecosystem = {
   name: 'New Haven Innovation Cluster',
   region: 'New Haven, CT',
   settings: {
-    interaction_privacy_default: 'open',
+    interaction_privacy_default: 'network_shared',
     feature_flags: {
       advanced_workflows: false,
       dashboard: false,
@@ -146,7 +146,7 @@ export const CT_MAKERSPACES_ECOSYSTEM: Ecosystem = {
   name: 'CT Makerspaces Network',
   region: 'Statewide',
   settings: {
-    interaction_privacy_default: 'restricted',
+    interaction_privacy_default: 'eso_private',
     feature_flags: {
       advanced_workflows: false,
       dashboard: false,
@@ -189,7 +189,7 @@ export const MAIL_TEST_ECOSYSTEM: Ecosystem = {
   name: 'Mail Flow Test',
   region: 'Staging',
   settings: {
-    interaction_privacy_default: 'restricted',
+    interaction_privacy_default: 'eso_private',
     feature_flags: {
       advanced_workflows: false,
       dashboard: false,
@@ -245,7 +245,7 @@ export const MAKEHAVEN: Organization = {
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
-  support_offerings: ['resource', 'product_development', 'business_coaching', 'networking'],
+  support_offerings: ['workspace', 'product_development', 'business_coaching', 'networking'],
   ecosystem_ids: ['eco_new_haven', 'eco_ct_makers'],
   // Example webhooks used to live on this doc; they now live in the
   // /organizations/{orgId}/webhooks subcollection and are seeded via the
@@ -327,7 +327,7 @@ export const DARK_STAR_LLC: Organization = {
   managed_by_ids: [],
   operational_visibility: 'open',
   authorized_eso_ids: [],
-  support_offerings: ['resource', 'networking', 'marketing'],
+  support_offerings: ['workspace', 'networking', 'marketing'],
   ecosystem_ids: ['eco_new_haven']
 };
 
@@ -689,19 +689,48 @@ export const MOCK_PEOPLE: Person[] = [
 ];
 
 export const MOCK_CONSENT_POLICIES: ConsentPolicy[] = [
-    // Sarah allows MakeHaven to see her private org data
+    // Sarah granted MakeHaven access to DarkStar's operational data.
+    // 'read' rather than 'write': the portal's grant control issues read
+    // access, and a demo showing an ESO with write access over a founder's
+    // record invites exactly the question the compact exists to answer.
     {
         id: 'pol_001',
         resourceType: 'organization',
         resourceId: 'org_darkstar_001',
         viewerId: 'org_makehaven',
-        accessLevel: 'write',
+        accessLevel: 'read',
         isActive: true,
-        updatedAt: '2023-01-01'
+        updatedAt: '2026-03-12T15:20:00.000Z',
+        grantedVia: 'self',
+        ecosystemId: 'eco_new_haven'
     }
 ];
 
-export const MOCK_CONSENT_EVENTS: ConsentEvent[] = [];
+// Every grant must have a matching audit event. A policy with an empty history
+// reads as access that appeared from nowhere — the opposite of what the
+// consent model promises, and the first thing a privacy-minded reviewer checks.
+export const MOCK_CONSENT_EVENTS: ConsentEvent[] = [
+    {
+        id: 'evt_001',
+        timestamp: '2026-03-12T15:20:00.000Z',
+        actorId: 'person_002',            // Sarah Connor, the founder herself
+        action: 'granted',
+        resourceId: 'org_darkstar_001',
+        viewerId: 'org_makehaven',
+        newAccessLevel: 'read',
+        grantedVia: 'self',
+        reason: 'Granted from the founder portal so MakeHaven staff could see programme history.'
+    },
+    {
+        id: 'evt_002',
+        timestamp: '2026-01-08T10:05:00.000Z',
+        actorId: 'person_002',
+        action: 'acknowledged',
+        resourceId: 'org_darkstar_001',
+        viewerId: 'eco_new_haven',
+        reason: 'Accepted the network compact and privacy notice at sign-up.'
+    }
+];
 
 export const MOCK_MONITORED_SOURCES: MonitoredGrantSource[] = [
   {
@@ -1147,6 +1176,7 @@ export const MOCK_REFERRALS: Referral[] = [
     receiving_org_id: 'org_ct_innovations',
     subject_person_id: 'person_002', // Sarah Connor
     subject_org_id: 'org_darkstar_001',
+    ecosystem_id: 'eco_new_haven',
     date: '2023-11-05',
     status: 'pending',
     notes: 'DarkStar is looking for Series A funding. They have a solid prototype and defense interest.'
@@ -1157,6 +1187,7 @@ export const MOCK_REFERRALS: Referral[] = [
     receiving_org_id: 'org_makehaven',
     subject_person_id: 'person_003', // Mike Wazowski
     subject_org_id: 'org_greentech_002',
+    ecosystem_id: 'eco_new_haven',
     date: '2023-10-25',
     status: 'accepted',
     notes: 'GreenTech needs physical space for their bio-lab buildout.',

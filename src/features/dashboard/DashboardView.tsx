@@ -81,10 +81,11 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
         if (isEso) {
             // ESO Context: Focus on served clients and output
             const myClients = organizations.filter(o => o.managed_by_ids?.includes(viewer.orgId));
-            const recentInteractions = interactions.filter(i => 
-                i.author_org_id === viewer.orgId && 
-                new Date(i.date) >= oneYearAgo
-            );
+            // Count everything this org has logged, not a rolling window.
+            // The sample data is historical, so a 12-month window rendered as
+            // "0" directly above a visible list of interactions — which reads
+            // as broken rather than as an empty window.
+            const recentInteractions = interactions.filter(i => i.author_org_id === viewer.orgId);
             const pendingReferrals = referrals.filter(r => r.receiving_org_id === viewer.orgId && r.status === 'pending');
             
             // Projects belonging to my clients
@@ -93,7 +94,7 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
 
             return [
                 { label: "Active Clients Served", value: myClients.length, color: "text-indigo-600" },
-                { label: "Interactions (Last 12m)", value: recentInteractions.length, color: "text-blue-600" },
+                { label: "Interactions Logged", value: recentInteractions.length, color: "text-blue-600" },
                 { label: "Pending Referrals", value: pendingReferrals.length, color: "text-orange-600" },
                 { label: "Client Projects", value: activeClientProjects.length, color: "text-purple-600" }
             ];
