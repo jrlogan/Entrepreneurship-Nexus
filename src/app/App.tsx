@@ -1174,7 +1174,10 @@ const App = () => {
               }
           }}
           onSwitchUser={(role) => {
-             const newUser = MOCK_PEOPLE.find(p => p.system_role === role);
+             // demoPersonas, not MOCK_PEOPLE: a tour must never seat the
+             // visitor as a persona this build deliberately withholds
+             // (the compact profile has no coach/mentor seat).
+             const newUser = demoPersonas.find(p => p.system_role === role);
              if (newUser) {
                  setDemoUser(newUser);
                  if (newUser.memberships?.length > 0) {

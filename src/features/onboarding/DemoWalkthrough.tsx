@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { ViewMode } from '../../app/types';
 import { SystemRole } from '../../domain/types';
 import { DARKSTAR_MARINE, STEALTH_STARTUP } from '../../data/mockData';
+import { CONFIG } from '../../app/config';
 
 interface DemoStep {
   title: string;
@@ -201,6 +202,26 @@ const ADMIN_TOUR: DemoStep[] = [
     }
 ];
 
+// --- Demo profile filtering ---
+//
+// The compact build ships only the interoperability core (see
+// CONFIG.DEMO_PROFILE and the feature_flags block in app/App.tsx). Two things
+// follow for the tours: the coach/mentor seat does not exist there at all —
+// a mentor works in their own ESO's system and reaches the network through
+// the API — and steps that land on a switched-off module would dead-end on
+// the "not available" fallback screen.
+const IS_COMPACT_PROFILE = CONFIG.DEMO_PROFILE === 'compact';
+
+const COMPACT_HIDDEN_VIEWS: ViewMode[] = [
+  'reports', 'todos', 'my_projects', 'initiatives', 'scout',
+  'metrics_manager', 'grants', 'community_calendar', 'pipelines',
+];
+
+const forProfile = (steps: DemoStep[]): DemoStep[] =>
+  IS_COMPACT_PROFILE
+    ? steps.filter((step) => !COMPACT_HIDDEN_VIEWS.includes(step.targetView))
+    : steps;
+
 // --- Component ---
 
 export const DemoWalkthrough = ({ 
@@ -306,7 +327,7 @@ export const DemoWalkthrough = ({
   }, [isOpen, isAutoPlay, showSummary, currentStepIndex, activeScenario]);
 
   const startScenario = (scenario: DemoStep[], autoPlay: boolean = false) => {
-      setActiveScenario(scenario);
+      setActiveScenario(forProfile(scenario));
       setCurrentStepIndex(0);
       setIsAutoPlay(autoPlay);
       setShowSummary(false);
@@ -464,7 +485,7 @@ export const DemoWalkthrough = ({
                     </div>
                 </div>
 
-                <div className="p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                <div className={`p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 ${IS_COMPACT_PROFILE ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
                     <button 
                         onClick={() => startScenario(ENTREPRENEUR_TOUR)}
                         className="group p-6 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col"
@@ -485,6 +506,7 @@ export const DemoWalkthrough = ({
                         <span className="text-xs font-bold text-indigo-600 mt-4 uppercase">Daily Workflow</span>
                     </button>
 
+                    {!IS_COMPACT_PROFILE && (
                     <button 
                         onClick={() => startScenario(COACH_TOUR)}
                         className="group p-6 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col"
@@ -494,6 +516,7 @@ export const DemoWalkthrough = ({
                         <p className="text-sm text-gray-500 leading-relaxed flex-1">Manage specific mentees, track follow-up tasks, and log advice.</p>
                         <span className="text-xs font-bold text-indigo-600 mt-4 uppercase">My Network</span>
                     </button>
+                    )}
 
                     <button 
                         onClick={() => startScenario(ADMIN_TOUR)}
@@ -561,16 +584,18 @@ export const DemoWalkthrough = ({
                     </div>
 
                     <h3 className="font-bold text-gray-800 mb-4 uppercase text-xs tracking-wide border-t border-gray-100 pt-6">Explore Specific Roles</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    <div className={`grid grid-cols-2 gap-3 mb-6 ${IS_COMPACT_PROFILE ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
                         <button onClick={() => startScenario(ENTREPRENEUR_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">🚀</span> Founder
                         </button>
                         <button onClick={() => startScenario(ESO_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">🤝</span> ESO Staff
                         </button>
+                        {!IS_COMPACT_PROFILE && (
                         <button onClick={() => startScenario(COACH_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">🧭</span> Coach
                         </button>
+                        )}
                         <button onClick={() => startScenario(ADMIN_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">⚙️</span> Admin
                         </button>

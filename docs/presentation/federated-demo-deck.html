@@ -312,6 +312,10 @@
         <span style="color:var(--muted); font-size:14px;">MakeHaven's fuller build, with the extra modules we run locally (grants, calendar, scout). Shown for context — those are optional per organization, not part of the compact.</span></p>
         <p style="margin:8px 0 0; color:var(--faint); font-size:13px;">No signup on either app; sample data resets on reload. Switch personas from the bottom-left to view as an entrepreneur or as agency staff.</p>
       </div>
+      <div class="card" style="margin-top:12px; border-left:3px solid var(--ok);">
+        <h3 style="margin-bottom:6px;">Passing this to someone non-technical?</h3>
+        <p style="margin:2px 0;"><a href="https://claude.ai/code/artifact/27e9b3f4-1e7c-4f08-bd55-7dc5293f2a56" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">The API in Plain English</a> — eight slides for an executive director or a board, with a command line that plays itself line by line and a plain-English gloss beside each one. Same argument, no jargon, and it ends with the commands to hand to their tech person.</p>
+      </div>
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:20px;">
         <button id="start-btn" style="font-family:'IBM Plex Sans Condensed','Arial Narrow',sans-serif; font-size:18px; font-weight:700; letter-spacing:.01em; background:var(--req); color:#fff; border:none; border-radius:8px; padding:12px 28px; cursor:pointer;">Start · next slide →</button>
         <span class="hint" style="margin-top:0;">9 slides, then a reference section · → arrow key or the buttons below · "View as document" shows all at once</span>
@@ -691,7 +695,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
           </div>
         </div>
       </div>
-      <p class="footnote">Records you create through the API <strong>persist</strong> in the sandbox until it is purged — unlike the web demo, whose sample data resets on reload. Sandbox etiquette: made-up people only, no real client data; everything is purged periodically. Full quickstart with expected responses: <span style="font-family:'IBM Plex Mono',monospace;">docs/partner-api/TRY_IT.md</span> in the repo.</p>
+      <p class="footnote">Records you create through the API <strong>persist</strong> in the sandbox until it is purged — unlike the web demo, whose sample data resets on reload. Sandbox etiquette: made-up people only, no real client data; everything is purged periodically. Full quickstart with expected responses: <span style="font-family:'IBM Plex Mono',monospace;">docs/partner-api/TRY_IT.md</span> in the repo. If the person who has to approve this isn't the person who'd write the integration, send them <a href="https://claude.ai/code/artifact/27e9b3f4-1e7c-4f08-bd55-7dc5293f2a56" target="_blank" rel="noreferrer" style="color:var(--req); font-weight:600;">The API in Plain English</a> instead — it makes this same case without assuming any of it.</p>
     </div>
   </section>
 
