@@ -67,6 +67,7 @@ beforeEach(async () => {
     await person('staff_c', 'eso_staff', 'org_c', [ECO_A]);         // an uninvolved third org
     await person('founder', 'entrepreneur', VENTURE, [ECO_A]);
     await person('manager', 'ecosystem_manager', 'org_network', [ECO_A]);
+    await person('admin_a', 'eso_admin', ORG_A, [ECO_A]);
     await person('admin', 'platform_admin', 'org_network', [ECO_A]);
     // Legacy person doc written before ecosystem_ids denormalization existed.
     await setDoc(doc(db, 'people/legacy_a'), {
@@ -265,6 +266,30 @@ describe('consent records are private to their parties', () => {
     // A partner cannot grant itself access to a venture.
     await assertFails(setDoc(doc(authed('staff_b'), 'consent_policies/pol_forged'), {
       id: 'pol_forged', resource_id: VENTURE, viewer_id: ORG_B, is_active: true, ecosystem_id: ECO_A,
+    }));
+  });
+});
+
+describe('joining the network', () => {
+  const signature = (uid: string) => ({
+    org_id: ORG_A, ecosystem_id: ECO_A, agreement_type: 'network_membership', version: '0.2-pilot',
+    signed_by_uid: uid, signed_at: '2026-09-24T00:00:00Z',
+  });
+
+  it("only an organization's admin can sign for it", async () => {
+    await assertFails(setDoc(doc(authed('staff_a'), `org_agreement_acceptances/${ORG_A}_${ECO_A}_network_membership`), signature('staff_a')));
+    await assertSucceeds(setDoc(doc(authed('admin_a'), `org_agreement_acceptances/${ORG_A}_${ECO_A}_network_membership`), signature('admin_a')));
+  });
+
+  it('an admin cannot sign for another organization', async () => {
+    await assertFails(setDoc(doc(authed('admin_a'), `org_agreement_acceptances/${ORG_B}_${ECO_A}_network_membership`), {
+      ...signature('admin_a'), org_id: ORG_B,
+    }));
+  });
+
+  it('a network operator can create a partner organization when inviting it', async () => {
+    await assertSucceeds(setDoc(doc(authed('manager'), 'organizations/org_new_partner'), {
+      id: 'org_new_partner', name: 'New Partner', roles: ['eso'], ecosystem_ids: [ECO_A], managed_by_ids: [],
     }));
   });
 });
