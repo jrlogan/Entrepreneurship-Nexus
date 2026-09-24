@@ -547,6 +547,13 @@ export const MOCK_CONSENT_POLICIES: ConsentPolicy[] = [
     }
 ];
 
+// Founders who opted into a network's directory. Listing is off by default and
+// chosen per network; everyone else is visible only to partners who already
+// work with them.
+export const MOCK_DIRECTORY_LISTINGS: Array<{ person_id: string; ecosystem_id: string }> = [
+    { person_id: 'person_002', ecosystem_id: 'eco_new_haven' }, // Sarah Connor
+];
+
 // Every grant must have a matching audit event. A policy with an empty history
 // reads as access that appeared from nowhere — the opposite of what the
 // consent model promises, and the first thing a privacy-minded reviewer checks.

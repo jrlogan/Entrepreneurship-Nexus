@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = exports.generatePartnerApiKey = exports.referralEmailAction = exports.unmergeRecords = exports.mergeRecords = exports.partnerUpsertParticipation = exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.consentAccept = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.provisionDemoAgency = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.applyPendingInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = exports.syncPersonEcosystemIds = exports.secretsMatch = void 0;
-exports.syncPersonEcosystems = exports.submitReferralForm = exports.getEmailLog = exports.recordOnboardingAcknowledgment = exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = void 0;
+exports.referralEmailAction = exports.unmergeRecords = exports.mergeRecords = exports.partnerUpsertParticipation = exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerCreateConsentLink = exports.getConsentSession = exports.getConsentTerms = exports.consentAccept = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.getNetworkView = exports.previewQueuedNotices = exports.sendQueuedNotices = exports.postmarkInboundWebhook = exports.processInboundEmail = exports.provisionDemoAgency = exports.seedLocalReferenceData = exports.rejectAccountRequest = exports.pushInteraction = exports.sendReferralDecisionEmail = exports.sendReferralReminder = exports.listParticipations = exports.upsertParticipation = exports.approveAccountRequest = exports.updatePersonRole = exports.revokeInvite = exports.resendInvite = exports.applyPendingInvite = exports.acceptInvite = exports.getInviteSummary = exports.listInvites = exports.createInvite = exports.bootstrapPlatformAdmin = exports.completeSelfSignup = exports.createTestAccount = exports.resolveOrganization = exports.resolvePerson = exports.rejectInboundMessage = exports.approveInboundMessage = exports.syncPersonEcosystemIds = exports.secretsMatch = void 0;
+exports.syncPersonEcosystems = exports.submitReferralForm = exports.getEmailLog = exports.recordOnboardingAcknowledgment = exports.managerConsentOverride = exports.consentEmailAction = exports.requestConsentAccess = exports.requestDataRemoval = exports.getMyNoticeHistory = exports.claimOrganization = exports.generatePartnerApiKey = void 0;
 const crypto_1 = require("crypto");
 // Constant-time secret comparison; hashing first equalizes lengths so
 // timingSafeEqual never throws and length is not observable.
@@ -47,6 +47,7 @@ exports.secretsMatch = secretsMatch;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
+const orgSignatures_1 = require("./agreements/orgSignatures");
 const urlGuard_1 = require("./urlGuard");
 const rateLimit_1 = require("./rateLimit");
 const emailParsing_1 = require("./emailParsing");
@@ -632,10 +633,9 @@ const upsertDraftPerson = async (candidateEmail, candidateName, organizationId, 
         display_name: `${names.first_name} ${names.last_name}`.trim(),
         venture_name: null,
         ecosystem_ids: ecosystemId ? [ecosystemId] : [],
-        directory_status: 'pending_notice',
-        network_directory_consent: false,
-        network_activity_visibility: false,
-        consent_recorded_at: null,
+        directory_listed_ecosystems: [],
+        detail_sharing_ecosystems: [],
+        terms_accepted_ecosystems: [],
         consent_updated_at: now,
     });
     return docRef.get();
@@ -3978,6 +3978,9 @@ exports.previewQueuedNotices = (0, https_1.onRequest)({ invoker: 'public' }, asy
         }),
     });
 });
+// ─── Network view — the redacting read path (see privacy/policy.ts) ──────────
+var networkView_1 = require("./privacy/networkView");
+Object.defineProperty(exports, "getNetworkView", { enumerable: true, get: function () { return networkView_1.getNetworkView; } });
 // ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
 var partnerApi_1 = require("./partnerApi");
 Object.defineProperty(exports, "partnerUpsertPerson", { enumerable: true, get: function () { return partnerApi_1.partnerUpsertPerson; } });
@@ -3986,8 +3989,11 @@ Object.defineProperty(exports, "partnerGetPerson", { enumerable: true, get: func
 Object.defineProperty(exports, "partnerRegisterWebhook", { enumerable: true, get: function () { return partnerApi_1.partnerRegisterWebhook; } });
 Object.defineProperty(exports, "onInteractionCreatedDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onInteractionCreatedDeliverWebhooks; } });
 Object.defineProperty(exports, "onReferralWrittenDeliverWebhooks", { enumerable: true, get: function () { return partnerApi_1.onReferralWrittenDeliverWebhooks; } });
-// Consent: opt-in email → one-click acceptance
+// Founder consent: the terms, the hosted consent page, partner-created links
 Object.defineProperty(exports, "consentAccept", { enumerable: true, get: function () { return partnerApi_1.consentAccept; } });
+Object.defineProperty(exports, "getConsentTerms", { enumerable: true, get: function () { return partnerApi_1.getConsentTerms; } });
+Object.defineProperty(exports, "getConsentSession", { enumerable: true, get: function () { return partnerApi_1.getConsentSession; } });
+Object.defineProperty(exports, "partnerCreateConsentLink", { enumerable: true, get: function () { return partnerApi_1.partnerCreateConsentLink; } });
 // OIDC/SSO: any ESO can register their OAuth server; MakeHaven is just one instance
 Object.defineProperty(exports, "partnerRegisterOidcProvider", { enumerable: true, get: function () { return partnerApi_1.partnerRegisterOidcProvider; } });
 Object.defineProperty(exports, "oidcGetProviders", { enumerable: true, get: function () { return partnerApi_1.oidcGetProviders; } });
@@ -4170,15 +4176,28 @@ exports.generatePartnerApiKey = (0, https_1.onCall)(async (request) => {
     const role = person.system_role;
     const callerOrgId = person.organization_id || person.primary_organization_id;
     const isPlatform = role === 'platform_admin';
-    const isEsoOperatorAtOrg = (role === 'eso_admin' || role === 'eso_staff' || role === 'eso_coach')
-        && callerOrgId === orgId;
-    if (!isPlatform && !isEsoOperatorAtOrg) {
-        throw new https_1.HttpsError('permission-denied', 'Not authorized to create API keys for this organization.');
+    // Keys identify every action an organization takes in the network, so
+    // they are issued by its admin — the person who signed the membership terms.
+    const isEsoAdminAtOrg = role === 'eso_admin' && callerOrgId === orgId;
+    if (!isPlatform && !isEsoAdminAtOrg) {
+        throw new https_1.HttpsError('permission-denied', 'Only an admin of this organization can create its API keys.');
     }
     const orgRef = db.collection('organizations').doc(orgId);
     const orgSnap = await orgRef.get();
     if (!orgSnap.exists) {
         throw new https_1.HttpsError('not-found', 'Organization not found.');
+    }
+    // An organization connects only after signing the network's agreements in
+    // every network it belongs to (membership, compact, data usage).
+    const orgEcosystems = (orgSnap.get('ecosystem_ids') || []).filter(Boolean);
+    if (orgEcosystems.length === 0) {
+        throw new https_1.HttpsError('failed-precondition', 'This organization is not a member of any network yet.');
+    }
+    for (const ecosystemId of orgEcosystems) {
+        const status = await (0, orgSignatures_1.getOrgSignatureStatus)(db, orgId, ecosystemId);
+        if (!status.signed) {
+            throw new https_1.HttpsError('failed-precondition', `Sign the network agreements before creating an API key (missing for ${ecosystemId}: ${status.missing.join(', ')}).`);
+        }
     }
     // 32 bytes → 64 hex chars of entropy. Never touches disk.
     const keyMaterial = (0, crypto_1.randomBytes)(32).toString('hex');

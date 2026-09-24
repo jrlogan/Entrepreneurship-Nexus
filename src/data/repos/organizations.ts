@@ -2,8 +2,8 @@
 import type { Organization, ApiKey, Webhook, ExternalRef } from '../../domain/organizations/types';
 import type { Revision } from '../../domain/audit/types';
 import { ALL_ORGANIZATIONS } from '../mockData';
-import { ViewerContext, explainOrgAccess, canViewOperationalDetails } from '../../domain/access/policy';
-import { redactOrganization } from '../../domain/access/redaction';
+import type { ViewerContext } from '../../domain/access/policy';
+import type { NetworkViewSource, OrgAccess } from '../networkView';
 import { ConsentRepo } from './consent';
 
 export interface IngestionResult {
@@ -16,7 +16,7 @@ export class OrganizationsRepo {
   // In-memory history store (In a real DB, this would be a separate 'audit_logs' table)
   private history: Revision<Organization>[] = [];
 
-  constructor(private consentRepo: ConsentRepo) {
+  constructor(private consentRepo: ConsentRepo, private networkView: NetworkViewSource) {
     // Initialize mock history for demo purposes
     this.seedMockHistory();
   }
@@ -89,54 +89,14 @@ export class OrganizationsRepo {
       }
   }
 
-  // Viewer-Aware Method
-  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]> {
-    let orgs = ALL_ORGANIZATIONS;
-    
-    if (ecosystemId) {
-      orgs = orgs.filter(o => o.ecosystem_ids?.includes(ecosystemId));
-    }
-
-    // Map each org to include its access explanation and redact if necessary
-    const results = await Promise.all(orgs.map(async org => {
-      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
-      const access = explainOrgAccess(viewer, org, hasConsent);
-      let safeOrg = org;
-      
-      // If basic access only, apply redaction to the object structure itself if needed
-      // Note: Directory info is always public, so redactOrganization mostly strips internals like API keys
-      if (access.level === 'basic') {
-          safeOrg = redactOrganization(org);
-      } else {
-          // Even if detailed, never return API keys in a list view
-          // (webhooks now live in a subcollection, never on the org doc)
-          safeOrg = { ...org, api_keys: [] };
-      }
-
-      return { ...safeOrg, _access: access };
-    }));
-
-    return results;
+  // Viewer-aware reads go through the network view, which applies the
+  // compact's privacy policy (functions/src/privacy/policy.ts).
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<(Organization & { _access: OrgAccess })[]> {
+    return (await this.networkView.get(viewer, ecosystemId)).organizations;
   }
 
-  // Viewer-Aware Detail Fetch
   async getByIdForViewer(viewer: ViewerContext, id: string): Promise<Organization | undefined> {
-      const org = await this.getById(id); // Internal fetch
-      if (!org) return undefined;
-
-      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
-
-      // Check permissions
-      if (canViewOperationalDetails(viewer, org, hasConsent)) {
-          // If viewer is owner or admin, they might see keys, otherwise strip them
-          if (viewer.orgId === org.id || viewer.role === 'platform_admin') {
-              return org;
-          }
-          return { ...org, api_keys: [] };
-      }
-
-      // Restricted View
-      return redactOrganization(org);
+    return (await this.networkView.get(viewer)).organizations.find((org) => org.id === id);
   }
 
   // Legacy/Internal: Returns raw data (effectively Admin access)

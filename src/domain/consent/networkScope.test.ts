@@ -36,7 +36,7 @@ describe('effectiveVisibility', () => {
     expect(effectiveVisibility(org, 'eco_new_haven')).toBe('open');
   });
 
-  it('falls back to the org default for networks with no explicit choice', () => {
+  it('is restricted in networks with no explicit choice — consent is off by default', () => {
     expect(effectiveVisibility(org, 'eco_connecticut')).toBe('restricted');
   });
 
@@ -45,12 +45,11 @@ describe('effectiveVisibility', () => {
     expect(effectiveVisibility(org, 'eco_ct_makers')).toBe('restricted');
   });
 
-  it('uses the org default when no network is given', () => {
+  it('is restricted when no network is given', () => {
     expect(effectiveVisibility(org, undefined)).toBe('restricted');
   });
 
-  it('preserves behaviour for records with no per-network map', () => {
-    expect(effectiveVisibility({ operational_visibility: 'open' }, 'eco_anything')).toBe('open');
-    expect(effectiveVisibility({ operational_visibility: 'restricted' }, 'eco_anything')).toBe('restricted');
+  it('ignores the legacy org-wide field, which defaulted to open and records no choice', () => {
+    expect(effectiveVisibility({ operational_visibility: 'open' }, 'eco_anything')).toBe('restricted');
   });
 });

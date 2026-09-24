@@ -17,6 +17,7 @@ import { FirebaseServicesRepo } from './firebase/services';
 import { FirebaseConsentRepo } from './firebase/consent';
 import { FirebaseEcosystemsRepo } from './firebase/ecosystems';
 import { CONFIG } from '../../app/config';
+import { LocalNetworkViewSource, RemoteNetworkViewSource, type NetworkViewSource } from '../networkView';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
 export class AppRepos {
@@ -28,17 +29,20 @@ export class AppRepos {
   public ecosystems: EcosystemsRepo | FirebaseEcosystemsRepo;
   public inboundMessages: InboundMessagesRepo | FirebaseInboundMessagesRepo;
   public services: ServicesRepo | FirebaseServicesRepo;
+  /** The privacy-filtered view of the network every cross-org read goes through. */
+  public networkView: NetworkViewSource;
 
   constructor() {
       const useFirebase = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
+      this.networkView = useFirebase ? new RemoteNetworkViewSource() : new LocalNetworkViewSource();
       this.consent = useFirebase ? new FirebaseConsentRepo() : new ConsentRepo();
       this.ecosystems = useFirebase ? new FirebaseEcosystemsRepo() : new EcosystemsRepo();
       
-      this.organizations = useFirebase ? new FirebaseOrganizationsRepo(this.consent) : new OrganizationsRepo(this.consent);
-      this.people = useFirebase ? new FirebasePeopleRepo() : new PeopleRepo();
-      this.referrals = useFirebase ? new FirebaseReferralsRepo() : new ReferralsRepo(this.consent);
+      this.organizations = useFirebase ? new FirebaseOrganizationsRepo(this.consent, this.networkView) : new OrganizationsRepo(this.consent, this.networkView);
+      this.people = useFirebase ? new FirebasePeopleRepo(this.networkView) : new PeopleRepo(this.networkView);
+      this.referrals = useFirebase ? new FirebaseReferralsRepo(this.networkView) : new ReferralsRepo(this.networkView);
       this.inboundMessages = useFirebase ? new FirebaseInboundMessagesRepo() : new InboundMessagesRepo();
-      this.interactions = useFirebase ? new FirebaseInteractionsRepo() : new InteractionsRepo(this.consent);
-      this.services = useFirebase ? new FirebaseServicesRepo() : new ServicesRepo();
+      this.interactions = useFirebase ? new FirebaseInteractionsRepo(this.networkView) : new InteractionsRepo(this.networkView);
+      this.services = useFirebase ? new FirebaseServicesRepo(this.networkView) : new ServicesRepo(this.networkView);
   }
 }

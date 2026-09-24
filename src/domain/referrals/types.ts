@@ -2,6 +2,8 @@
 export type ReferralStatus = 'pending' | 'accepted' | 'rejected' | 'completed';
 export type ReferralIntakeType = 'referral' | 'self_introduction' | 'access_request';
 
+import type { RecordAccessTier } from '../access/recordAccess';
+
 export interface Referral {
   id: string;
   ecosystem_id: string | null; // Added: Ecosystem scoping
@@ -28,4 +30,6 @@ export interface Referral {
   outcome_tags?: string[]; // e.g. "Funding Received", "Partnership"
   owner_id?: string; // Staff member at receiving org
   follow_up_date?: string;
+  /** Set by the network view: how much of this record the viewer was given. */
+  _access?: RecordAccessTier;
 }

@@ -432,7 +432,7 @@ const App = () => {
         // every entrepreneur stuck on the "Complete Your Profile" screen.
         let matchedUser = resolvedFirebasePerson;
         if (!matchedUser && (CONFIG.IS_DEMO_MODE || !isFirebaseEnabled()) && session.authUser?.email) {
-          const fallbackMockPeople = await repos.people.getAll();
+          const fallbackMockPeople = await repos.people.getAllDemoPersonas();
           const target = session.authUser.email.toLowerCase();
           matchedUser = fallbackMockPeople.find(person => person.email.toLowerCase() === target) || null;
         }
@@ -508,7 +508,7 @@ const App = () => {
   const [people, setPeople] = useState<Person[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
-  const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
+  const [services, setServices] = useState<Service[]>([]);
 
   useEffect(() => {
     setOrganizations([]);
@@ -518,7 +518,8 @@ const App = () => {
       )
         .then(setOrganizations)
         .catch(() => setOrganizations([]));
-      const canSeeArchived = ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(currentRole);
+      // Archived records are an operator tool (restoring after a bad merge).
+      const canSeeArchived = ['platform_admin', 'ecosystem_manager'].includes(currentRole);
       if (canSeeArchived && repos.organizations.getArchived) {
         repos.organizations.getArchived(currentEcosystemId)
           .then(setArchivedOrganizations)
@@ -529,11 +530,13 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.people.getAll(currentEcosystemId).then(setPeople).catch((error) => {
+      fetchAcrossViewerNetworks((ecosystemId) =>
+        repos.people.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
+      ).then(setPeople).catch((error) => {
         console.error('Failed to load people', error);
       });
     }
-  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+  }, [repos, viewerContext, currentEcosystemId, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
     if (viewerContext) {
@@ -556,14 +559,16 @@ const App = () => {
   }, [repos, viewerContext, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
-    if (shouldRequireAuth && !viewerContext) {
+    if (!viewerContext) {
       return;
     }
 
-    repos.services.getAll(currentEcosystemId).then(setServices).catch((error) => {
-      console.error('Failed to load services', error);
+    fetchAcrossViewerNetworks((ecosystemId) =>
+      repos.services.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
+    ).then(setServices).catch((error) => {
+      console.error('Failed to load participation', error);
     });
-  }, [repos, currentEcosystemId, dataVersion, shouldRequireAuth, viewerContext]);
+  }, [repos, dataVersion, viewerContext, fetchAcrossViewerNetworks]);
   
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(initialRoute.orgId || null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(initialRoute.personId || null);

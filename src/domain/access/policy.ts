@@ -1,5 +1,5 @@
 
-import { Organization, Interaction, SystemRole } from '../types';
+import { Organization, SystemRole } from '../types';
 import { ROLE_CAPABILITY_MAP } from '../auth/role_capability_map';
 import { Capability } from '../auth/capabilities';
 
@@ -33,112 +33,26 @@ export const viewerHasAnyCapability = (viewer: ViewerContext, caps: Capability[]
     return caps.some(c => viewerHasCapability(viewer, c));
 };
 
-/**
- * TRUTH TABLE
- * ... (Rest of file remains unchanged, redacted below for brevity but preserved in real file) ...
- */
-
-// 1. Directory Info: Always Visible
-export const canViewDirectoryInfo = (viewer: ViewerContext, org: Organization): boolean => {
-    return true;
-};
-
-// 2. Operational Data (Initiatives, Metrics, Referrals, Interaction Existence)
-//
-// TIER-2 ENFORCEMENT (planned, currently advisory): Once the federation
-// compact reaches v1.0 (see AGREEMENT_VERSIONS in domain/agreements/types),
-// add a check here that the viewer's ESO has a current OrgAgreementAcceptance
-// for the ecosystem. Until then, the ConsortiumBanner shown on operational
-// tabs warns staff but does not block reads. Helper:
-// `isHardEnforcementActive()` from domain/agreements/orgEnforcement returns
-// false while any required agreement is still in '-draft' phase.
-export const canViewOperationalDetails = (viewer: ViewerContext, org: Organization, hasConsent: boolean = false): boolean => {
-    // Legacy Role Check (Migration Path: Replace with capabilities over time)
-    if (['platform_admin', 'ecosystem_manager'].includes(viewer.role)) return true;
-
-    // New Capability Check (Hybrid approach)
-    if (viewerHasCapability(viewer, 'directory.read_private')) return true;
-
-    if (viewer.orgId === org.id) return true;
-    if (hasConsent) return true;
-
-    return effectiveVisibility(org, viewer.ecosystemId) === 'open';
-};
+// Record-level visibility (who may see which organization's records about
+// whom) is NOT decided here. It lives in functions/src/privacy/policy.ts and
+// is applied server-side by the getNetworkView Cloud Function — see
+// src/data/networkView.ts. This file only holds role capabilities.
 
 /**
  * The visibility setting in force for one network.
  *
- * An organization can be open to its county cluster while staying restricted
- * statewide, so the per-network map wins where set. Networks with no explicit
- * choice fall back to the org-wide default, which is what every record had
- * before per-network settings existed.
+ * "Open" means the founder has shared their record details with every
+ * partner they work with in that network — a consent choice, so it is off by
+ * default and made per network. The legacy org-wide `operational_visibility`
+ * field is ignored: it defaulted to 'open' for years, so it records no choice.
+ *
+ * Must agree with the server-side policy (functions/src/privacy/policy.ts,
+ * hasDetailConsent), which is what actually enforces it.
  */
 export const effectiveVisibility = (
     org: Pick<Organization, 'operational_visibility' | 'operational_visibility_by_ecosystem'>,
     ecosystemId?: string
 ): Organization['operational_visibility'] => {
-    if (ecosystemId) {
-        const perNetwork = org.operational_visibility_by_ecosystem?.[ecosystemId];
-        if (perNetwork) return perNetwork;
-    }
-    return org.operational_visibility;
-};
-
-// Alias for backward compatibility / explicit naming
-export const canViewOrgDetailed = canViewOperationalDetails;
-
-export const explainOrgAccess = (viewer: ViewerContext, org: Organization, hasConsent: boolean = false): { level: 'basic' | 'detailed', reason: string } => {
-    if (canViewOperationalDetails(viewer, org, hasConsent)) {
-        if (['platform_admin', 'ecosystem_manager'].includes(viewer.role)) return { level: 'detailed', reason: 'Admin Privilege' };
-        if (viewer.orgId === org.id) return { level: 'detailed', reason: 'Owner' };
-        if (hasConsent) return { level: 'detailed', reason: 'Consent Granted' };
-        return { level: 'detailed', reason: 'Public Data' };
-    }
-    return { level: 'basic', reason: 'Restricted (No Consent)' };
-};
-
-// 3. Interaction Content (Notes)
-export const canViewInteractionContent = (viewer: ViewerContext, interaction: Interaction, subjectOrg: Organization, hasConsent: boolean = false): boolean => {
-    if (interaction.author_org_id === viewer.orgId) return true;
-    if (viewer.role === 'platform_admin') return true;
-    if (interaction.note_confidential) return false;
-
-    if (interaction.visibility === 'eso_private') {
-        if (viewer.role === 'ecosystem_manager') return true;
-        return false;
-    }
-
-    if (viewer.role === 'ecosystem_manager') return true;
-
-    return canViewOperationalDetails(viewer, subjectOrg, hasConsent);
-};
-
-// 4. Interaction Metadata (Who helping who)
-export const canViewInteractionMetadata = (viewer: ViewerContext, interaction: Interaction): boolean => {
-    return true; 
-};
-
-export const explainInteractionAccess = (viewer: ViewerContext, interaction: Interaction, subjectOrg: Organization, hasConsent: boolean = false): { visible: boolean, reason: string } => {
-    if (!canViewInteractionMetadata(viewer, interaction)) return { visible: false, reason: 'Hidden' };
-
-    if (canViewInteractionContent(viewer, interaction, subjectOrg, hasConsent)) {
-        if (interaction.author_org_id === viewer.orgId) return { visible: true, reason: 'Author' };
-        if (viewer.role === 'platform_admin') return { visible: true, reason: 'Platform Admin' };
-        return { visible: true, reason: 'Shared Access' };
-    }
-    
-    if (interaction.note_confidential) return { visible: false, reason: 'Confidential Note' };
-    if (interaction.visibility === 'eso_private') return { visible: false, reason: 'Private to Agency' };
-    
-    return { visible: false, reason: 'Restricted Context' };
-};
-
-// 5. Ecosystem Scoping (Tenancy Enforcement)
-export const validateEcosystemScope = (viewer: ViewerContext, requestedId?: string): string => {
-    const contextId = viewer.ecosystemId;
-    if (!requestedId) return contextId;
-    if (requestedId === contextId) return contextId;
-    if (viewer.role === 'platform_admin') return requestedId;
-    console.warn(`Security Warning: User ${viewer.personId} attempted to access ecosystem ${requestedId} from context ${contextId}. Scoped to ${contextId}.`);
-    return contextId;
+    if (!ecosystemId) return 'restricted';
+    return org.operational_visibility_by_ecosystem?.[ecosystemId] === 'open' ? 'open' : 'restricted';
 };

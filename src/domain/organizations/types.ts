@@ -172,4 +172,11 @@ export interface Organization {
 
   // Email templates editable by ESO staff (named list so staff can pick per-situation)
   referral_templates?: Array<{ id: string; name: string; subject?: string; body: string }>;
+
+  /**
+   * Set by the network view: 'detailed' when the viewer may see partners'
+   * record details about this organization (own org, a support org, or the
+   * entrepreneur's consent), 'basic' otherwise.
+   */
+  _access?: { level: 'basic' | 'detailed'; reason: string };
 }

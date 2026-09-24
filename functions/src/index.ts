@@ -12,6 +12,7 @@ export const secretsMatch = (provided: string, expected: string): boolean => {
 import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { getOrgSignatureStatus } from './agreements/orgSignatures';
 import { fetchPublicUrl, readTextCapped } from './urlGuard';
 import { enforceRateLimit } from './rateLimit';
 import {
@@ -817,10 +818,9 @@ const upsertDraftPerson = async (
     display_name: `${names.first_name} ${names.last_name}`.trim(),
     venture_name: null,
     ecosystem_ids: ecosystemId ? [ecosystemId] : [],
-    directory_status: 'pending_notice',
-    network_directory_consent: false,
-    network_activity_visibility: false,
-    consent_recorded_at: null,
+    directory_listed_ecosystems: [],
+    detail_sharing_ecosystems: [],
+    terms_accepted_ecosystems: [],
     consent_updated_at: now,
   });
 
@@ -4622,6 +4622,9 @@ export const previewQueuedNotices = onRequest({ invoker: 'public' }, async (req,
   });
 });
 
+// ─── Network view — the redacting read path (see privacy/policy.ts) ──────────
+export { getNetworkView } from './privacy/networkView';
+
 // ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
 export {
   partnerUpsertPerson,
@@ -4630,8 +4633,11 @@ export {
   partnerRegisterWebhook,
   onInteractionCreatedDeliverWebhooks,
   onReferralWrittenDeliverWebhooks,
-  // Consent: opt-in email → one-click acceptance
+  // Founder consent: the terms, the hosted consent page, partner-created links
   consentAccept,
+  getConsentTerms,
+  getConsentSession,
+  partnerCreateConsentLink,
   // OIDC/SSO: any ESO can register their OAuth server; MakeHaven is just one instance
   partnerRegisterOidcProvider,
   oidcGetProviders,
@@ -4890,16 +4896,33 @@ export const generatePartnerApiKey = onCall(async (request) => {
   const role = person.system_role;
   const callerOrgId = person.organization_id || person.primary_organization_id;
   const isPlatform = role === 'platform_admin';
-  const isEsoOperatorAtOrg = (role === 'eso_admin' || role === 'eso_staff' || role === 'eso_coach')
-    && callerOrgId === orgId;
-  if (!isPlatform && !isEsoOperatorAtOrg) {
-    throw new HttpsError('permission-denied', 'Not authorized to create API keys for this organization.');
+  // Keys identify every action an organization takes in the network, so
+  // they are issued by its admin — the person who signed the membership terms.
+  const isEsoAdminAtOrg = role === 'eso_admin' && callerOrgId === orgId;
+  if (!isPlatform && !isEsoAdminAtOrg) {
+    throw new HttpsError('permission-denied', 'Only an admin of this organization can create its API keys.');
   }
 
   const orgRef = db.collection('organizations').doc(orgId);
   const orgSnap = await orgRef.get();
   if (!orgSnap.exists) {
     throw new HttpsError('not-found', 'Organization not found.');
+  }
+
+  // An organization connects only after signing the network's agreements in
+  // every network it belongs to (membership, compact, data usage).
+  const orgEcosystems = ((orgSnap.get('ecosystem_ids') as string[] | undefined) || []).filter(Boolean);
+  if (orgEcosystems.length === 0) {
+    throw new HttpsError('failed-precondition', 'This organization is not a member of any network yet.');
+  }
+  for (const ecosystemId of orgEcosystems) {
+    const status = await getOrgSignatureStatus(db, orgId, ecosystemId);
+    if (!status.signed) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Sign the network agreements before creating an API key (missing for ${ecosystemId}: ${status.missing.join(', ')}).`,
+      );
+    }
   }
 
   // 32 bytes → 64 hex chars of entropy. Never touches disk.

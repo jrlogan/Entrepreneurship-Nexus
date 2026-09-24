@@ -4,8 +4,8 @@ import { Organization, Person, Interaction, Referral, Service, Ecosystem } from 
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, CompanyLogo, InfoBanner, Modal, FORM_TEXTAREA_CLASS, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
-import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
-import { REDACTED_TEXT } from '../../domain/access/redaction';
+import { viewerHasCapability } from '../../domain/access/policy';
+import { notesHidden, detailsHidden } from '../../domain/access/recordAccess';
 import { ENUMS } from '../../domain/standards/enums';
 import { EditOrgModal, ManagePersonModal } from './OrgModals';
 import { OrgCompactSignatures } from './OrgCompactSignatures';
@@ -163,8 +163,11 @@ export const OrganizationDetailView = ({
     );
 
     // Access Control Check
-    const hasConsent = viewer.orgId === org.id || activePolicies.some((policy) => policy.viewerId === viewer.orgId && policy.isActive);
-    const canViewDetails = isOwnOrganization || canViewOperationalDetails(viewer, org, hasConsent);
+    // Team directory and record details: decided by the network view
+    // (functions/src/privacy/policy.ts), which set org._access.
+    const canViewDetails = isOwnOrganization
+        || org._access?.level === 'detailed'
+        || ['platform_admin', 'ecosystem_manager'].includes(viewer.role);
 
     useEffect(() => {
         let cancelled = false;
@@ -711,7 +714,6 @@ export const OrganizationDetailView = ({
                  { id: 'privacy', label: 'Privacy' },
                  ...(isManageable && org.roles.includes('eso') ? [{ id: 'settings', label: 'Settings' }] : []),
                ].map(tab => {
-                 const isLocked = !canViewDetails && ['interactions', 'referrals'].includes(tab.id);
                  return (
                     <button
                         key={tab.id}
@@ -726,7 +728,6 @@ export const OrganizationDetailView = ({
                         }`}
                     >
                         {tab.label}
-                        {isLocked && <span className="ml-2 text-xs opacity-60" title="Restricted Content">🔒</span>}
                     </button>
                  );
                })}
@@ -1007,7 +1008,7 @@ export const OrganizationDetailView = ({
                           orgParticipations.map((service) => {
                               const provider = organizations.find((candidate) => candidate.id === service.provider_org_id);
                               return (
-                                  <Card key={service.id} title={service.name}>
+                                  <Card key={service.id} title={service.name || `${ENUMS.ServiceParticipationType?.find(o => o.id === service.participation_type)?.label ?? 'Program'} with ${provider?.name || 'a partner'}`}>
                                       <div className="flex items-start justify-between gap-3">
                                           <div>
                                               <div className="text-sm text-gray-600">
@@ -1022,6 +1023,9 @@ export const OrganizationDetailView = ({
                                       {service.description && (
                                           <div className="mt-3 text-sm text-gray-700">{service.description}</div>
                                       )}
+                                      {detailsHidden(service) && (
+                                          <div className="mt-3 text-xs text-gray-500">Program details are shared only with the entrepreneur's consent.</div>
+                                      )}
                                   </Card>
                               );
                           })
@@ -1030,15 +1034,18 @@ export const OrganizationDetailView = ({
               )}
               {activeTab === 'interactions' && (
                    <div className="space-y-4">
+                       {orgInteractions.length === 0 && (
+                           <p className="text-sm text-gray-500">No activity you can see yet.</p>
+                       )}
                        {orgInteractions.map(int => {
-                           if (int.notes === REDACTED_TEXT) {
+                           const author = organizations.find(o => o.id === int.author_org_id);
+                           if (notesHidden(int)) {
                                return (
-                                   <div key={int.id} className="bg-gray-50 border border-gray-200 border-dashed rounded-lg p-4 flex items-center gap-3 opacity-75">
-                                       <span className="text-xl">🔒</span>
-                                       <div>
-                                           <div className="font-bold text-gray-500 text-sm italic">Restricted Interaction</div>
-                                           <div className="text-xs text-gray-400">{int.type.toUpperCase()} • {int.date}</div>
+                                   <div key={int.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                       <div className="text-sm font-medium text-gray-800">
+                                           {author?.name || 'A partner organization'} logged a {int.type}
                                        </div>
+                                       <div className="text-xs text-gray-500">{int.date} · notes stay with the recording organization</div>
                                    </div>
                                );
                            }
@@ -1083,7 +1090,7 @@ export const OrganizationDetailView = ({
                           const referrer = organizations.find(o => o.id === ref.referring_org_id);
                           const receiver = organizations.find(o => o.id === ref.receiving_org_id);
                           const subjectPerson = people.find(p => p.id === ref.subject_person_id);
-                          const isRedacted = ref.notes === REDACTED_TEXT;
+                          const isRedacted = notesHidden(ref);
 
                           return (
                               <Card key={ref.id} title={
@@ -1133,7 +1140,7 @@ export const OrganizationDetailView = ({
                                   
                                   {isRedacted ? (
                                       <div className="bg-gray-50 border border-gray-100 rounded p-2 text-xs text-gray-400 italic flex items-center gap-2">
-                                          <span>🔒</span> Content Hidden
+                                          Notes are shared only between the referring and receiving organizations.
                                       </div>
                                   ) : (
                                       <p className="text-sm text-gray-600 mb-2">{ref.notes}</p>
@@ -1162,7 +1169,7 @@ export const OrganizationDetailView = ({
                                       </div>
                                   )}
                                   
-                                  {ref.status === 'completed' && ref.outcome && !isRedacted && (
+                                  {ref.status === 'completed' && ref.outcome && !detailsHidden(ref) && (
                                       <div className="mt-3 pt-2 border-t border-gray-100 flex items-center gap-2">
                                           <span className="text-xs font-bold text-gray-500 uppercase">Outcome:</span>
                                           <span className="text-sm font-medium text-gray-900 bg-gray-100 px-2 py-0.5 rounded">

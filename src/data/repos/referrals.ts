@@ -1,73 +1,23 @@
 
 import type { Referral } from '../../domain/referrals/types';
-import { MOCK_REFERRALS, ALL_ORGANIZATIONS } from '../mockData';
-import { ViewerContext, canViewOperationalDetails, validateEcosystemScope } from '../../domain/access/policy';
-import { redactReferral } from '../../domain/access/redaction';
-import { ConsentRepo } from './consent';
+import { MOCK_REFERRALS } from '../mockData';
+import type { ViewerContext } from '../../domain/access/policy';
+import type { NetworkViewSource } from '../networkView';
 
 export class ReferralsRepo {
   
-  constructor(private consentRepo: ConsentRepo) {}
+  constructor(private networkView: NetworkViewSource) {}
 
-  // Viewer-Aware with Ecosystem Scoping
+  // Parties to a referral see it in full; other partners who work with the
+  // entrepreneur see only that it happened (functions/src/privacy/policy.ts).
   async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<Referral[]> {
-    const scope = validateEcosystemScope(viewer, ecosystemId);
-
-    // 1. Identify Organizations active in this scope
-    // Referrals do not have an explicit `ecosystem_id`, so we check if the involved organizations are members.
-    const ecosystemOrgIds = new Set(
-        ALL_ORGANIZATIONS
-            .filter(o => (o.ecosystem_ids || []).includes(scope))
-            .map(o => o.id)
-    );
-
-    // 2. Filter Referrals relevant to this ecosystem
-    // A referral is relevant if EITHER the sender OR receiver is in the ecosystem.
-    const scopedReferrals = MOCK_REFERRALS.filter(r => 
-        (r.referring_org_id && ecosystemOrgIds.has(r.referring_org_id)) || 
-        (r.receiving_org_id && ecosystemOrgIds.has(r.receiving_org_id))
-    );
-
-    // 3. Apply Viewer Permissions (Role-based filtering)
-    // Admin sees all in scope
-    if (['platform_admin', 'ecosystem_manager'].includes(viewer.role)) {
-      return Promise.resolve(scopedReferrals);
-    }
-
-    // Otherwise, must be Sender, Receiver, or the Subject
-    return Promise.resolve(scopedReferrals.filter(r => 
-      r.referring_org_id === viewer.orgId ||
-      r.receiving_org_id === viewer.orgId ||
-      r.subject_person_id === viewer.personId ||
-      (r.subject_org_id && r.subject_org_id === viewer.orgId)
-    ));
+    return (await this.networkView.get(viewer, ecosystemId)).referrals;
   }
 
-  // New: List referrals for a specific subject Org (e.g. on their profile)
-  // This allows 3rd party ESOs to see "Oh, they have pending referrals" (Metadata) without details
   async listForOrgForViewer(viewer: ViewerContext, orgId: string): Promise<Referral[]> {
-      const referrals = MOCK_REFERRALS.filter(r => r.subject_org_id === orgId || r.referring_org_id === orgId || r.receiving_org_id === orgId);
-      const subjectOrg = ALL_ORGANIZATIONS.find(o => o.id === orgId);
-
-      const results = await Promise.all(referrals.map(async ref => {
-          // If I am involved, I see it
-          if (ref.referring_org_id === viewer.orgId || ref.receiving_org_id === viewer.orgId) {
-              return ref;
-          }
-
-          // If I am looking at the subject org, can I see operational details?
-          if (subjectOrg) {
-              const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, subjectOrg.id, viewer.ecosystemId);
-              if (canViewOperationalDetails(viewer, subjectOrg, hasConsent)) {
-                  return ref;
-              }
-          }
-
-          // Otherwise redact
-          return redactReferral(ref);
-      }));
-
-      return results;
+    return (await this.getAll(viewer)).filter((r) =>
+      r.subject_org_id === orgId || r.referring_org_id === orgId || r.receiving_org_id === orgId
+    );
   }
 
   async add(referral: Referral): Promise<void> {

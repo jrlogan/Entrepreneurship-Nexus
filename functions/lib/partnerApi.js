@@ -19,11 +19,13 @@
  * Outbound delivery: Firestore triggers on `interactions` and `referrals`
  * fire webhooks to registered URLs, signed with HMAC-SHA256.
  *
- * Consent model:
- * Partner-created people start with network_directory_consent: false so they
- * don't appear in the shared network directory until the entrepreneur opts in.
- * ESO staff can see and track them immediately (status: 'active', not 'draft').
- * Pass send_consent_email: true to trigger an opt-in email to the entrepreneur.
+ * Consent model (see functions/src/privacy/policy.ts):
+ * The pushing organization works with the person immediately. Nothing beyond
+ * the compact's "always shared" tier happens until the founder chooses:
+ * directory listing and detail sharing both start off, per network. Consent is
+ * collected either in the partner's own form (pass `consent` — see
+ * getConsentTerms), on the hosted page (partnerCreateConsentLink), or by email
+ * (send_consent_email: true).
  *
  * OIDC / SSO:
  * Any ESO can register their own OAuth2/OIDC server via partnerRegisterOidcProvider.
@@ -65,7 +67,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.consentAccept = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = void 0;
+exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -75,8 +77,16 @@ const payloadRedaction_1 = require("./payloadRedaction");
 const federationDedup_1 = require("./federationDedup");
 const recordMerge_1 = require("./recordMerge");
 const rateLimit_1 = require("./rateLimit");
+const terms_1 = require("./consent/terms");
+const recordConsent_1 = require("./consent/recordConsent");
 // ─── Helpers (mirrors of index.ts utilities; extract to shared.ts in cleanup) ──
 const normalize = (value) => (value || '').trim().toLowerCase();
+const escapeHtml = (value) => value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 const setCors = (res) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Nexus-API-Key');
@@ -259,19 +269,25 @@ const findByExternalRef = async (db, ref, entityType, callerOrgId) => {
     const indexDoc = await db.collection('external_ref_index').doc(docId).get();
     if (!indexDoc.exists)
         return null;
-    if (callerOrgId) {
-        const ownerOrgId = indexDoc.get('owner_org_id');
-        // Legacy index entries predate owner tracking; fall back to the ref stored
-        // on the entity itself rather than failing closed on historical data.
-        if (ownerOrgId && ownerOrgId !== callerOrgId)
-            return null;
-    }
+    const ownerOrgId = indexDoc.get('owner_org_id');
+    if (callerOrgId && ownerOrgId && ownerOrgId !== callerOrgId)
+        return null;
     const entityId = indexDoc.get('entity_id');
     // Follow `merged_into` so a ref that pointed at a record an admin later
     // merged away resolves to the survivor instead of writing to a tombstone.
     // Index entries are repointed on merge; this is the belt-and-braces path
     // for entries written before the merge, or by another code path.
-    return (0, recordMerge_1.followMergePointer)(db, entityType, entityId);
+    const found = await (0, recordMerge_1.followMergePointer)(db, entityType, entityId);
+    // Legacy index entries predate owner tracking. Rather than trusting them,
+    // confirm the entity itself carries this ref as owned by the caller — an
+    // org must never resolve another org's record ID to a record.
+    if (found && callerOrgId && !ownerOrgId) {
+        const refs = (found.data.external_refs || []);
+        const ownedByCaller = refs.some((r) => r.source === ref.source && r.id === ref.id && r.owner_org_id === callerOrgId);
+        if (!ownedByCaller)
+            return null;
+    }
+    return found;
 };
 // ─── Outbound webhook delivery ────────────────────────────────────────────────
 const signPayload = (secret, body) => (0, crypto_1.createHmac)('sha256', secret).update(body).digest('hex');
@@ -355,27 +371,20 @@ const findParticipationByExternalRef = async (db, ref) => {
  * Generates a short-lived consent token, persists it, and sends the opt-in
  * email via Postmark. The token is stored in `consent_tokens/{token_hash}`.
  *
- * The email asks the entrepreneur to join the network directory. Clicking the
- * link calls consentAccept, which sets network_directory_consent: true.
- * Not clicking leaves the person visible to ESO staff only — nothing breaks.
+ * The email invites the entrepreneur to the hosted consent page, where they
+ * read the compact and privacy notice and make their two choices (directory
+ * listing, detail sharing). Not clicking changes nothing: the partner that
+ * pushed them still works with them, and nothing else is shared.
  */
 const enqueueConsentEmail = async (db, personId, firstName, email, ecosystemId, referringEsoId) => {
-    const raw = (0, crypto_1.randomBytes)(32).toString('hex');
-    const tokenHash = (0, crypto_1.createHash)('sha256').update(raw).digest('hex');
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
-    const now = new Date().toISOString();
-    await db.collection('consent_tokens').doc(tokenHash).set({
-        token_hash: tokenHash,
-        person_id: personId,
-        ecosystem_id: ecosystemId,
-        referring_eso_id: referringEsoId,
+    const { url: consentUrl } = await (0, recordConsent_1.createConsentLink)(db, {
+        personId,
+        ecosystemId,
+        requestedByOrgId: referringEsoId,
         email,
-        status: 'pending',
-        created_at: now,
-        expires_at: expiresAt,
+        createdVia: 'consent_email',
+        ttlDays: 30,
     });
-    const baseUrl = process.env.NEXUS_APP_URL?.trim() || 'https://entrepreneurship-nexus.web.app';
-    const consentUrl = `${baseUrl}/consent?token=${raw}`;
     const postmarkToken = process.env.POSTMARK_SERVER_TOKEN?.trim();
     const fromEmail = process.env.POSTMARK_FROM_EMAIL?.trim();
     if (!postmarkToken || !fromEmail) {
@@ -404,19 +413,19 @@ const enqueueConsentEmail = async (db, personId, firstName, email, ecosystemId, 
         body: JSON.stringify({
             From: fromEmail,
             To: email,
-            Subject: `${esoName} thinks you'd benefit from regional entrepreneur resources`,
+            Subject: `${esoName} works with a regional entrepreneurship network — your choices`,
             TextBody: [
                 `Hi ${greeting},`,
                 '',
-                `${esoName} suggested you might find value in the regional Entrepreneurship Nexus — a network that connects entrepreneurs with business advisors, funding programs, and workshops from organizations across the region.`,
+                `${esoName} is part of a regional network of organizations that support entrepreneurs. Partners in the network share a small amount of information so they can coordinate instead of asking you the same questions again.`,
                 '',
-                "Joining gives you access to these resources. It doesn't change anything about your existing relationship with the organizations already supporting you.",
+                '- Organizations you work with can see your name and email, and that other partners are also helping you.',
+                "- You choose whether to be listed in the network directory and whether partners can see the details of each other's records. Both are off unless you turn them on.",
+                '- Notes staff write about your meetings are never shared.',
                 '',
-                `Access the Entrepreneurship Nexus:\n${consentUrl}`,
+                `Read the terms and make your choices:\n${consentUrl}`,
                 '',
-                'Already a MakeHaven member? Click "Sign in with MakeHaven" on that page — your existing account connects automatically, no new password needed.',
-                '',
-                "Not ready yet? No problem — you don't need to do anything and nothing changes.",
+                'If you do nothing, nothing more is shared. This link works for 30 days.',
                 '',
                 `— ${esoName}`,
             ].join('\n'),
@@ -426,24 +435,47 @@ const enqueueConsentEmail = async (db, personId, firstName, email, ecosystemId, 
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;margin:0}
 .wrap{max-width:520px;margin:40px auto;background:#fff;border-radius:8px;padding:36px 44px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
 h2{font-size:20px;color:#1a1a2e;margin:0 0 16px}
-p{font-size:15px;color:#374151;line-height:1.6;margin:0 0 16px}
-.btn{display:inline-block;background:#1a1a2e;color:#fff;text-decoration:none;padding:11px 28px;border-radius:6px;font-size:14px;font-weight:600}
+p,li{font-size:15px;color:#374151;line-height:1.6}
+p{margin:0 0 16px}
+.btn{display:inline-block;background:#8b1919;color:#fff;text-decoration:none;padding:11px 28px;border-radius:6px;font-size:14px;font-weight:600}
 .muted{font-size:13px;color:#6b7280}
 </style></head>
 <body><div class="wrap">
-<h2>Regional resources for entrepreneurs, recommended by ${esoName}</h2>
-<p>Hi ${greeting},</p>
-<p>${esoName} suggested you might find value in the <strong>regional Entrepreneurship Nexus</strong> — a network that connects entrepreneurs with business advisors, funding programs, and workshops from organizations across the region.</p>
-<p>Joining gives you access to these resources. It doesn't change anything about your existing relationship with the organizations already supporting you.</p>
-<p><a class="btn" href="${consentUrl}">Access the Entrepreneurship Nexus</a></p>
-<p class="muted">Already a MakeHaven member? Click <strong>"Sign in with MakeHaven"</strong> on that page — your existing account connects automatically, no new password needed.</p>
-<p class="muted">Not ready yet? No problem — you don't need to do anything and nothing changes.</p>
+<h2>Your choices in the regional entrepreneurship network</h2>
+<p>Hi ${escapeHtml(greeting)},</p>
+<p>${escapeHtml(esoName)} is part of a regional network of organizations that support entrepreneurs. Partners share a small amount of information so they can coordinate instead of asking you the same questions again.</p>
+<ul>
+<li>Organizations you work with can see your name and email, and that other partners are also helping you.</li>
+<li>You choose whether to be listed in the network directory and whether partners can see the details of each other's records. Both are off unless you turn them on.</li>
+<li>Notes staff write about your meetings are never shared.</li>
+</ul>
+<p><a class="btn" href="${consentUrl}">Read the terms and choose</a></p>
+<p class="muted">If you do nothing, nothing more is shared. This link works for 30 days.</p>
 </div></body></html>`,
             MessageStream: process.env.POSTMARK_MESSAGE_STREAM?.trim() || 'outbound',
         }),
     }).catch(err => {
         console.error('Consent email delivery failed:', err?.message);
     });
+};
+/**
+ * Record consent a partner collected in its own form (if any), and report the
+ * founder's consent state back to the partner either way — so a partner's
+ * system always knows whether the founder has joined, is listed, and shares
+ * details, without ever seeing anything else about them.
+ */
+const applyPartnerConsent = async (db, personId, ecosystemId, orgId, choices, terms) => {
+    if (choices && terms) {
+        await (0, recordConsent_1.recordFounderConsent)(db, {
+            personId,
+            ecosystemId,
+            choices,
+            terms,
+            via: 'partner_form',
+            attestedByOrgId: orgId,
+        });
+    }
+    return (0, recordConsent_1.readConsentState)(db, personId, ecosystemId);
 };
 // ─── Exported HTTP functions ──────────────────────────────────────────────────
 /**
@@ -494,6 +526,18 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         res.status(400).json({ error: 'external_ref.source and external_ref.id are required' });
         return;
     }
+    // Optional: the founder's answers from the consent terms shown in the
+    // partner's own signup form (see getConsentTerms and the embed widget).
+    let consentChoices = null;
+    const terms = req.body?.consent !== undefined ? await (0, terms_1.buildConsentTerms)() : null;
+    if (terms) {
+        const parsed = (0, terms_1.parseFounderConsent)(req.body.consent, terms);
+        if (parsed.ok === false) {
+            res.status(parsed.status).json({ error: parsed.error, reason: parsed.reason, current_terms_hash: terms.terms_hash });
+            return;
+        }
+        consentChoices = parsed.value;
+    }
     if (!ecosystemId || !firstName || !lastName || !email) {
         res.status(400).json({ error: 'ecosystem_id, first_name, last_name, and email are required' });
         return;
@@ -530,7 +574,8 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             nexus_id: byRef.id,
             external_ref: ref,
         });
-        res.json({ ok: true, nexus_id: byRef.id, action: 'updated' });
+        const consent = await applyPartnerConsent(db, byRef.id, ecosystemId, esoOrgId, consentChoices, terms);
+        res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent });
         return;
     }
     // 2. Try email match — add ExternalRef to existing person
@@ -561,13 +606,14 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             external_ref: ref,
             ecosystem_id: ecosystemId,
         });
-        res.json({ ok: true, nexus_id: existing.id, action: 'linked' });
+        const consent = await applyPartnerConsent(db, existing.id, ecosystemId, esoOrgId, consentChoices, terms);
+        res.json({ ok: true, nexus_id: existing.id, action: 'linked', consent });
         return;
     }
     // 3. Create new person record (partner-managed; no Firebase Auth account yet).
-    //    status: 'active' so ESO staff can track immediately, but the network_profiles
-    //    record starts with network_directory_consent: false so the person doesn't
-    //    appear in the shared network directory until they opt in.
+    //    status: 'active' so ESO staff can track immediately; the network_profiles
+    //    record starts with every consent choice off, so the person is not in the
+    //    shared directory and shares no details until they choose to.
     const personRef = db.collection('people').doc();
     const batch = db.batch();
     batch.set(personRef, {
@@ -594,10 +640,11 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         person_id: personRef.id,
         display_name: `${firstName} ${lastName}`.trim(),
         ecosystem_ids: [ecosystemId],
-        directory_status: 'pending_notice',
-        network_directory_consent: false,
-        network_activity_visibility: false,
-        consent_recorded_at: null,
+        // Nothing is shared beyond the compact's "always" tier until the founder
+        // chooses: not listed, no detail sharing, terms not yet accepted.
+        directory_listed_ecosystems: [],
+        detail_sharing_ecosystems: [],
+        terms_accepted_ecosystems: [],
         consent_updated_at: now,
         referring_eso_id: esoOrgId,
     });
@@ -608,10 +655,12 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         external_ref: ref,
         send_consent_email: sendConsentEmail,
     });
-    if (sendConsentEmail) {
+    const consent = await applyPartnerConsent(db, personRef.id, ecosystemId, esoOrgId, consentChoices, terms);
+    // No need to email someone who just agreed in the partner's own form.
+    if (sendConsentEmail && !consentChoices) {
         await enqueueConsentEmail(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
     }
-    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created' });
+    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent });
 });
 /**
  * POST /partnerUpsertOrganization
@@ -799,6 +848,13 @@ exports.partnerGetPerson = (0, https_1.onRequest)({ invoker: 'public' }, async (
     }
     // Only expose ExternalRefs owned by the calling org — never leak other ESOs' IDs
     const ownedRefs = (found.data.external_refs || []).filter(r => r.owner_org_id === authContext.organization_id);
+    // Optional ?ecosystem_id= adds the founder's consent state in that network
+    // (terms accepted, directory listed, sharing details) — so a partner's
+    // system can show staff where things stand without asking the founder again.
+    const ecosystemId = normalize(req.query?.ecosystem_id);
+    const consent = ecosystemId && (await orgIsInEcosystem(db, authContext.organization_id, ecosystemId))
+        ? await (0, recordConsent_1.readConsentState)(db, found.id, ecosystemId)
+        : undefined;
     res.json({
         ok: true,
         person: {
@@ -811,6 +867,7 @@ exports.partnerGetPerson = (0, https_1.onRequest)({ invoker: 'public' }, async (
             external_refs: ownedRefs,
             created_at: found.data.created_at,
             updated_at: found.data.updated_at,
+            ...(consent ? { consent } : {}),
         },
     });
 });
@@ -1121,86 +1178,231 @@ exports.onReferralWrittenDeliverWebhooks = (0, firestore_1.onDocumentWritten)('r
     const payload = (0, payloadRedaction_1.buildReferralWebhookPayload)(after, referralId);
     await deliverWebhooksForOrg(db, receivingOrgId, eventName, payload);
 });
-// ─── Consent acceptance ───────────────────────────────────────────────────────
-const consentConfirmHtml = (title, body, ctaUrl, ctaLabel) => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title} — Entrepreneurship Nexus</title>
-  <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh}
-    .card{background:#fff;border-radius:10px;padding:40px 48px;max-width:480px;width:100%;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-    h1{font-size:22px;color:#1a1a2e;margin:0 0 12px}
-    p{font-size:15px;color:#374151;line-height:1.6;margin:0 0 24px}
-    a{display:inline-block;background:#1a1a2e;color:#fff;text-decoration:none;padding:10px 24px;border-radius:6px;font-size:14px;font-weight:bold}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>${title}</h1>
-    <p>${body}</p>
-    ${ctaUrl ? `<a href="${ctaUrl}">${ctaLabel || 'Continue'}</a>` : ''}
-  </div>
-</body>
-</html>`;
+// ─── Founder consent ──────────────────────────────────────────────────────────
+//
+// Four endpoints, one set of terms (./consent/terms.ts):
+//
+//   getConsentTerms          public — the exact words and choices to show.
+//   partnerCreateConsentLink API key — a one-time link to the hosted page.
+//   getConsentSession        public (token) — what the hosted page renders.
+//   consentAccept            public (token) — records the founder's answers.
+//
+// consentAccept used to be a one-click GET. A GET that changes state can be
+// triggered by an email security scanner following the link, so GET now only
+// redirects to the hosted page; recording consent is a POST from that page.
+const loadConsentToken = async (db, rawToken) => {
+    const raw = typeof rawToken === 'string' ? rawToken.trim() : '';
+    if (!/^[0-9a-f]{64}$/.test(raw))
+        return { error: 'invalid' };
+    const ref = db.collection('consent_tokens').doc((0, recordConsent_1.hashToken)(raw));
+    const snap = await ref.get();
+    if (!snap.exists)
+        return { error: 'not_found' };
+    const data = snap.data();
+    if (data.status === 'used')
+        return { error: 'used', ref, data };
+    if (data.expires_at && new Date(data.expires_at) < new Date())
+        return { error: 'expired', ref, data };
+    return { ref, data };
+};
+const TOKEN_ERRORS = {
+    invalid: { status: 400, message: 'This link is not valid. Ask the organization that sent it for a new one.' },
+    not_found: { status: 404, message: 'This link was not found. Ask the organization that sent it for a new one.' },
+    used: { status: 409, message: 'You have already made your choices with this link. You can change them any time from your privacy settings.' },
+    expired: { status: 410, message: 'This link has expired. Ask the organization that sent it for a new one.' },
+};
 /**
- * GET /consentAccept?token=<raw_token>
+ * GET /getConsentTerms
  *
- * One-click consent acceptance linked from the opt-in email.
- * Validates the token, marks the entrepreneur's network_profiles entry as
- * consented, and renders an HTML confirmation page with a link to set up
- * their Nexus account. No auth required — the token is the credential.
+ * The current founder-facing terms: plain-language summary, the two choices,
+ * the full Network Compact and Privacy Notice, and `terms_hash`. A partner
+ * showing these in its own signup form sends `terms_hash` back as
+ * `consent.terms_hash` on partnerUpsertPerson. Public — the terms are public.
  */
-exports.consentAccept = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
-    setCors(res);
-    if (req.method !== 'GET') {
-        res.status(405).send('Method not allowed');
+exports.getConsentTerms = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    if (req.method !== 'GET' && req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
         return;
     }
-    const rawToken = req.query?.token?.trim();
-    if (!rawToken || !/^[0-9a-f]{64}$/.test(rawToken)) {
-        res.status(400).send(consentConfirmHtml('Invalid link', 'This consent link is not valid. Please contact your support organization for a new one.'));
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({ ok: true, ...(await (0, terms_1.buildConsentTerms)()) });
+});
+/**
+ * POST /partnerCreateConsentLink
+ *
+ * A one-time link to the hosted consent page for a person your organization
+ * works with — for signup flows that would rather send the founder to the
+ * network's page than render the terms themselves.
+ *
+ * Body: { ecosystem_id, external_ref: {source, id} | nexus_id, return_url? }
+ * return_url must be https and on your organization's website; the founder is
+ * sent back there with ?nexus_consent=accepted|declined appended.
+ */
+exports.partnerCreateConsentLink = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
         return;
     }
     const db = admin.firestore();
-    const tokenHash = (0, crypto_1.createHash)('sha256').update(rawToken).digest('hex');
-    const tokenDoc = await db.collection('consent_tokens').doc(tokenHash).get();
-    if (!tokenDoc.exists) {
-        res.status(404).send(consentConfirmHtml('Link not found', 'This link was not found or has already been used.'));
+    const authContext = await requireApiKey(req, res, db);
+    if (!authContext)
+        return;
+    if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
+        return;
+    const orgId = authContext.organization_id;
+    const ecosystemId = normalize(req.body?.ecosystem_id);
+    if (!ecosystemId) {
+        res.status(400).json({ error: 'ecosystem_id is required' });
         return;
     }
-    const tokenData = tokenDoc.data();
-    if (tokenData.status === 'used') {
-        const baseUrl = process.env.NEXUS_APP_URL?.trim() || 'https://entrepreneurship-nexus.web.app';
-        res.send(consentConfirmHtml('Already confirmed', "You've already joined the Entrepreneurship Nexus network directory.", baseUrl, 'Go to Nexus'));
+    if (!(await orgIsInEcosystem(db, orgId, ecosystemId))) {
+        res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
         return;
     }
-    if (tokenData.expires_at && new Date(tokenData.expires_at) < new Date()) {
-        res.status(410).send(consentConfirmHtml('Link expired', 'This consent link has expired. Please contact your support organization for a new one.'));
+    // Resolve the person — only one your organization has itself pushed.
+    let personId = null;
+    const externalRef = req.body?.external_ref;
+    if (externalRef?.source && externalRef?.id) {
+        const found = await findByExternalRef(db, { source: externalRef.source, id: externalRef.id, owner_org_id: orgId }, 'person', orgId);
+        personId = found?.id || null;
+    }
+    else if (typeof req.body?.nexus_id === 'string') {
+        const snap = await db.collection('people').doc(req.body.nexus_id).get();
+        const refs = (snap.get('external_refs') || []);
+        if (snap.exists && (snap.get('created_by_org_id') === orgId || refs.some((r) => r.owner_org_id === orgId))) {
+            personId = snap.id;
+        }
+    }
+    else {
+        res.status(400).json({ error: 'external_ref or nexus_id is required' });
         return;
     }
-    const personId = tokenData.person_id;
-    const ecosystemId = tokenData.ecosystem_id;
-    const now = new Date().toISOString();
-    // Update network_profiles: person is now in the shared directory.
-    await db.collection('network_profiles').doc(personId).set({
-        network_directory_consent: true,
-        network_activity_visibility: true,
-        directory_status: 'active',
-        consent_recorded_at: now,
-        consent_updated_at: now,
-        consent_granted_via: 'email_link',
-    }, { merge: true });
-    // Mark token used.
-    await tokenDoc.ref.set({ status: 'used', used_at: now }, { merge: true });
-    await logAudit(db, 'consent_accepted', personId, {
-        person_id: personId,
-        ecosystem_id: ecosystemId,
-        via: 'email_link',
+    if (!personId) {
+        res.status(404).json({ error: 'No person your organization has pushed matches that reference. Call partnerUpsertPerson first.' });
+        return;
+    }
+    const orgSnap = await db.collection('organizations').doc(orgId).get();
+    const returnUrl = (0, recordConsent_1.validateReturnUrl)(req.body?.return_url, {
+        url: orgSnap.get('url'),
+        consent_return_origins: orgSnap.get('consent_return_origins'),
     });
-    const baseUrl = process.env.NEXUS_APP_URL?.trim() || 'https://entrepreneurship-nexus.web.app';
-    res.send(consentConfirmHtml("You're in!", "You've joined the Entrepreneurship Nexus network directory. Set up your account to connect with support organizations and access resources.", `${baseUrl}/?welcome=1`, 'Set up your account'));
+    if (returnUrl.ok === false) {
+        res.status(400).json({ error: returnUrl.error });
+        return;
+    }
+    const link = await (0, recordConsent_1.createConsentLink)(db, {
+        personId,
+        ecosystemId,
+        requestedByOrgId: orgId,
+        returnUrl: returnUrl.url,
+        createdVia: 'partner_link',
+        ttlDays: 7,
+    });
+    await logAudit(db, 'partner_consent_link_created', orgId, { nexus_id: personId, ecosystem_id: ecosystemId });
+    res.status(201).json({ ok: true, nexus_id: personId, consent_url: link.url, expires_at: link.expires_at });
+});
+/**
+ * POST /getConsentSession  { token }
+ *
+ * What the hosted consent page needs to render: who is asking, which network,
+ * the founder's first name, and the current terms. Discloses nothing else.
+ */
+exports.getConsentSession = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const db = admin.firestore();
+    const loaded = await loadConsentToken(db, req.body?.token);
+    if ('error' in loaded && loaded.error) {
+        const e = TOKEN_ERRORS[loaded.error];
+        res.status(e.status).json({ ok: false, status: loaded.error, error: e.message });
+        return;
+    }
+    const { data } = loaded;
+    const [personSnap, orgSnap, ecoSnap, terms, state] = await Promise.all([
+        db.collection('people').doc(data.person_id).get(),
+        db.collection('organizations').doc(data.referring_eso_id).get(),
+        db.collection('ecosystems').doc(data.ecosystem_id).get(),
+        (0, terms_1.buildConsentTerms)(),
+        (0, recordConsent_1.readConsentState)(db, data.person_id, data.ecosystem_id),
+    ]);
+    res.json({
+        ok: true,
+        status: 'pending',
+        first_name: personSnap.get('first_name') || '',
+        requested_by: orgSnap.get('name') || 'A partner organization',
+        network_name: ecoSnap.get('name') || 'the regional entrepreneurship network',
+        returns_to: data.return_url ? new URL(data.return_url).hostname : null,
+        current: state,
+        terms,
+    });
+});
+/**
+ * POST /consentAccept  { token, consent: { agreed, terms_hash, directory_listing, share_details } }
+ *   or                 { token, declined: true }
+ *
+ * Records the founder's answers from the hosted page. Declining records
+ * nothing beyond marking the link used; the partner that sent it still works
+ * with the founder, and nothing else is shared.
+ *
+ * GET /consentAccept?token=… (links in older emails) redirects to the page.
+ */
+exports.consentAccept = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    if (handlePreflight(req, res))
+        return;
+    if (req.method === 'GET') {
+        const raw = typeof req.query?.token === 'string' ? req.query.token : '';
+        res.redirect(302, `${(0, recordConsent_1.appBaseUrl)()}/consent?token=${encodeURIComponent(raw)}`);
+        return;
+    }
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const db = admin.firestore();
+    const loaded = await loadConsentToken(db, req.body?.token);
+    if ('error' in loaded && loaded.error) {
+        const e = TOKEN_ERRORS[loaded.error];
+        res.status(e.status).json({ ok: false, status: loaded.error, error: e.message });
+        return;
+    }
+    const { ref, data } = loaded;
+    const now = new Date().toISOString();
+    const withResult = (result) => {
+        if (!data.return_url)
+            return null;
+        const url = new URL(data.return_url);
+        url.searchParams.set('nexus_consent', result);
+        return url.toString();
+    };
+    if (req.body?.declined === true) {
+        await ref.set({ status: 'used', used_at: now, result: 'declined' }, { merge: true });
+        await logAudit(db, 'founder_consent_declined', data.person_id, { ecosystem_id: data.ecosystem_id });
+        res.json({ ok: true, result: 'declined', return_url: withResult('declined') });
+        return;
+    }
+    const terms = await (0, terms_1.buildConsentTerms)();
+    const parsed = (0, terms_1.parseFounderConsent)(req.body?.consent, terms);
+    if (parsed.ok === false) {
+        res.status(parsed.status).json({ ok: false, error: parsed.error, reason: parsed.reason });
+        return;
+    }
+    const state = await (0, recordConsent_1.recordFounderConsent)(db, {
+        personId: data.person_id,
+        ecosystemId: data.ecosystem_id,
+        choices: { ...parsed.value, accepted_at: now },
+        terms,
+        via: 'consent_page',
+    });
+    await ref.set({ status: 'used', used_at: now, result: 'accepted' }, { merge: true });
+    res.json({ ok: true, result: 'accepted', ...state, return_url: withResult('accepted') });
 });
 // ─── OIDC / SSO — multi-provider OAuth ───────────────────────────────────────
 /**
@@ -1750,17 +1952,17 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
         for (const ref of providerRefs) {
             await (0, federationDedup_1.attachExternalRef)(db, 'person', authUid, ref);
         }
-        // Network profile — they signed in voluntarily so consent is implicit.
+        // Network profile. Signing in with a partner's account is not consent to
+        // be listed or to share details — those stay off until the founder turns
+        // them on (the post-login agreement gate and privacy settings ask them).
         await db.collection('network_profiles').doc(authUid).set({
             person_id: authUid,
             display_name: `${userFirstName} ${userLastName}`.trim(),
             ecosystem_ids: [provider.ecosystem_id],
-            directory_status: 'active',
-            network_directory_consent: true,
-            network_activity_visibility: true,
-            consent_recorded_at: now,
+            directory_listed_ecosystems: [],
+            detail_sharing_ecosystems: [],
+            terms_accepted_ecosystems: [],
             consent_updated_at: now,
-            consent_granted_via: 'oidc_sso',
         });
         personId = authUid;
         isNewAccount = true;

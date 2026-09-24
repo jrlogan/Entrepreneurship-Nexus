@@ -1,22 +1,20 @@
+
 import type { Service } from '../../domain/services/types';
+import type { ViewerContext } from '../../domain/access/policy';
+import type { NetworkViewSource } from '../networkView';
 import { MOCK_SERVICES } from '../mockData';
 
+// Participation records (programs, memberships, rentals, applications).
 export class ServicesRepo {
-  async getAll(ecosystemId?: string): Promise<Service[]> {
-    if (!ecosystemId) {
-      return Promise.resolve(MOCK_SERVICES);
-    }
+  constructor(private networkView: NetworkViewSource) {}
 
-    return Promise.resolve(
-      MOCK_SERVICES.filter((service) => {
-        return true;
-      })
-    );
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<Service[]> {
+    return (await this.networkView.get(viewer, ecosystemId)).participations;
   }
 
   async add(service: Service): Promise<void> {
     MOCK_SERVICES.push(service);
-    return Promise.resolve();
+    this.networkView.invalidate();
   }
 
   async update(id: string, updates: Partial<Service>): Promise<void> {
@@ -24,6 +22,6 @@ export class ServicesRepo {
     if (service) {
       Object.assign(service, updates);
     }
-    return Promise.resolve();
+    this.networkView.invalidate();
   }
 }

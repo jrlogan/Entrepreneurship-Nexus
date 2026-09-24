@@ -17,6 +17,8 @@ export interface ViewerSignatureStatus {
   isDraftPhase: boolean;              // any required agreement is still '-draft'
 }
 
+// '-draft' text is still being written and is advisory only. '-pilot' text is
+// what pilot partners actually sign, so it is enforced.
 const isDraftVersion = (v: string): boolean => v.includes('-draft');
 
 // ─── Pure helpers (testable without Firebase) ────────────────────────────────

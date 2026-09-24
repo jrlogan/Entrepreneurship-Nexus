@@ -24,7 +24,7 @@ export const ReferralReportsView = () => {
             const [nextReferrals, nextOrganizations, nextPeople] = await Promise.all([
                 repos.referrals.getAll(viewer),
                 repos.organizations.getAll(viewer, viewer.ecosystemId),
-                repos.people.getAll(viewer.ecosystemId),
+                repos.people.getAll(viewer, viewer.ecosystemId),
             ]);
 
             if (!cancelled) {

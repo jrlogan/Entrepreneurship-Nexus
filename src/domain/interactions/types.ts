@@ -3,6 +3,8 @@ export type InteractionType = 'meeting' | 'email' | 'call' | 'event' | 'note';
 export type InteractionVisibility = 'network_shared' | 'eso_private';
 
 // Interface for the Interaction (Meeting Notes)
+import type { RecordAccessTier } from '../access/recordAccess';
+
 export interface Interaction {
   id: string;
   organization_id: string;
@@ -23,5 +25,9 @@ export interface Interaction {
   notes: string;
   attendees?: string[];
   recorded_by?: string;
+  /** The venture founder this is about, when known. */
+  subject_person_id?: string | null;
+  /** Set by the network view: how much of this record the viewer was given. */
+  _access?: RecordAccessTier;
 
 }

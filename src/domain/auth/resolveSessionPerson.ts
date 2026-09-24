@@ -1,8 +1,9 @@
 import type { Person } from '../people/types';
 import { FirebasePeopleRepo } from '../../data/repos/firebase/people';
+import { RemoteNetworkViewSource } from '../../data/networkView';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
-const firebasePeopleRepo = new FirebasePeopleRepo();
+const firebasePeopleRepo = new FirebasePeopleRepo(new RemoteNetworkViewSource());
 
 export const resolveSessionPerson = async (authUid?: string | null, email?: string | null): Promise<Person | null> => {
   if (!isFirebaseEnabled()) {
