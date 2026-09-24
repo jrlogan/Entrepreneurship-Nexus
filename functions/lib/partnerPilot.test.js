@@ -279,3 +279,84 @@ const pushPerson = (apiKey, orgId, id, email, extra = {}) => call('POST', 'partn
         assert.equal(aDoc.provider_org_id, ORG_A);
     });
 });
+// ─── The network view, as a signed-in staff member ────────────────────────────
+const AUTH_EMULATOR = 'http://127.0.0.1:59099';
+/** Create an emulator auth user and return an ID token for it. */
+const signUp = async (email) => {
+    const res = await fetch(`${AUTH_EMULATOR}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'password123', returnSecureToken: true }),
+    });
+    const json = await res.json();
+    return { uid: json.localId, idToken: json.idToken };
+};
+const viewAs = async (idToken, orgId) => {
+    const res = await fetch(`${FUNCTIONS_BASE}/getNetworkView`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ ecosystem_id: ECO_ID, acting_org_id: orgId }),
+    });
+    return { status: res.status, body: await res.json() };
+};
+const signOrg = async (orgId) => {
+    const { AGREEMENT_VERSIONS, ORG_REQUIRED_AGREEMENTS } = await Promise.resolve().then(() => __importStar(require('./agreements/content')));
+    for (const type of ORG_REQUIRED_AGREEMENTS) {
+        await db.collection('org_agreement_acceptances').doc(`${orgId}_${ECO_ID}_${type}`).set({
+            org_id: orgId, ecosystem_id: ECO_ID, agreement_type: type, version: AGREEMENT_VERSIONS[type], signed_at: new Date().toISOString(),
+        });
+    }
+};
+(0, node_test_1.describe)('getNetworkView — what a partner sees', () => {
+    let staffB = { uid: '', idToken: '' };
+    let personId = '';
+    (0, node_test_1.before)(async () => {
+        await seed();
+        staffB = await signUp(`staff-b-${Date.now()}@partner-b.example.org`);
+        await db.collection('people').doc(staffB.uid).set({
+            id: staffB.uid, auth_uid: staffB.uid, first_name: 'Bea', last_name: 'Staff', email: 'bea@partner-b.example.org',
+            system_role: 'eso_staff', organization_id: ORG_B, ecosystem_id: ECO_ID, ecosystem_ids: [ECO_ID],
+        });
+        // Partner A works with a founder, logs a meeting with notes, and refers them to B.
+        const pushed = await pushPerson(KEY_A, ORG_A, 'view-1', `view1-${Date.now()}@example.com`);
+        personId = pushed.body.nexus_id;
+        await call('POST', 'partnerLogActivity', {
+            ecosystem_id: ECO_ID, person_external_ref: { source: 'crm', id: 'view-1' },
+            type: 'meeting', date: '2026-09-20', notes: 'SECRET NOTE from A',
+        }, KEY_A);
+        await call('POST', 'partnerUpsertParticipation', {
+            person_external_ref: { source: 'crm', id: 'view-1' }, participation_external_ref: { source: 'crm', id: 'view-1_prog' },
+            ecosystem_id: ECO_ID, eso_org_id: ORG_A, participation_type: 'program', name: 'SECRET PROGRAM NAME', status: 'active', start_date: '2026-01-01',
+        }, KEY_A);
+        await call('POST', 'partnerCreateReferral', {
+            ecosystem_id: ECO_ID, person_external_ref: { source: 'crm', id: 'view-1' }, receiving_org_id: ORG_B,
+            notes: 'Intro for B', entrepreneur_agreed: true,
+        }, KEY_A);
+    });
+    (0, node_test_1.it)('an unsigned partner sees only its own records', async () => {
+        const { status, body } = await viewAs(staffB.idToken, ORG_B);
+        assert.equal(status, 200, JSON.stringify(body));
+        assert.equal(body.viewer.org_has_signed, false);
+        assert.equal(body.interactions.length, 0);
+        assert.equal(body.participations.length, 0);
+        // B is a party to the referral, so it still sees that — its own inbox.
+        assert.ok(body.referrals.some((r) => r.notes === 'Intro for B'));
+    });
+    (0, node_test_1.it)('once signed, it sees the facts about someone it works with — never A\'s notes or program name', async () => {
+        await signOrg(ORG_B);
+        const { status, body } = await viewAs(staffB.idToken, ORG_B);
+        assert.equal(status, 200);
+        const text = JSON.stringify(body);
+        assert.ok(!text.includes('SECRET NOTE from A'), 'notes must never leave the server');
+        assert.ok(!text.includes('SECRET PROGRAM NAME'), 'details need the entrepreneur\'s consent');
+        const meeting = body.interactions.find((i) => i.author_org_id === ORG_A);
+        assert.equal(meeting?._access, 'fact');
+        assert.ok(body.people.some((p) => p.id === personId && p._visibility === 'works_with'));
+        const person = body.people.find((p) => p.id === personId);
+        assert.deepEqual(person.external_refs, [], "B never sees A's record IDs");
+    });
+    (0, node_test_1.it)('refuses someone acting for an organization they do not belong to', async () => {
+        const { body } = await viewAs(staffB.idToken, ORG_A);
+        assert.equal(body.viewer.org_id, ORG_B, 'falls back to the caller\'s own organization');
+    });
+});
