@@ -77,6 +77,7 @@ const payloadRedaction_1 = require("./payloadRedaction");
 const federationDedup_1 = require("./federationDedup");
 const recordMerge_1 = require("./recordMerge");
 const rateLimit_1 = require("./rateLimit");
+const externalRefIndex_1 = require("./externalRefIndex");
 const terms_1 = require("./consent/terms");
 const transitions_1 = require("./referrals/transitions");
 const recordConsent_1 = require("./consent/recordConsent");
@@ -172,15 +173,14 @@ const logAudit = async (db, action, actorId, details) => {
 // ─── ExternalRef index ────────────────────────────────────────────────────────
 /**
  * Writes a lookup entry to `external_ref_index` so future lookups are O(1).
- * Document ID: "{entityType}:{source}:{externalId}" — deterministic, so writes
- * are idempotent even if called multiple times for the same ref.
+ * Keyed by the owning partner (see externalRefIndex.ts) and deterministic, so
+ * writes are idempotent and partners' ID schemes cannot collide.
  */
 const indexExternalRef = async (db, ref, entityType, entityId) => {
-    const docId = `${entityType}:${ref.source}:${ref.id}`;
+    const docId = (0, externalRefIndex_1.externalRefIndexId)(entityType, ref);
     const indexRef = db.collection('external_ref_index').doc(docId);
-    // First writer owns the (source, id) namespace entry. Without this, any key
-    // could re-point another organization's ref at a record of its choosing —
-    // "pre-claiming" a competitor's ID scheme and hijacking their next push.
+    // Ownerless refs share a global key: first writer owns it. Without this, any
+    // key could re-point another organization's ref at a record of its choosing.
     const existing = await indexRef.get();
     if (existing.exists) {
         const owner = existing.get('owner_org_id');
@@ -266,9 +266,9 @@ const orgIsInEcosystem = async (db, orgId, ecosystemId) => {
     return ecosystems.includes(ecosystemId);
 };
 const findByExternalRef = async (db, ref, entityType, callerOrgId) => {
-    const docId = `${entityType}:${ref.source}:${ref.id}`;
-    const indexDoc = await db.collection('external_ref_index').doc(docId).get();
-    if (!indexDoc.exists)
+    // The caller's own scoped entry, else a legacy global one.
+    const indexDoc = await (0, externalRefIndex_1.readExternalRefIndex)(db, entityType, { ...ref, owner_org_id: callerOrgId || ref.owner_org_id });
+    if (!indexDoc)
         return null;
     const ownerOrgId = indexDoc.get('owner_org_id');
     if (callerOrgId && ownerOrgId && ownerOrgId !== callerOrgId)
@@ -2697,8 +2697,8 @@ exports.oidcLinkAccount = (0, https_1.onRequest)({ invoker: 'public' }, async (r
     // DIFFERENT person, reject. A ref already on the caller's own record is
     // fine (idempotent re-link).
     for (const ref of newRefs) {
-        const indexDoc = await db.collection('external_ref_index').doc(`person:${ref.source}:${ref.id}`).get();
-        if (indexDoc.exists) {
+        const indexDoc = await (0, externalRefIndex_1.readExternalRefIndex)(db, 'person', ref);
+        if (indexDoc) {
             const linkedTo = indexDoc.get('entity_id');
             if (linkedTo && linkedTo !== personId) {
                 res.status(409).json({

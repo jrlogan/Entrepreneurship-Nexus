@@ -66,11 +66,12 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.unmergeRecords = exports.mergeRecords = exports.followMergePointer = exports.refsAfterUnmerge = exports.refsToMove = void 0;
+const externalRefIndex_1 = require("./externalRefIndex");
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const collectionFor = (entityType) => entityType === 'person' ? 'people' : 'organizations';
 const refKey = (r) => `${r.source}:${r.id}`;
-const indexDocId = (entityType, r) => `${entityType}:${r.source}:${r.id}`;
+const indexDocId = (entityType, r) => (0, externalRefIndex_1.externalRefIndexId)(entityType, r);
 /**
  * Refs on the loser that the winner does not already carry.
  *

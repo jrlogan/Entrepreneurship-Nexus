@@ -31,6 +31,7 @@
  * leave the index pointing one way and the documents another.
  */
 
+import { externalRefIndexId } from './externalRefIndex';
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 
@@ -41,8 +42,7 @@ const collectionFor = (entityType: EntityType) =>
   entityType === 'person' ? 'people' : 'organizations';
 
 const refKey = (r: ExternalRef) => `${r.source}:${r.id}`;
-const indexDocId = (entityType: EntityType, r: ExternalRef) =>
-  `${entityType}:${r.source}:${r.id}`;
+const indexDocId = (entityType: EntityType, r: ExternalRef) => externalRefIndexId(entityType, r);
 
 /**
  * Refs on the loser that the winner does not already carry.

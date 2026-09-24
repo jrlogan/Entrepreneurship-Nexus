@@ -32,6 +32,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.flagPossibleDuplicate = exports.attachExternalRef = exports.matchOrganization = exports.matchPerson = void 0;
+const externalRefIndex_1 = require("./externalRefIndex");
 const normalizeEmail = (raw) => (raw || '').trim().toLowerCase();
 const normalizeName = (raw) => (raw || '')
     .toLowerCase()
@@ -79,9 +80,8 @@ const GENERIC_EMAIL_DOMAINS = new Set([
  * exists, else null.
  */
 const lookupByExternalRef = async (db, ref, entityType) => {
-    const indexDocId = `${entityType}:${ref.source}:${ref.id}`;
-    const indexDoc = await db.collection('external_ref_index').doc(indexDocId).get();
-    if (!indexDoc.exists)
+    const indexDoc = await (0, externalRefIndex_1.readExternalRefIndex)(db, entityType, ref);
+    if (!indexDoc)
         return null;
     const entityId = indexDoc.get('entity_id');
     if (!entityId)
@@ -234,12 +234,13 @@ const attachExternalRef = async (db, entityType, entityId, ref) => {
         });
     }
     // Index write is idempotent (deterministic doc id).
-    await db.collection('external_ref_index').doc(`${entityType}:${ref.source}:${ref.id}`).set({
+    await db.collection('external_ref_index').doc((0, externalRefIndex_1.externalRefIndexId)(entityType, ref)).set({
         ref_key: `${ref.source}:${ref.id}`,
         source: ref.source,
         external_id: ref.id,
         entity_type: entityType,
         entity_id: entityId,
+        ...(ref.owner_org_id ? { owner_org_id: ref.owner_org_id } : {}),
         indexed_at: new Date().toISOString(),
     });
     return { added: !already };
