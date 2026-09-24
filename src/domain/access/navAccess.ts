@@ -19,6 +19,7 @@ export interface NavAccess {
   canAccessInteractions: boolean;
   canAccessReports: boolean;
   canAccessIntegrationGuide: boolean;
+  canAccessPartners: boolean;
   canAccessApiConsole: boolean;
   canAccessDataQuality: boolean;
   canAccessDataStandards: boolean;
@@ -40,6 +41,8 @@ export function computeNavAccess(role: SystemRole, flags: FeatureFlags): NavAcce
     // Every partner organization needs the integration guide — it is how they
     // connect. Not flag-gated.
     canAccessIntegrationGuide: isStaff,
+    // Inviting partners and tracking who has joined is the operator's job.
+    canAccessPartners: isPlatformAdmin || role === 'ecosystem_manager',
     // Keys are issued to an organization by its admin.
     canAccessApiConsole: isPlatformAdmin || (isPrivileged && isOn('api_console')),
     // Merging records is a network-operator job, off unless an ecosystem opts in

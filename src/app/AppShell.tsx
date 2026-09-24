@@ -92,6 +92,7 @@ export const AppShell: React.FC<AppShellProps> = ({
     canAccessInteractions,
     canAccessReports,
     canAccessIntegrationGuide,
+    canAccessPartners,
     canAccessApiConsole,
     canAccessDataQuality,
     canAccessDataStandards,
@@ -386,6 +387,17 @@ export const AppShell: React.FC<AppShellProps> = ({
                    onClick={() => handleNav('platform_admin')}
                    label="Platform Admin"
                    icon={<IconShield className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
+                 )}
+                 {canAccessPartners && (
+                 <SidebarItem
+                   active={view === 'partners'}
+                   onClick={() => handleNav('partners')}
+                   label="Partners"
+                   icon={<IconBuilding className={iconClass} />}
                    textColor={theme.itemText}
                    iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}

@@ -4646,6 +4646,11 @@ export {
   oidcLinkAccount,
   // Participation: track ESO program/membership participation generically
   partnerUpsertParticipation,
+  // Referrals and activity from partner systems
+  partnerCreateReferral,
+  partnerUpdateReferral,
+  partnerListReferrals,
+  partnerLogActivity,
 } from './partnerApi';
 
 // ─── Identity resolution: admin-reviewed merge / unmerge ────────────────────

@@ -62,6 +62,9 @@ import { LinkedAccountBanner } from '../features/sso/LinkedAccountBanner';
 import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
 import { IntegrationGuideView } from '../features/integration/IntegrationGuideView';
+import { PartnerOnboardingView } from '../features/onboarding/PartnerOnboardingView';
+import { PartnersView } from '../features/admin/PartnersView';
+import { getViewerSignatureStatus } from '../domain/agreements/orgEnforcement';
 
 // App Shell
 import { AppShell } from './AppShell';
@@ -81,6 +84,7 @@ const APP_VIEWS = new Set<ViewMode>([
   'dashboard', 'directory', 'detail', 'reports', 'contacts', 'person_detail',
   'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
   'ecosystem_config', 'my_org', 'data_standards', 'inbound_intake', 'platform_admin', 'admin_access_log', 'integration',
+  'join_network', 'partners',
 ]);
 
 type RouteState = {
@@ -297,6 +301,7 @@ const App = () => {
     canAccessInteractions,
     canAccessReports,
     canAccessIntegrationGuide,
+    canAccessPartners,
     canAccessApiConsole,
     canAccessDataQuality,
     canAccessDataStandards,
@@ -406,6 +411,26 @@ const App = () => {
       capabilities: getCapabilitiesForRole(currentRole),
     };
   }, [activeUser, currentOrgId, currentRole, currentEcosystemId]);
+
+  // Has the acting organization signed the network's agreements here? Until
+  // it has, the server shows it only its own records and issues no API key;
+  // its staff see a banner and its admin is taken to the joining steps.
+  const [orgSignature, setOrgSignature] = useState<'unknown' | 'signed' | 'unsigned'>('unknown');
+  const [signatureVersion, setSignatureVersion] = useState(0);
+  const isEsoRole = ['eso_admin', 'eso_staff', 'eso_coach'].includes(currentRole);
+  useEffect(() => {
+    if (!isEsoRole || !currentOrgId) {
+      setOrgSignature('unknown');
+      return;
+    }
+    let cancelled = false;
+    getViewerSignatureStatus({ viewerOrgId: currentOrgId, ecosystemId: currentEcosystemId })
+      .then((status) => { if (!cancelled) setOrgSignature(status.signed ? 'signed' : 'unsigned'); })
+      .catch(() => { if (!cancelled) setOrgSignature('unknown'); });
+    return () => { cancelled = true; };
+  }, [isEsoRole, currentOrgId, currentEcosystemId, signatureVersion]);
+
+  const sentAdminToOnboarding = React.useRef(false);
 
   useEffect(() => {
     if (!session.authUser) {
@@ -655,6 +680,7 @@ const App = () => {
       (view === 'interactions' && !canAccessInteractions) ||
       (view === 'reports' && !canAccessReports) ||
       (view === 'integration' && !canAccessIntegrationGuide) ||
+      (view === 'partners' && !canAccessPartners) ||
       (view === 'api_console' && !canAccessApiConsole) ||
       (view === 'data_quality' && !canAccessDataQuality) ||
       (view === 'data_standards' && !canAccessDataStandards) ||
@@ -672,11 +698,20 @@ const App = () => {
     canAccessInboundIntake,
     canAccessIntegrationGuide,
     canAccessInteractions,
+    canAccessPartners,
     canAccessPlatformAdmin,
     canAccessReports,
     currentRole,
     view,
   ]);
+
+  useEffect(() => {
+    if (sentAdminToOnboarding.current) return;
+    if (currentRole === 'eso_admin' && orgSignature === 'unsigned') {
+      sentAdminToOnboarding.current = true;
+      if (view !== 'join_network') setView('join_network');
+    }
+  }, [currentRole, orgSignature, view]);
 
   const shouldShowAuthLoading = shouldRequireAuth && (
     session.status === 'loading' ||
@@ -794,6 +829,40 @@ const App = () => {
                  personRefs={activeUser.external_refs || []}
                />
              </div>
+           )}
+           {orgSignature === 'unsigned' && view !== 'join_network' && (
+             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#8b1919]/30 bg-[#8b1919]/5 px-4 py-3 text-sm text-gray-800">
+               <span>
+                 <strong>{myOrganization?.name || 'Your organization'}</strong> has not signed the network agreements for {currentEcosystem.name} yet.
+                 Until it does, you see only your own organization's records and cannot connect your system.
+               </span>
+               <button
+                 type="button"
+                 onClick={() => handleNavigate('join_network')}
+                 className="rounded bg-[#8b1919] px-3 py-1.5 font-semibold text-white hover:bg-[#710a0a]"
+               >
+                 {currentRole === 'eso_admin' ? 'Review and sign' : 'Read the agreements'}
+               </button>
+             </div>
+           )}
+           {view === 'partners' && canAccessPartners && (
+               <PartnersView
+                 organizations={organizations}
+                 ecosystem={currentEcosystem}
+                 viewerRole={currentRole}
+                 onSelectOrganization={(orgId) => navigateToOrg(orgId)}
+                 onRefresh={refreshData}
+               />
+           )}
+           {view === 'join_network' && isEsoRole && (
+               <PartnerOnboardingView
+                 organization={myOrganization}
+                 ecosystem={currentEcosystem}
+                 person={activeUser}
+                 role={currentRole}
+                 onSigned={() => { setSignatureVersion((v) => v + 1); repos.networkView.invalidate(); refreshData(); }}
+                 onOpenIntegrationGuide={() => handleNavigate('integration')}
+               />
            )}
            {view === 'dashboard' && (
                canAccessDashboard ? (

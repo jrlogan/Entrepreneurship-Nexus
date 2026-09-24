@@ -50,6 +50,14 @@ describe('API console', () => {
   });
 });
 
+describe('partners', () => {
+  it('is an operator view', () => {
+    expect(computeNav('platform_admin', {}).canAccessPartners).toBe(true);
+    expect(computeNav('ecosystem_manager', {}).canAccessPartners).toBe(true);
+    expect(computeNav('eso_admin', {}).canAccessPartners).toBe(false);
+  });
+});
+
 describe('data quality (record merging)', () => {
   it('is available to network operators', () => {
     expect(computeNav('platform_admin', {}).canAccessDataQuality).toBe(true);

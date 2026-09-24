@@ -212,7 +212,8 @@ service cloud.firestore {
         )
       );
 
-      allow create: if isPlatformAdmin() || isEsoOperator();
+      // Network operators create partner organizations when inviting them.
+      allow create: if isNetworkAdmin() || isEsoOperator();
       allow update: if isPlatformAdmin() || canEsoOperatorUpdateOrg();
       allow delete: if isPlatformAdmin();
 
@@ -410,9 +411,11 @@ service cloud.firestore {
     // Signed by an ESO admin on behalf of the org for a specific ecosystem.
     // Re-signing is permitted (overwrite) but only by an authorized signer of
     // the SAME org+ecosystem+type; the scope keys are immutable on update.
+    // Only an organization's admin commits it to the network's agreements —
+    // the membership terms say they are signed by someone authorized to.
     function isAuthorizedSignerForOrg(orgIdInDoc) {
       return isPlatformAdmin() || (
-        isEsoOperator() &&
+        currentSystemRole() == 'eso_admin' &&
         currentOrgId() != null &&
         currentOrgId() == orgIdInDoc &&
         request.resource.data.signed_by_uid == request.auth.uid

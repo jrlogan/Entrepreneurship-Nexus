@@ -53,6 +53,7 @@ import {
 import { followMergePointer } from './recordMerge';
 import { enforceRateLimit } from './rateLimit';
 import { buildConsentTerms, parseFounderConsent, type FounderConsentChoices } from './consent/terms';
+import { canTransitionReferral, type ReferralStatus } from './referrals/transitions';
 import {
   appBaseUrl,
   createConsentLink,
@@ -464,26 +465,38 @@ const indexParticipationRef = async (
   ref: ExternalRef,
   participationId: string
 ) => {
-  const docId = `participation:${ref.source}:${ref.id}`;
+  // Scoped to the providing organization — see findParticipationByExternalRef.
+  const docId = `participation:${ref.owner_org_id || ''}:${ref.source}:${ref.id}`;
   await db.collection('external_ref_index').doc(docId).set({
     ref_key: `${ref.source}:${ref.id}`,
     source: ref.source,
     external_id: ref.id,
     entity_type: 'participation',
     entity_id: participationId,
+    owner_org_id: ref.owner_org_id || null,
     indexed_at: new Date().toISOString(),
   });
 };
 
+/**
+ * Find a participation by the provider's own external ref. The index key is
+ * scoped to the providing organization, so two partners that happen to use
+ * the same ID scheme ("42_membership") can never overwrite each other's
+ * records. Entries written before scoping are honoured only when the record
+ * really belongs to the caller.
+ */
 const findParticipationByExternalRef = async (
   db: FirebaseFirestore.Firestore,
   ref: ExternalRef
 ): Promise<{ id: string; data: admin.firestore.DocumentData } | null> => {
-  const docId = `participation:${ref.source}:${ref.id}`;
-  const indexDoc = await db.collection('external_ref_index').doc(docId).get();
-  if (!indexDoc.exists) return null;
+  const orgId = ref.owner_org_id || '';
+  const scoped = await db.collection('external_ref_index').doc(`participation:${orgId}:${ref.source}:${ref.id}`).get();
+  const legacy = scoped.exists ? null : await db.collection('external_ref_index').doc(`participation:${ref.source}:${ref.id}`).get();
+  const indexDoc = scoped.exists ? scoped : legacy;
+  if (!indexDoc?.exists) return null;
   const participationDoc = await db.collection('participations').doc(indexDoc.get('entity_id') as string).get();
   if (!participationDoc.exists) return null;
+  if (participationDoc.get('provider_org_id') !== orgId) return null;
   return { id: participationDoc.id, data: participationDoc.data()! };
 };
 
@@ -1630,6 +1643,371 @@ export const consentAccept = onRequest({ invoker: 'public' }, async (req, res) =
   });
   await ref.set({ status: 'used', used_at: now, result: 'accepted' }, { merge: true });
   res.json({ ok: true, result: 'accepted', ...state, return_url: withResult('accepted') });
+});
+
+// ─── Referrals and activity from partner systems ──────────────────────────────
+//
+// So a partner can make referrals, answer them, and share "we worked with
+// them" from its own system, without anyone logging in to the shared node.
+// Record IDs a partner sends (referral_external_ref, activity_external_ref)
+// are idempotency keys scoped to that partner: two partners using the same ID
+// scheme can never touch each other's records.
+
+const recordIndexId = (kind: 'referral' | 'activity' | 'participation', orgId: string, ref: { source: string; id: string }) =>
+  `${kind}:${orgId}:${ref.source}:${ref.id}`;
+
+const findOwnRecordByRef = async (
+  db: FirebaseFirestore.Firestore,
+  kind: 'referral' | 'activity',
+  orgId: string,
+  ref: { source: string; id: string },
+): Promise<string | null> => {
+  const snap = await db.collection('external_ref_index').doc(recordIndexId(kind, orgId, ref)).get();
+  return snap.exists ? (snap.get('entity_id') as string) : null;
+};
+
+const indexOwnRecord = async (
+  db: FirebaseFirestore.Firestore,
+  kind: 'referral' | 'activity' | 'participation',
+  orgId: string,
+  ref: { source: string; id: string },
+  entityId: string,
+) => {
+  await db.collection('external_ref_index').doc(recordIndexId(kind, orgId, ref)).set({
+    ref_key: `${ref.source}:${ref.id}`,
+    source: ref.source,
+    external_id: ref.id,
+    entity_type: kind,
+    entity_id: entityId,
+    owner_org_id: orgId,
+    indexed_at: new Date().toISOString(),
+  });
+};
+
+const refFrom = (value: unknown): { source: string; id: string } | null => {
+  const v = value as Partial<ExternalRef> | undefined;
+  return v?.source && v?.id ? { source: String(v.source), id: String(v.id) } : null;
+};
+
+/** Resolve a person the calling org itself pushed (by its own external ref). */
+const resolveOwnPerson = async (db: FirebaseFirestore.Firestore, orgId: string, value: unknown) => {
+  const ref = refFrom(value);
+  if (!ref) return null;
+  return findByExternalRef(db, { ...ref, owner_org_id: orgId }, 'person', orgId);
+};
+
+const ACTIVITY_TYPES = ['meeting', 'call', 'email', 'event', 'note'];
+
+/**
+ * POST /partnerCreateReferral
+ *
+ * Refer an entrepreneur you work with to another organization in the network.
+ *
+ * Body:
+ *   ecosystem_id          string
+ *   person_external_ref   { source, id }   — a person you pushed
+ *   receiving_org_id      string           — a partner in the same network
+ *   notes                 string           — the introduction, for the receiver
+ *   entrepreneur_agreed   true             — the entrepreneur asked for or agreed
+ *                                            to this referral (the data usage
+ *                                            agreement requires it)
+ *   referral_external_ref { source, id }   optional — your ID; makes retries safe
+ *
+ * The receiving partner sees it in its referral inbox, gets a
+ * referral.received webhook if it registered one, and can answer it with
+ * partnerUpdateReferral. Intro notes are shared only between the two parties.
+ */
+export const partnerCreateReferral = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const db = admin.firestore();
+  const auth = await requireApiKey(req, res, db);
+  if (!auth) return;
+  if (!(await enforceRateLimit(db, auth.key_id, 'write', res))) return;
+
+  const orgId = auth.organization_id;
+  const ecosystemId = normalize(req.body?.ecosystem_id);
+  const receivingOrgId = (req.body?.receiving_org_id || '').toString().trim();
+  const notes = (req.body?.notes || '').toString().trim();
+  const ownRef = refFrom(req.body?.referral_external_ref);
+
+  if (!ecosystemId || !receivingOrgId || !notes) {
+    res.status(400).json({ error: 'ecosystem_id, receiving_org_id and notes are required' });
+    return;
+  }
+  if (req.body?.entrepreneur_agreed !== true) {
+    res.status(400).json({
+      error: 'entrepreneur_agreed must be true: only refer someone who asked for or agreed to the introduction',
+      reason: 'entrepreneur_not_agreed',
+    });
+    return;
+  }
+  if (receivingOrgId === orgId) {
+    res.status(400).json({ error: 'receiving_org_id must be another organization' });
+    return;
+  }
+  if (!(await orgIsInEcosystem(db, orgId, ecosystemId)) || !(await orgIsInEcosystem(db, receivingOrgId, ecosystemId))) {
+    res.status(403).json({ error: 'Both organizations must be members of ecosystem_id' });
+    return;
+  }
+
+  if (ownRef) {
+    const existingId = await findOwnRecordByRef(db, 'referral', orgId, ownRef);
+    if (existingId) {
+      const existing = await db.collection('referrals').doc(existingId).get();
+      res.json({ ok: true, referral_id: existingId, status: existing.get('status'), action: 'existing' });
+      return;
+    }
+  }
+
+  const person = await resolveOwnPerson(db, orgId, req.body?.person_external_ref);
+  if (!person) {
+    res.status(404).json({ error: 'No person found for person_external_ref. Push the person first via partnerUpsertPerson.' });
+    return;
+  }
+
+  const ref = db.collection('referrals').doc();
+  const now = new Date().toISOString();
+  await ref.set({
+    id: ref.id,
+    ecosystem_id: ecosystemId,
+    referring_org_id: orgId,
+    referring_person_id: null,
+    receiving_org_id: receivingOrgId,
+    subject_person_id: person.id,
+    subject_org_id: person.data.organization_id || person.data.primary_organization_id || null,
+    date: now,
+    delivered_at: now,
+    created_at: now,
+    status: 'pending',
+    notes,
+    intake_type: 'referral',
+    source: 'api',
+    entrepreneur_agreed_at: now,
+    created_via_api_key_id: auth.key_id,
+  });
+  if (ownRef) await indexOwnRecord(db, 'referral', orgId, ownRef, ref.id);
+  await logAudit(db, 'partner_referral_created', orgId, { referral_id: ref.id, receiving_org_id: receivingOrgId, ecosystem_id: ecosystemId });
+
+  res.status(201).json({ ok: true, referral_id: ref.id, status: 'pending', action: 'created' });
+});
+
+/**
+ * POST /partnerUpdateReferral
+ *
+ * Answer a referral sent to your organization.
+ *
+ * Body:
+ *   referral_id     string
+ *   status          "accepted" | "rejected" | "completed"
+ *   response_notes  string   optional — shared only with the referring org
+ *   outcome         string   optional — for "completed", e.g. "service_delivered"
+ *
+ * Follows the referral lifecycle: pending → accepted | rejected,
+ * accepted → completed.
+ */
+export const partnerUpdateReferral = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const db = admin.firestore();
+  const auth = await requireApiKey(req, res, db);
+  if (!auth) return;
+  if (!(await enforceRateLimit(db, auth.key_id, 'write', res))) return;
+
+  const referralId = (req.body?.referral_id || '').toString().trim();
+  const status = normalize(req.body?.status) as ReferralStatus;
+  if (!referralId || !['accepted', 'rejected', 'completed'].includes(status)) {
+    res.status(400).json({ error: 'referral_id and status ("accepted" | "rejected" | "completed") are required' });
+    return;
+  }
+
+  const ref = db.collection('referrals').doc(referralId);
+  const snap = await ref.get();
+  if (!snap.exists || snap.get('receiving_org_id') !== auth.organization_id) {
+    // Same answer whether it does not exist or is not yours: IDs are not a
+    // way to probe other organizations' referrals.
+    res.status(404).json({ error: 'No referral to your organization with that id' });
+    return;
+  }
+
+  const from = (snap.get('status') || 'pending') as ReferralStatus;
+  if (from === status) {
+    res.json({ ok: true, referral_id: referralId, status, action: 'unchanged' });
+    return;
+  }
+  if (!canTransitionReferral(from, status)) {
+    res.status(409).json({ error: `A ${from} referral cannot become ${status}`, reason: 'invalid_transition', current_status: from });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const responseNotes = (req.body?.response_notes || '').toString().trim();
+  const outcome = (req.body?.outcome || '').toString().trim();
+  await ref.set({
+    status,
+    ...(status === 'accepted' ? { accepted_at: now } : {}),
+    ...(status === 'rejected' ? { declined_at: now } : {}),
+    ...(status === 'completed' ? { closed_at: now, ...(from === 'pending' ? { accepted_at: now } : {}) } : {}),
+    ...(responseNotes ? { response_notes: responseNotes } : {}),
+    ...(status === 'completed' && outcome ? { outcome } : {}),
+    updated_at: now,
+    updated_via_api_key_id: auth.key_id,
+  }, { merge: true });
+  await logAudit(db, 'partner_referral_updated', auth.organization_id, { referral_id: referralId, from, to: status });
+
+  res.json({ ok: true, referral_id: referralId, status, action: 'updated' });
+});
+
+/**
+ * GET /partnerListReferrals?ecosystem_id=…&direction=incoming|outgoing&status=pending&updated_since=ISO
+ *
+ * Referrals your organization is a party to — for partners that poll rather
+ * than receive webhooks. Includes the entrepreneur's name and email (the
+ * receiving organization needs to contact them) and your own record ID for
+ * them when you have one; never another organization's IDs.
+ */
+export const partnerListReferrals = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const db = admin.firestore();
+  const auth = await requireApiKey(req, res, db);
+  if (!auth) return;
+  if (!(await enforceRateLimit(db, auth.key_id, 'read', res))) return;
+
+  const orgId = auth.organization_id;
+  const ecosystemId = normalize(req.query?.ecosystem_id as string | undefined);
+  const direction = normalize(req.query?.direction as string | undefined) || 'incoming';
+  const status = normalize(req.query?.status as string | undefined);
+  const since = (req.query?.updated_since as string | undefined) || '';
+
+  if (!ecosystemId || !['incoming', 'outgoing'].includes(direction)) {
+    res.status(400).json({ error: 'ecosystem_id and direction ("incoming" | "outgoing") are required' });
+    return;
+  }
+
+  const field = direction === 'incoming' ? 'receiving_org_id' : 'referring_org_id';
+  const snap = await db.collection('referrals').where(field, '==', orgId).where('ecosystem_id', '==', ecosystemId).get();
+  const rows = snap.docs
+    .map((d) => ({ ...d.data(), id: d.id }) as Record<string, any>)
+    .filter((r) => !status || r.status === status)
+    .filter((r) => !since || (r.updated_at || r.date || '') >= since)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .slice(0, 500);
+
+  const personIds = Array.from(new Set(rows.map((r) => r.subject_person_id).filter(Boolean)));
+  const people = new Map<string, FirebaseFirestore.DocumentData>();
+  for (const id of personIds) {
+    const p = await db.collection('people').doc(id).get();
+    if (p.exists) people.set(id, p.data()!);
+  }
+
+  res.json({
+    ok: true,
+    referrals: rows.map((r) => {
+      const person = r.subject_person_id ? people.get(r.subject_person_id) : undefined;
+      const ownRef = ((person?.external_refs || []) as ExternalRef[]).find((x) => x.owner_org_id === orgId);
+      return {
+        referral_id: r.id,
+        status: r.status,
+        date: r.date,
+        referring_org_id: r.referring_org_id,
+        receiving_org_id: r.receiving_org_id,
+        notes: r.notes || '',
+        response_notes: r.response_notes || '',
+        outcome: r.outcome || null,
+        accepted_at: r.accepted_at || null,
+        declined_at: r.declined_at || null,
+        closed_at: r.closed_at || null,
+        entrepreneur: person ? {
+          nexus_id: r.subject_person_id,
+          first_name: person.first_name || '',
+          last_name: person.last_name || '',
+          email: person.email || '',
+          your_external_ref: ownRef ? { source: ownRef.source, id: ownRef.id } : null,
+        } : null,
+      };
+    }),
+  });
+});
+
+/**
+ * POST /partnerLogActivity
+ *
+ * Record that your organization worked with an entrepreneur — a meeting,
+ * call, event, or session. Partners who also work with them see the FACT
+ * (your organization, the type, the date) if share_fact is true. Notes are
+ * stored for your organization only and are never shared.
+ *
+ * Body:
+ *   ecosystem_id           string
+ *   person_external_ref    { source, id }   — a person you pushed
+ *   type                   "meeting" | "call" | "email" | "event" | "note"
+ *   date                   "YYYY-MM-DD"
+ *   share_fact             boolean   optional, default true
+ *   notes                  string    optional — private to your organization
+ *   activity_external_ref  { source, id }   optional — your ID; makes it an upsert
+ */
+export const partnerLogActivity = onRequest({ invoker: 'public' }, async (req, res) => {
+  if (handlePreflight(req, res)) return;
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+
+  const db = admin.firestore();
+  const auth = await requireApiKey(req, res, db);
+  if (!auth) return;
+  if (!(await enforceRateLimit(db, auth.key_id, 'write', res))) return;
+
+  const orgId = auth.organization_id;
+  const ecosystemId = normalize(req.body?.ecosystem_id);
+  const type = normalize(req.body?.type);
+  const date = (req.body?.date || '').toString().trim();
+  const shareFact = req.body?.share_fact !== false;
+  const notes = (req.body?.notes || '').toString();
+  const ownRef = refFrom(req.body?.activity_external_ref);
+
+  if (!ecosystemId || !ACTIVITY_TYPES.includes(type) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    res.status(400).json({ error: `ecosystem_id, type (${ACTIVITY_TYPES.join(' | ')}) and date (YYYY-MM-DD) are required` });
+    return;
+  }
+  if (!(await orgIsInEcosystem(db, orgId, ecosystemId))) {
+    res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
+    return;
+  }
+  const person = await resolveOwnPerson(db, orgId, req.body?.person_external_ref);
+  if (!person) {
+    res.status(404).json({ error: 'No person found for person_external_ref. Push the person first via partnerUpsertPerson.' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const fields = {
+    ecosystem_id: ecosystemId,
+    organization_id: person.data.organization_id || person.data.primary_organization_id || '',
+    subject_person_id: person.id,
+    author_org_id: orgId,
+    date,
+    type,
+    visibility: shareFact ? 'network_shared' : 'eso_private',
+    note_confidential: !shareFact,
+    notes,
+    source: 'api',
+    updated_at: now,
+    updated_via_api_key_id: auth.key_id,
+  };
+
+  const existingId = ownRef ? await findOwnRecordByRef(db, 'activity', orgId, ownRef) : null;
+  if (existingId) {
+    await db.collection('interactions').doc(existingId).set(fields, { merge: true });
+    res.json({ ok: true, activity_id: existingId, action: 'updated' });
+    return;
+  }
+
+  const ref = db.collection('interactions').doc();
+  await ref.set({ id: ref.id, created_at: now, ...fields });
+  if (ownRef) await indexOwnRecord(db, 'activity', orgId, ownRef, ref.id);
+  res.status(201).json({ ok: true, activity_id: ref.id, action: 'created' });
 });
 
 // ─── OIDC / SSO — multi-provider OAuth ───────────────────────────────────────
