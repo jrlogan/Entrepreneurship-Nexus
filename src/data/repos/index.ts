@@ -18,6 +18,7 @@ import { FirebaseConsentRepo } from './firebase/consent';
 import { FirebaseEcosystemsRepo } from './firebase/ecosystems';
 import { CONFIG } from '../../app/config';
 import { LocalNetworkViewSource, RemoteNetworkViewSource, type NetworkViewSource } from '../networkView';
+import { FirebaseNetworkProfilesRepo, LocalNetworkProfilesRepo, type NetworkProfilesRepo } from './networkProfiles';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
 
 export class AppRepos {
@@ -31,10 +32,13 @@ export class AppRepos {
   public services: ServicesRepo | FirebaseServicesRepo;
   /** The privacy-filtered view of the network every cross-org read goes through. */
   public networkView: NetworkViewSource;
+  /** The founder's own directory and sharing choices. */
+  public networkProfiles: NetworkProfilesRepo;
 
   constructor() {
       const useFirebase = isFirebaseEnabled() && !CONFIG.IS_DEMO_MODE;
       this.networkView = useFirebase ? new RemoteNetworkViewSource() : new LocalNetworkViewSource();
+      this.networkProfiles = useFirebase ? new FirebaseNetworkProfilesRepo() : new LocalNetworkProfilesRepo();
       this.consent = useFirebase ? new FirebaseConsentRepo() : new ConsentRepo();
       this.ecosystems = useFirebase ? new FirebaseEcosystemsRepo() : new EcosystemsRepo();
       

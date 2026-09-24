@@ -6,6 +6,7 @@ import { Card, Badge, Avatar, CompanyLogo, DemoLink, Modal } from '../../shared/
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { EditOrgModal } from '../directory/OrgModals';
 import { SharingControls } from './SharingControls';
+import { NetworkChoicesCard } from './NetworkChoicesCard';
 import { getActiveOrganizationAffiliations } from '../../domain/people/affiliations';
 import { ENUMS } from '../../domain/standards/enums';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -511,6 +512,8 @@ export const MyVenturesView = ({ person, organizations, people, interactions, re
                             </div>
                         )}
                     </Card>
+
+                    <NetworkChoicesCard networks={myNetworks} onChange={onRefresh} />
 
                     {myOrg && (
                         <SharingControls

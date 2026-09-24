@@ -118,8 +118,8 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
     setError(null);
     try {
       // Per-network: opening up to one network must not open up the others.
-      // The org-wide field stays as the fallback for networks with no explicit
-      // choice, so existing behaviour is preserved everywhere untouched.
+      // Networks with no explicit choice are restricted (consent is off by
+      // default — see effectiveVisibility).
       await repos.organizations.update(myOrg.id, {
         operational_visibility_by_ecosystem: {
           ...(myOrg.operational_visibility_by_ecosystem || {}),
@@ -190,7 +190,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
   }, [policies, organizations, scopeEcosystemId]);
 
   return (
-    <Card title="Who can see my activity" className="border-t-4 border-t-emerald-500">
+    <Card title="Who can see the details" className="border-t-4 border-t-emerald-500">
       <div className="space-y-4">
         {networks.length > 1 && (
           <div className="rounded border border-indigo-200 bg-indigo-50 px-3 py-2.5">
@@ -215,51 +215,36 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
         )}
 
         <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-700">
-          Your basic profile (name, venture, contact) is always visible to organizations in <strong>{scopeName}</strong>. The controls below govern <strong>operational data</strong> — interaction notes, program participation, and metrics about your venture. Each organization that receives access has signed the network compact and the data usage agreement.
+          Organizations you work with in <strong>{scopeName}</strong> always see your name and email, and that other partners are also helping you. The controls below decide whether they can also see the <strong>details</strong> of each other's records about your venture — program names, referral outcomes. Notes staff write are never shared, whatever you choose. Every organization here has signed the network compact and the data usage agreement.
         </div>
 
-        {/* Default visibility toggle */}
-        <div className="rounded border border-gray-200 bg-white p-3">
-          <div className="text-sm font-semibold text-gray-900 mb-2">Default sharing</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={visibilityBusy}
-              onClick={() => void handleSetVisibility('open')}
-              className={`text-left rounded border px-3 py-2.5 text-sm transition-colors ${
-                isOpenMode
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
-                  : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-              }`}
-            >
-              <div className="font-semibold">Open to ecosystem</div>
-              <div className="text-xs mt-0.5 opacity-80">Any ESO in {scopeName} can see operational data about your venture.</div>
-            </button>
+        {/* Venture-wide sharing set before the per-person choice existed.
+            "Every partner I work with" now lives in Your network choices;
+            this only appears so an older venture-level setting is visible
+            and can be switched off. */}
+        {isOpenMode && (
+          <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+            Your venture is set to share record details with <strong>every partner you work with</strong> in {scopeName}.
             <button
               type="button"
               disabled={visibilityBusy}
               onClick={() => void handleSetVisibility('restricted')}
-              className={`text-left rounded border px-3 py-2.5 text-sm transition-colors ${
-                !isOpenMode
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
-                  : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-              }`}
+              className="ml-2 font-semibold underline"
             >
-              <div className="font-semibold">Restricted — by my approval</div>
-              <div className="text-xs mt-0.5 opacity-80">Only ESOs you turn on below can see your operational data.</div>
+              Switch to partners I choose
             </button>
           </div>
-        </div>
+        )}
 
-        {/* Per-ESO controls — only meaningful in restricted mode */}
-        {!isOpenMode && (
+        {/* Per-partner grants */}
+        {(
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-semibold text-gray-900">
-                Organizations in {scopeName}
+                Choose partners one by one in {scopeName}
               </div>
               <div className="text-xs text-gray-500">
-                {grantedCount} of {esoRows.length} can see your activity
+                {grantedCount} of {esoRows.length} can see record details
               </div>
             </div>
 
@@ -283,7 +268,7 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
                           {granted ? (
                             <>You granted access{row.policy?.updatedAt ? ` · ${formatDate(row.policy.updatedAt)}` : ''}{row.policy?.grantedVia === 'eso_request' ? ' · approved request' : ''}</>
                           ) : row.hasRelationship ? (
-                            <>Has worked with you — currently no operational access</>
+                            <>Works with you — sees that activity happened, not the details</>
                           ) : (
                             <>{row.org.description ? row.org.description.slice(0, 90) : 'No description'}</>
                           )}
@@ -338,11 +323,6 @@ export const SharingControls: React.FC<Props> = ({ myOrg, organizations, referra
           </div>
         )}
 
-        {isOpenMode && (
-          <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
-            You've chosen <strong>Open to ecosystem</strong>. Any ESO in {ecosystemName} can see operational details about your venture without further approval. Switch to <strong>Restricted</strong> above to choose individually.
-          </div>
-        )}
 
         {error && (
           <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
