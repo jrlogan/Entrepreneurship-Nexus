@@ -666,7 +666,7 @@ ${receiverOrg}
     // Generic intro email template for the page-level template block
     const bccRoute = inboundRoutes.find(r =>
         r.ecosystem_id === viewer.ecosystemId &&
-        r.activity_type === 'introduction' &&
+        r.activity_type === 'referral' &&
         r.is_active
     );
     const genericTemplate = {

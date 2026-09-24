@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { 
-  GrantElevationSummary, 
-  GrantOpportunity, 
-  GrantInterestSignal, 
-  Initiative, 
-  Organization, 
-  MonitoredGrantSource, 
+import {
+  GrantElevationSummary,
+  GrantOpportunity,
+  GrantInterestSignal,
+  MonitoredGrantSource,
   GrantDraft,
-  GrantWorkflowQueue 
+  GrantWorkflowQueue
 } from '../../domain/grants/types';
+import { Initiative, Organization } from '../../domain/types';
 import { Card, Badge, DemoLink, InfoBanner, Modal } from '../../shared/ui/Components';
 import { 
   IconBook, 

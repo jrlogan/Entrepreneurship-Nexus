@@ -204,7 +204,15 @@ export const OrganizationDetailView = ({
             };
         }
 
-        const consentRepo = repos.consent instanceof FirebaseConsentRepo ? repos.consent : new FirebaseConsentRepo();
+        // Only use the async Firestore paths when the app is actually running
+        // against Firebase. Constructing a FirebaseConsentRepo here in demo
+        // mode would query live Firestore from a demo build.
+        if (!(repos.consent instanceof FirebaseConsentRepo)) {
+            return () => {
+                cancelled = true;
+            };
+        }
+        const consentRepo = repos.consent;
         void Promise.all([
             consentRepo.getPoliciesForEntityAsync(org.id),
             consentRepo.getEventsForEntityAsync(org.id),
@@ -462,23 +470,29 @@ export const OrganizationDetailView = ({
         onRefresh?.();
     };
 
-    const handleRequestAccess = () => {
+    const handleRequestAccess = async () => {
         if (isOwnOrganization) {
             return;
         }
         const viewerOrgName = organizations.find(o => o.id === viewer.orgId)?.name || 'Partner Org';
-        repos.referrals.add({
-            id: `ref_access_${Date.now()}`,
-            referring_org_id: viewer.orgId,
-            receiving_org_id: org.id,
-            subject_person_id: viewer.personId,
-            subject_org_id: viewer.orgId,
-            date: new Date().toISOString().split('T')[0],
-            status: 'pending',
-            intake_type: 'access_request',
-            notes: `Access Request from ${viewerOrgName}`,
-            outcome_tags: ['Access Request']
-        });
+        try {
+            await repos.referrals.add({
+                id: `ref_access_${Date.now()}`,
+                ecosystem_id: viewer.ecosystemId,
+                referring_org_id: viewer.orgId,
+                receiving_org_id: org.id,
+                subject_person_id: viewer.personId,
+                subject_org_id: viewer.orgId,
+                date: new Date().toISOString(),
+                status: 'pending',
+                intake_type: 'access_request',
+                notes: `Access Request from ${viewerOrgName}`,
+                outcome_tags: ['Access Request']
+            });
+        } catch (err) {
+            console.error('Failed to send access request', err);
+            return;
+        }
         setAccessRequestSent(true);
         setTimeout(() => setAccessRequestSent(false), 3000);
         if (onRefresh) onRefresh();

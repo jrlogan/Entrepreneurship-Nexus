@@ -3906,7 +3906,7 @@ exports.provisionDemoAgency = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         const provided = (req.body?.invite_code || req.get('X-Demo-Invite-Code') || '').toString();
         if (!(0, exports.secretsMatch)(provided, configuredCode)) {
             res.status(401).json({
-                error: 'A demo invite code is required. Ask the network admin for the code shared with the consortium.',
+                error: 'Invite code is missing or invalid. Ask the network admin for the code shared with the consortium.',
             });
             return;
         }

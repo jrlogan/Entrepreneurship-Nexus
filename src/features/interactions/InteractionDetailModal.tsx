@@ -35,12 +35,12 @@ export const InteractionDetailModal = ({ interaction, onClose, organizations }: 
     const authorOrg = organizations.find(o => o.id === interaction.author_org_id);
 
     // AI Advisor Logic
-    const handleAcceptSuggestion = (suggestionId: string) => {
+    const handleAcceptSuggestion = async (suggestionId: string) => {
         const suggestion = interaction.advisor_suggestions?.find(s => s.id === suggestionId);
         if (!suggestion) return;
 
         // We need the actor (Person object). Using a quick lookup from viewer context.
-        const actor = repos.people.getById(viewer.personId);
+        const actor = await repos.people.getById(viewer.personId);
         if (!actor) {
             console.error("Error: Current user context invalid.");
             return;

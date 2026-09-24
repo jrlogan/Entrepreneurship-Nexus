@@ -8,6 +8,7 @@ import { LogInteractionModal } from '../interactions/LogInteractionModal';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { getAllOrganizationAffiliations } from '../../domain/people/affiliations';
+import type { PersonOrganizationAffiliation } from '../../domain/people/types';
 import { ENUMS } from '../../domain/standards/enums';
 import { uploadImageFile } from '../../services/storageUploads';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -45,7 +46,15 @@ export const PersonDetailView = ({
 }: PersonDetailViewProps) => {
   const repos = useRepos();
   const viewer = useViewer();
-  const buildAffiliationDrafts = React.useCallback(() => {
+  type AffiliationDraft = {
+    organization_id: string;
+    role_title: string;
+    relationship_type: NonNullable<PersonOrganizationAffiliation['relationship_type']>;
+    status: NonNullable<PersonOrganizationAffiliation['status']>;
+    can_self_manage: boolean;
+    is_primary: boolean;
+  };
+  const buildAffiliationDrafts = React.useCallback((): AffiliationDraft[] => {
     const existing = getAllOrganizationAffiliations(person);
     if (existing.length > 0) {
       return existing.map((affiliation) => ({
@@ -280,7 +289,7 @@ export const PersonDetailView = ({
       .map((affiliation) => ({
         organization_id: affiliation.organization_id,
         role_title: affiliation.role_title || null,
-        relationship_type: affiliation.relationship_type || 'other',
+        relationship_type: (affiliation.relationship_type || 'other') as NonNullable<PersonOrganizationAffiliation['relationship_type']>,
         status: affiliation.status || 'active',
         // Entrepreneurs cannot self-grant management rights — preserve existing value only
         can_self_manage: isSelfEntrepreneur

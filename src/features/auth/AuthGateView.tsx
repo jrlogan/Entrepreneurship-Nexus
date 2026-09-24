@@ -10,6 +10,7 @@ import { AgreementCheckbox } from '../../shared/ui/AgreementGate';
 import { FirebaseAgreementsRepo } from '../../data/repos/firebase/agreements';
 import type { AgreementType } from '../../domain/agreements/types';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
+import { fetchProviders, type ProviderConfig } from '../sso/ssoApi';
 
 const agreementsRepo = new FirebaseAgreementsRepo();
 const GITHUB_REPOSITORY_URL = 'https://github.com/jrlogan/Entrepreneurship-Nexus';
@@ -108,6 +109,27 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
     venture_name: '',
     venture_description: '',
   });
+
+  // Federated "Sign in with [ESO]" providers. Any ESO that registers an OIDC
+  // server via partnerRegisterOidcProvider shows up here automatically; the
+  // buttons hand off to the existing /sso/<providerId> PKCE flow.
+  const [ssoProviders, setSsoProviders] = useState<ProviderConfig[]>([]);
+  const providerEcosystemId = inviteEcosystemId || signupForm.ecosystem_id || defaultEcosystemId;
+  useEffect(() => {
+    let cancelled = false;
+    if (!providerEcosystemId) {
+      setSsoProviders([]);
+      return;
+    }
+    fetchProviders(providerEcosystemId)
+      .then((providers) => { if (!cancelled) setSsoProviders(providers); })
+      .catch(() => {
+        // No providers configured (or the endpoint is unreachable) is a normal
+        // state — the login page simply shows email/Google only.
+        if (!cancelled) setSsoProviders([]);
+      });
+    return () => { cancelled = true; };
+  }, [providerEcosystemId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -654,6 +676,21 @@ export const AuthGateView: React.FC<AuthGateViewProps> = ({
                         </svg>
                         Continue with Google
                       </button>
+                      {ssoProviders.map((provider) => (
+                        <button
+                          key={provider.provider_id}
+                          className="mt-3 flex w-full items-center justify-center gap-3 rounded border border-slate-300 px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          onClick={() => { window.location.href = `/sso/${encodeURIComponent(provider.provider_id)}`; }}
+                          disabled={isSubmitting}
+                        >
+                          {provider.logo_url ? (
+                            <img src={provider.logo_url} alt="" className="h-4 w-4 object-contain" />
+                          ) : (
+                            <span aria-hidden="true" className="text-slate-400">🔗</span>
+                          )}
+                          Sign in with {provider.display_name}
+                        </button>
+                      ))}
                     </div>
                   )}
                   {genericAuthMode === 'signup' && (

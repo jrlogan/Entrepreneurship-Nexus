@@ -208,15 +208,16 @@ export const TodosView = () => {
 
             const newReferral: Referral = {
                 id: `ref_${Date.now()}`,
+                ecosystem_id: viewer.ecosystemId,
                 referring_org_id: viewer.orgId,
                 receiving_org_id: targetOrg?.id || 'unknown_org_id',
                 subject_person_id: viewer.personId,
                 subject_org_id: viewer.orgId,
-                date: new Date().toISOString().split('T')[0],
+                date: new Date().toISOString(),
                 status: 'pending',
                 notes: suggestion.description || `AI suggested referral to ${targetName}`
             };
-            repos.referrals.add(newReferral);
+            await repos.referrals.add(newReferral);
             setReferralSuccessMsg(`Referral request to ${targetOrg?.name || targetName} created!`);
             setTimeout(() => setReferralSuccessMsg(''), 3000);
         } else {

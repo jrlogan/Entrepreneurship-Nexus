@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from "@google/genai";
-import { Organization, Interaction, InteractionType, MetricType } from '../../domain/types';
+import { Organization, Interaction, InteractionType, MetricType, PipelineDefinition } from '../../domain/types';
 import { Modal, FORM_LABEL_CLASS, FORM_INPUT_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS, Badge } from '../../shared/ui/Components';
 import { SearchableSelect } from '../../shared/ui/SearchableSelect';
 import { loadEnums } from '../../domain/standards/loadStandards';
@@ -36,7 +36,14 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
     const repos = useRepos();
     const viewer = useViewer();
     const enums = loadEnums();
-    const pipelines = repos.pipelines.getPipelines(viewer.ecosystemId);
+    const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
+    useEffect(() => {
+        let active = true;
+        repos.pipelines.getPipelines(viewer.ecosystemId)
+            .then((defs) => { if (active) setPipelines(defs); })
+            .catch((err) => console.error('Failed to load pipelines', err));
+        return () => { active = false; };
+    }, [repos, viewer.ecosystemId]);
 
     const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
     const featureFlags = ecosystem?.settings?.feature_flags || {};
@@ -281,11 +288,12 @@ export const LogInteractionModal = ({ isOpen, onClose, onComplete, organizations
         pendingReferrals.forEach(r => {
             repos.referrals.add({
                 id: `ref_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                ecosystem_id: viewer.ecosystemId,
                 referring_org_id: viewer.orgId,
                 receiving_org_id: r.targetOrgId,
                 subject_org_id: orgId,
                 subject_person_id: 'unknown',
-                date: new Date().toISOString().split('T')[0],
+                date: new Date().toISOString(),
                 status: 'pending',
                 notes: r.notes
             });

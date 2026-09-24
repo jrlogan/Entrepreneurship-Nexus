@@ -7,7 +7,6 @@ import { useRepos } from '../../data/AppDataContext';
 import { PortalLink } from '../../domain/ecosystems/types';
 import { getDocument, setDocument } from '../../services/firestoreClient';
 import { isFirebaseEnabled } from '../../services/firebaseApp';
-import { isEmulatorMode } from '../../services/firebaseConfig';
 
 interface Props {
     ecosystem: Ecosystem;
@@ -125,10 +124,12 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             const raw = localStorage.getItem(`eco_override_${activeEcoId}`);
             if (raw) applyOverlay(JSON.parse(raw));
         } catch {}
-        if (!isEmulatorMode) {
+        if (isFirebaseEnabled()) {
             getDocument<Partial<Ecosystem>>('ecosystems', activeEcoId).then(saved => {
                 if (saved) applyOverlay(saved);
-            }).catch(() => {});
+            }).catch((error) => {
+                console.error('Failed to load saved ecosystem settings', error);
+            });
         }
     }, [activeEcoId]);
 
@@ -152,7 +153,6 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             repos.advisor.updateConfig(activeEcoId, advisorConfig);
         }
 
-        // Always persist to localStorage so settings survive reloads in any environment
         const payload = {
             id: activeEcoId,
             name: ecoName,
@@ -161,14 +161,20 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             tags,
             settings: { ...activeEco.settings, interaction_privacy_default: ecoPrivacy, feature_flags: featureFlags },
         };
+        // localStorage keeps settings across reloads in demo mode (and as a
+        // fast local overlay elsewhere).
         localStorage.setItem(`eco_override_${activeEcoId}`, JSON.stringify(payload));
 
-        // Also persist to Firestore when available (production)
-        if (isFirebaseEnabled() && !isEmulatorMode) {
+        // Persist to Firestore whenever we're Firebase-backed. This previously
+        // skipped emulator mode, which meant local/e2e runs read ecosystem
+        // config from a different source than production.
+        if (isFirebaseEnabled()) {
             try {
                 await setDocument('ecosystems', activeEcoId, payload, true);
-            } catch {
-                // localStorage save already succeeded; Firestore is best-effort
+            } catch (error) {
+                console.error('Failed to persist ecosystem settings', error);
+                setSaveError('Saved locally, but could not persist to the server.');
+                return;
             }
         }
         setSaveMessage('Ecosystem settings saved. Reload the page to see nav changes.');
