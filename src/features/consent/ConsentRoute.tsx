@@ -173,7 +173,10 @@ export const ConsentRoute = () => {
             <div className="rounded-2xl bg-white p-6 shadow-sm sm:p-8">
               <p className="text-sm font-semibold uppercase tracking-wider text-[#8b1919]">{session.requested_by} invites you</p>
               <h1 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">{summary.heading}</h1>
-              <p className="mt-4 text-gray-700">{session.first_name ? `Hi ${session.first_name}, ` : ''}{summary.intro}</p>
+              <p className="mt-4 text-gray-700">
+                {session.first_name && <span className="block font-medium text-gray-900">Hi {session.first_name},</span>}
+                {summary.intro}
+              </p>
 
               <div className="mt-6 space-y-3">
                 <SummaryRow tone="always" title="Always shared, with organizations you work with" body={summary.always} />

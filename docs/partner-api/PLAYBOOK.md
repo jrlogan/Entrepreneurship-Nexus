@@ -42,13 +42,23 @@ contact details, and anything not relevant to the regional entrepreneur network.
 Nexus only stores what it needs to facilitate cross-ESO referrals, resource access,
 and the shared network directory.
 
-### Consent model
+### Privacy and consent
 
-People you push are visible to **ESO staff immediately** — no waiting period. They
-do **not** appear in the shared public/network directory until the entrepreneur
-clicks the opt-in link in the consent email. You can trigger that email at push
-time by passing `send_consent_email: true`, or let the entrepreneur opt in later
-through the Nexus app.
+The network runs on the compact every partner signs (full detail in
+[../PRIVACY_MODEL.md](../PRIVACY_MODEL.md)):
+
+- **Always shared**, with partners who work with the same entrepreneur: name and
+  email, and the fact of each other's activity (who, what kind, when).
+- **Only with the entrepreneur's consent** (off by default, per network): directory
+  listing, and partners seeing the details of each other's records.
+- **Never shared**: your notes, financials, and your internal record IDs.
+
+People you push are yours to work with immediately. Collect consent where they sign
+up: add the consent block to your signup form and pass the answers as `consent` on
+`partnerUpsertPerson`, send them to the hosted page (`partnerCreateConsentLink`), or
+set `send_consent_email: true` for people staff add by hand. The step-by-step version,
+with your identifiers filled in, is the integration brief on the app's
+**Connect Your System** page ([template](INTEGRATION_BRIEF.md)).
 
 ---
 
@@ -512,9 +522,12 @@ context about where an entrepreneur is in their journey, which improves referral
 quality.
 
 **Can I backfill historical data?**
-Yes. Loop over your contacts and call `partnerUpsertPerson` for each. All calls
-are idempotent — duplicates are not created. For participations, include
-`start_date` and `end_date`/`status: "past"` for historical records.
+Not as a bulk import. The membership agreement has the network grow person by
+person: push someone when you start (or are currently) working with them, with
+their consent where you can collect it. For people you actively serve today, it
+is fine to push their current participation, including `start_date` and, for
+finished programs, `end_date` with `status: "past"`. Do not push past contacts you
+no longer work with.
 
 **How do I handle a person who opts out?**
 The consent system handles directory opt-out. If a person asks you to remove
@@ -522,9 +535,8 @@ their data entirely, contact the Nexus network admin for a data removal request
 — the API does not expose a delete endpoint.
 
 **What's the rate limit?**
-There is no hard rate limit, but be a good citizen: batch pushes in bursts of
-50-100 with a short sleep between batches rather than pushing thousands of
-contacts simultaneously.
+Each API key has a per-minute budget; over it, calls return `429`. Back off and
+retry. Normal on-save syncing stays well under it.
 
 ---
 

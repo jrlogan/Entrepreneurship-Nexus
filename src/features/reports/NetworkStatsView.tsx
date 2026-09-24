@@ -29,7 +29,7 @@ const days = (value: number | null) => (value === null ? '—' : `${value} day${
 export const NetworkStatsView = () => {
   const repos = useRepos();
   const viewer = useViewer();
-  const [preset, setPreset] = useState<Preset>('year');
+  const [preset, setPreset] = useState<Preset>('all');
   const [publication, setPublication] = useState(false);
   const [stats, setStats] = useState<NetworkStats | null>(null);
   const [error, setError] = useState('');

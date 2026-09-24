@@ -15,15 +15,27 @@ The project combines role-specific workflows with API-first interoperability so 
 
 ## Project Status
 
-This repository is under active development. The current app supports:
+`main` is the **partner pilot MVP**: the interoperability core for a small group
+of partner organizations (around five) to join a network, connect their own
+systems, and coordinate. It supports:
 
-- Demo-mode workflows using in-memory data
-- Firebase-backed local development with Auth, Firestore, Functions, and Storage emulators
-- Early deployment support for Firebase Hosting and Cloud Functions
-- Postmark-style inbound email intake for referral workflows
-- Partner API planning and OpenAPI documentation
+- **Partner onboarding** — invite a partner, have its admin sign the network
+  agreements, then hand its developer (or AI coding assistant) a complete,
+  pre-filled integration brief
+- **Partner API** — people, organizations, program participation, referrals
+  (send, answer, list), activity, webhooks; idempotent on each partner's own IDs
+- **Founder consent** — an embeddable consent block for partners' own signup
+  forms, a hosted consent page, and founder privacy settings, all against
+  versioned, hashed terms
+- **A privacy model enforced server-side** — always shared / only with consent /
+  never shared, see [docs/PRIVACY_MODEL.md](docs/PRIVACY_MODEL.md)
+- **Referrals** across the UI, email intake and the API
+- **Network statistics** — entrepreneurs served (counted once), collaboration,
+  referral follow-through, participation — anonymous and aggregate
 
-Some areas are still evolving, especially production deployment automation, partner integrations, and long-term reporting workflows.
+The fuller exploratory prototype (community calendar, grant lab, AI advisor,
+initiatives and more) is preserved on the `archive/full-prototype` branch. See
+[docs/PILOT.md](docs/PILOT.md) for how the pilot runs and what was set aside.
 
 ## Who It Is For
 
@@ -37,27 +49,12 @@ Entrepreneurship Nexus is built for organizations that coordinate across many su
 
 The value proposition is a shared operational and data layer: reduce duplicate data entry, improve referral visibility, support cross-organization reporting, and make it easier for existing systems to interoperate through APIs and automation.
 
-## Core Features
-
-- Ecosystem organization and contact directory
-- Role-based access for platform admins, ecosystem managers, ESO staff, and entrepreneurs
-- Founder portal for ventures, initiatives, actions, and ecosystem resources
-- Structured referral and introduction workflows
-- Inbound email intake for referrals and manual review
-- Interaction logging with network-shared and ESO-private visibility
-- Data quality tools for duplicate detection and record cleanup
-- Metrics and reporting foundations for ecosystem impact tracking
-- AI-assisted advising and summarization experiments
-- Partner API and webhook design for external systems
-- Automation-oriented integration patterns that reduce manual data entry
-
 ## Tech Stack
 
 - React 19, TypeScript, and Vite
 - Firebase Auth, Firestore, Storage, Hosting, and Cloud Functions
 - Firebase Emulator Suite for local integration work
 - Vitest, Node test runner, and Playwright
-- Google Gemini integrations through Google GenAI SDKs
 - Data model concepts aligned with Human Services Data Specification (HSDS)
 
 ## Quickstart
@@ -105,8 +102,11 @@ npm --prefix functions test
 - [Onboarding and Role Model](docs/onboarding-and-role-model.md)
 - [MVP ESO Experience](docs/mvp-eso-experience.md)
 - [BCC Introduction Intake Plan](docs/bcc-introduction-intake-plan.md)
-- [Partner API Playbook](docs/partner-api/PLAYBOOK.md)
+- [The Partner Pilot](docs/PILOT.md)
+- [Privacy Model](docs/PRIVACY_MODEL.md)
+- [Partner Integration Brief](docs/partner-api/INTEGRATION_BRIEF.md)
 - [Partner API OpenAPI Spec](docs/partner-api/openapi.yaml)
+- [Partner API Playbook](docs/partner-api/PLAYBOOK.md)
 
 ## Environment Configuration
 
