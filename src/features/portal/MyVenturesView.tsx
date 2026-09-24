@@ -1,12 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Person, Initiative, Organization, Interaction, Referral, PipelineDefinition, Service, Ecosystem } from '../../domain/types';
-import { ChecklistTemplate } from '../../domain/ecosystems/types';
+import { Person, Organization, Interaction, Referral, Service, Ecosystem } from '../../domain/types';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { Card, Badge, Avatar, CompanyLogo, DemoLink, Modal } from '../../shared/ui/Components';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { InitiativeDetailModal } from './InitiativeDetailModal';
-import { EditOrgModal, ManageInitiativeModal } from '../directory/OrgModals';
+import { EditOrgModal } from '../directory/OrgModals';
 import { SharingControls } from './SharingControls';
 import { getActiveOrganizationAffiliations } from '../../domain/people/affiliations';
 import { ENUMS } from '../../domain/standards/enums';
@@ -14,39 +12,23 @@ import { callHttpFunction } from '../../services/httpFunctionClient';
 
 interface MyVenturesProps {
     person: Person;
-    initiatives: Initiative[];
     organizations: Organization[];
     people: Person[];
     interactions: Interaction[];
     referrals: Referral[];
     services: Service[];
     actingOrgId?: string;
-    onAdvance: (i: Initiative) => void;
     onRefresh?: () => void;
     onSelectOrganization?: (id: string) => void;
     onCreateOrganization?: () => void;
     currentEcosystem?: Ecosystem;
 }
 
-export const MyVenturesView = ({ person, initiatives, organizations, people, interactions, referrals, services, actingOrgId, onAdvance, onRefresh, onSelectOrganization, onCreateOrganization, currentEcosystem }: MyVenturesProps) => {
+export const MyVenturesView = ({ person, organizations, people, interactions, referrals, services, actingOrgId, onRefresh, onSelectOrganization, onCreateOrganization, currentEcosystem }: MyVenturesProps) => {
     const repos = useRepos();
     const viewer = useViewer();
     
     // State for modal
-    const [selectedInitiative, setSelectedInitiative] = useState<Initiative | null>(null);
-    const [initiativeInteractions, setInitiativeInteractions] = useState<Interaction[]>([]);
-    useEffect(() => {
-        if (!selectedInitiative) {
-            setInitiativeInteractions([]);
-            return;
-        }
-        let active = true;
-        repos.interactions.listForInitiative(viewer, selectedInitiative.id)
-            .then((list) => { if (active) setInitiativeInteractions(list); })
-            .catch((err) => console.error('Failed to load initiative interactions', err));
-        return () => { active = false; };
-    }, [repos, viewer, selectedInitiative]);
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
     const [isEditOrgModalOpen, setIsEditOrgModalOpen] = useState(false);
     const [selectedNetworkOrgId, setSelectedNetworkOrgId] = useState<string | null>(null);
@@ -92,30 +74,6 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
         }));
     }, [person.memberships, viewer.ecosystemId, currentEcosystem]);
     const featureFlags = ecosystem?.settings?.feature_flags || {};
-    const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-    const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
-    const canAccessTasksAdvice = canAccessAdvancedWorkflows || featureFlags.tasks_advice === true;
-    const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
-    const checklists = ecosystem?.checklist_templates || [];
-
-    useEffect(() => {
-        let cancelled = false;
-        repos.pipelines.getPipelines(viewer.ecosystemId)
-            .then((loadedPipelines) => {
-                if (!cancelled) {
-                    setPipelines(loadedPipelines);
-                }
-            })
-            .catch(() => {
-                if (!cancelled) {
-                    setPipelines([]);
-                }
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [repos, viewer.ecosystemId]);
     const supportSearchTerm = supportSearch.trim().toLowerCase();
 
     // 1. Organizations (My Context)
@@ -154,9 +112,6 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
         p.organization_affiliations?.some(a => a.organization_id === myOrg.id && a.status !== 'revoked')
     ));
 
-    // 3. Initiatives (Active Projects)
-    // Filter to show initiatives for ANY of the user's orgs
-    const myInitiatives = initiatives.filter(i => userOrgs.some(o => o.id === i.organization_id));
     
     // 4. Support Network Logic (Dynamic based on Interactions & Referrals)
     const myNetwork = useMemo(() => {
@@ -292,16 +247,6 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
         onRefresh?.();
     };
 
-    const handleCreateInitiative = async (initData: Partial<Initiative>) => {
-        await repos.pipelines.addInitiative({
-            id: `init_${Date.now()}`,
-            ecosystem_id: viewer.ecosystemId,
-            ...initData
-        } as Initiative);
-        setIsCreateModalOpen(false);
-        onRefresh?.();
-    };
-
     const handleSaveOrganizationProfile = (updates: Partial<Organization>) => {
         if (!myOrg) return;
         repos.organizations.update(myOrg.id, updates);
@@ -334,19 +279,6 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
         } finally {
             setIsSubmittingSupportRequest(false);
         }
-    };
-
-    const handleSavePipeline = (p: PipelineDefinition) => {
-        repos.ecosystems.addPipeline(viewer.ecosystemId, p);
-    };
-
-    const handleSaveChecklist = (c: ChecklistTemplate) => {
-        repos.ecosystems.addChecklistTemplate(viewer.ecosystemId, c);
-    };
-
-    // Helper to get pipeline def for selected initiative
-    const getPipeline = (init: Initiative) => {
-        return pipelines.find(p => p.id === init.pipeline_id);
     };
 
     const getCaseTypeLabel = (ref: Referral) => {
@@ -573,7 +505,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                                         </button>
                                     )}
                                     <span className="self-center text-sm text-gray-500">
-                                        Once linked, your business profile, initiatives, and team tools will unlock here.
+                                        Once linked, your business profile and team tools will unlock here.
                                     </span>
                                 </div>
                             </div>
@@ -590,65 +522,6 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                             availableEcosystems={myNetworks}
                             onChange={onRefresh}
                         />
-                    )}
-
-                    {/* 2. Initiatives */}
-                    {canAccessInitiatives && (
-                    <Card title="Initiatives (Active Projects)">
-                        {!myOrg ? (
-                            <p className="text-gray-500 text-sm italic">Link or create an organization before starting initiatives.</p>
-                        ) : myInitiatives.length === 0 ? (
-                            <div className="text-center p-4 bg-gray-50 rounded border border-dashed border-gray-300">
-                                <p className="text-gray-500 text-sm">No active initiatives.</p>
-                                <button 
-                                    onClick={() => setIsCreateModalOpen(true)}
-                                    className="mt-2 text-indigo-600 text-sm font-bold hover:underline"
-                                >
-                                    + Start New Initiative
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="text-right">
-                                    <button 
-                                        onClick={() => setIsCreateModalOpen(true)}
-                                        className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700"
-                                    >
-                                        + New Initiative
-                                    </button>
-                                </div>
-                                {myInitiatives.map(init => (
-                                    <div key={init.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50 hover:bg-white transition-colors">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <span className="font-bold text-gray-900">{init.name}</span>
-                                            {init.pipeline_id ? (
-                                                <Badge color="blue">Stage {init.current_stage_index + 1}</Badge>
-                                            ) : (
-                                                <Badge color="green">Checklist</Badge>
-                                            )}
-                                        </div>
-                                        {init.pipeline_id ? (
-                                            <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-                                                <div className="bg-indigo-600 h-2 rounded-full" style={{ width: `${(init.current_stage_index / 5) * 100}%` }}></div>
-                                            </div>
-                                        ) : (
-                                            <div className="mb-2 text-xs text-gray-500">
-                                                {init.checklists.length} task lists attached
-                                            </div>
-                                        )}
-                                        <div className="text-right">
-                                            <button 
-                                                onClick={() => setSelectedInitiative(init)}
-                                                className="text-xs text-indigo-600 font-bold hover:underline"
-                                            >
-                                                View Progress & Details
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </Card>
                     )}
 
                     <Card title="Request Support">
@@ -915,7 +788,7 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                     </Card>
                     )}
 
-                    {canAccessTasksAdvice && (ecosystem?.portal_links?.length || 0) > 0 && (
+                    {(ecosystem?.portal_links?.length || 0) > 0 && (
                     <Card title="Resources">
                         <div className="space-y-2">
                             {ecosystem?.portal_links?.map(link => (
@@ -929,32 +802,6 @@ export const MyVenturesView = ({ person, initiatives, organizations, people, int
                     )}
                 </div>
             </div>
-
-            {/* Detailed Initiative Modal */}
-            {selectedInitiative && myOrg && (
-                <InitiativeDetailModal 
-                    initiative={selectedInitiative}
-                    organization={myOrg}
-                    pipeline={getPipeline(selectedInitiative)} // Pass undefined if not found
-                    interactions={initiativeInteractions}
-                    isOpen={!!selectedInitiative}
-                    onClose={() => setSelectedInitiative(null)}
-                    onRefresh={() => onRefresh?.()}
-                />
-            )}
-
-            {/* Create Initiative Modal */}
-            <ManageInitiativeModal 
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
-                onSave={handleCreateInitiative}
-                pipelines={pipelines}
-                checklists={checklists}
-                onSavePipeline={handleSavePipeline}
-                onSaveChecklist={handleSaveChecklist}
-                organizations={userOrgs} // Pass only user's organizations
-                orgId={userOrgs.length === 1 ? userOrgs[0].id : undefined} // Pre-select if only 1, otherwise let user choose (default managed by modal)
-            />
 
             {myOrg && (
                 <EditOrgModal

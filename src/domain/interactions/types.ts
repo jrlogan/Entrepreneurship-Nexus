@@ -1,6 +1,4 @@
 
-import { AdvisorSuggestion, AdvisorAcceptanceResult } from '../advisor/types';
-
 export type InteractionType = 'meeting' | 'email' | 'call' | 'event' | 'note';
 export type InteractionVisibility = 'network_shared' | 'eso_private';
 
@@ -10,9 +8,6 @@ export interface Interaction {
   organization_id: string;
   ecosystem_id: string;
   author_org_id: string; // Who created this note
-  
-  // Optional Linkage to specific Project/Initiative
-  initiative_id?: string;
 
   date: string;
   type: InteractionType;
@@ -29,8 +24,4 @@ export interface Interaction {
   attendees?: string[];
   recorded_by?: string;
 
-  // AI Advisor Extensions
-  advisor_run_id?: string;
-  advisor_suggestions?: AdvisorSuggestion[]; // Snapshot of suggestions made during this interaction
-  advisor_acceptances?: AdvisorAcceptanceResult[]; // Decisions made on those suggestions
 }

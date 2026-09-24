@@ -4,8 +4,8 @@ exports.readTextCapped = exports.fetchPublicUrl = exports.assertPublicHttpUrl = 
 const promises_1 = require("dns/promises");
 const net_1 = require("net");
 /**
- * SSRF guard for user-supplied URLs (calendar sources, grant extraction,
- * webhook registration). Blocks private/reserved address space and
+ * SSRF guard for user-supplied URLs (webhook endpoints, OIDC discovery, org
+ * website lookups). Blocks private/reserved address space and
  * link-local metadata hosts, and validates every redirect hop.
  *
  * Local development (ALLOW_LOCAL_ONLY_FUNCTIONS=true) skips the private-range

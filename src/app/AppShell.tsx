@@ -14,18 +14,14 @@ import {
     IconDashboard, 
     IconBuilding, 
     IconUsers, 
-    IconBriefcase, 
     IconChat, 
     IconShare, 
     IconChart, 
     IconRocket, 
     IconSettings, 
-    IconMap, 
     IconShield, 
     IconDatabase, 
     IconTerminal,
-    IconScout, 
-    IconList,
     IconBook,
     IconExternalLink,
     IconMenu,
@@ -57,7 +53,6 @@ interface AppShellProps {
 const canManageUsers = (role: SystemRole) => ['eso_admin', 'ecosystem_manager', 'platform_admin'].includes(role);
 const isSystemAdmin = (role: SystemRole) => ['platform_admin', 'ecosystem_manager'].includes(role);
 const isEntrepreneur = (role: SystemRole) => role === 'entrepreneur';
-const isMvpMode = !CONFIG.IS_DEMO_MODE;
 
 export const AppShell: React.FC<AppShellProps> = ({ 
     user, 
@@ -93,29 +88,21 @@ export const AppShell: React.FC<AppShellProps> = ({
   const featureFlags = currentEcosystem.settings.feature_flags || {};
   const isPlatformAdmin = currentRole === 'platform_admin';
   const {
-    showMvpEsoNav,
     canAccessDashboard,
-    canAccessTasksAdvice,
-    canAccessInitiatives,
-    canAccessProcesses,
     canAccessInteractions,
     canAccessReports,
-    canAccessVentureScout,
+    canAccessIntegrationGuide,
     canAccessApiConsole,
     canAccessDataQuality,
     canAccessDataStandards,
-    canAccessMetricsManager,
     canAccessInboundIntake,
-    canAccessGrantLab,
-    canAccessCommunityCalendar,
-  } = computeNavAccess(currentRole, featureFlags, isMvpMode);
+  } = computeNavAccess(currentRole, featureFlags);
 
   const iconClass = "w-5 h-5";
   const isDemoMode = CONFIG.IS_DEMO_MODE;
 
   // Filter Portal Links based on Audience
   const visiblePortalLinks = currentEcosystem.portal_links?.filter(link => {
-      if (link.label === 'Community Calendar') return false;
       if (link.audience === 'all') return true;
       if (isClient && link.audience === 'entrepreneur') return true;
       if (!isClient && link.audience === 'eso') return true;
@@ -290,36 +277,18 @@ export const AppShell: React.FC<AppShellProps> = ({
              
              {/* ESO / Admin Common Views */}
              {!isClient && (
-                <>
-                    {canAccessDashboard && (
-                      <SidebarItem
-                        active={view === 'dashboard'}
-                        onClick={() => handleNav('dashboard')}
-                        label="Dashboard"
-                        icon={<IconDashboard className={iconClass} />}
-                        textColor={theme.itemText}
-                        iconColor={theme.itemIcon}
-                        hoverClass={theme.itemHover}
-                      />
-                    )}
-                    <SidebarItem
-                    active={view === 'directory'}
-                    onClick={() => handleNav('directory')}
-                    label="Organizations"
-                    icon={<IconBuilding className={iconClass} />} 
-                    textColor={theme.itemText} 
-                    iconColor={theme.itemIcon} 
-                    hoverClass={theme.itemHover}
-                    />
-                    <SidebarItem 
-                    active={view === 'contacts'} 
-                    onClick={() => handleNav('contacts')} 
-                    label="People" 
-                    icon={<IconUsers className={iconClass} />} 
-                    textColor={theme.itemText} 
-                    iconColor={theme.itemIcon} 
-                    hoverClass={theme.itemHover}
-                    />
+               <>
+                 {canAccessDashboard && (
+                 <SidebarItem
+                   active={view === 'dashboard'}
+                   onClick={() => handleNav('dashboard')}
+                   label="Dashboard"
+                   icon={<IconDashboard className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
+                 )}
                  <SidebarItem
                    active={view === 'referrals'}
                    onClick={() => handleNav('referrals')}
@@ -329,103 +298,56 @@ export const AppShell: React.FC<AppShellProps> = ({
                    iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
                  />
-                 {canAccessGrantLab && (
-                   <SidebarItem
-                     active={view === 'grants'}
-                     onClick={() => handleNav('grants')}
-                     label="Grant Lab"
-                     icon={<IconBook className={iconClass} />}
-                     textColor={theme.itemText}
-                     iconColor={theme.itemIcon}
-                     hoverClass={theme.itemHover}
-                   />
+                 <SidebarItem
+                   active={view === 'contacts'}
+                   onClick={() => handleNav('contacts')}
+                   label="People"
+                   icon={<IconUsers className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
+                 <SidebarItem
+                   active={view === 'directory'}
+                   onClick={() => handleNav('directory')}
+                   label="Organizations"
+                   icon={<IconBuilding className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
+                 {canAccessInteractions && (
+                 <SidebarItem
+                   active={view === 'interactions'}
+                   onClick={() => handleNav('interactions')}
+                   label="Activity"
+                   icon={<IconChat className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
-                 {canAccessCommunityCalendar && (
-                   <SidebarItem
-                     active={view === 'community_calendar'}
-                     onClick={() => handleNav('community_calendar')}
-                     label="Community Calendar"
-                     icon={<IconList className={iconClass} />}
-                     textColor={theme.itemText}
-                     iconColor={theme.itemIcon}
-                     hoverClass={theme.itemHover}
-                   />
+                 {canAccessReports && (
+                 <SidebarItem
+                   active={view === 'reports'}
+                   onClick={() => handleNav('reports')}
+                   label="Reports"
+                   icon={<IconChart className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
-
-                 {!showMvpEsoNav && (
-                   <>
-                     {(canAccessDashboard || canAccessTasksAdvice || canAccessInitiatives || canAccessProcesses || canAccessInteractions || canAccessReports || canAccessVentureScout) && (
-                       <>
-                         {canAccessTasksAdvice && (
-                           <SidebarItem 
-                           active={view === 'todos'} 
-                           onClick={() => handleNav('todos')} 
-                           label="Tasks & Data" 
-                           icon={<IconList className={iconClass} />} 
-                           textColor={theme.itemText} 
-                           iconColor={theme.itemIcon} 
-                           hoverClass={theme.itemHover}
-                           />
-                         )}
-                         <div className={`pt-4 pb-1 px-4 text-xs font-bold uppercase tracking-wider ${theme.headerSub}`}>Workflows</div>
-                         {canAccessInitiatives && (
-                           <SidebarItem 
-                             active={view === 'initiatives'} 
-                             onClick={() => handleNav('initiatives')} 
-                             label="Initiatives" 
-                             icon={<IconBriefcase className={iconClass} />} 
-                             textColor={theme.itemText} 
-                             iconColor={theme.itemIcon} 
-                             hoverClass={theme.itemHover}
-                           />
-                         )}
-                         {canAccessProcesses && (
-                           <SidebarItem 
-                             active={view === 'pipelines'} 
-                             onClick={() => handleNav('pipelines')} 
-                             label="Processes" 
-                             icon={<IconRocket className={iconClass} />} 
-                             textColor={theme.itemText} 
-                             iconColor={theme.itemIcon} 
-                             hoverClass={theme.itemHover}
-                           />
-                         )}
-                         {canAccessInteractions && (
-                           <SidebarItem 
-                             active={view === 'interactions'} 
-                             onClick={() => handleNav('interactions')} 
-                             label="Interactions" 
-                             icon={<IconChat className={iconClass} />} 
-                             textColor={theme.itemText} 
-                             iconColor={theme.itemIcon} 
-                             hoverClass={theme.itemHover}
-                           />
-                         )}
-                         {canAccessReports && (
-                           <SidebarItem 
-                             active={view === 'reports'} 
-                             onClick={() => handleNav('reports')} 
-                             label="Reports" 
-                             icon={<IconChart className={iconClass} />} 
-                             textColor={theme.itemText} 
-                             iconColor={theme.itemIcon} 
-                             hoverClass={theme.itemHover}
-                           />
-                         )}
-                       </>
-                     )}
-                     {canAccessVentureScout && (
-                       <SidebarItem 
-                         active={view === 'scout'} 
-                         onClick={() => handleNav('scout')} 
-                         label="Venture Scout" 
-                         icon={<IconScout className={iconClass} />} 
-                         textColor={theme.itemText} 
-                         iconColor={theme.itemIcon} 
-                         hoverClass={theme.itemHover}
-                       />
-                     )}
-                   </>
+                 {canAccessIntegrationGuide && (
+                 <SidebarItem
+                   active={view === 'integration'}
+                   onClick={() => handleNav('integration')}
+                   label="Connect Your System"
+                   icon={<IconTerminal className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
                </>
              )}
@@ -433,68 +355,24 @@ export const AppShell: React.FC<AppShellProps> = ({
              {/* Entrepreneur Views */}
              {isClient && (
                <>
-                 <SidebarItem 
-                   active={view === 'my_ventures'} 
-                   onClick={() => handleNav('my_ventures')} 
-                   label="Dashboard" 
-                   icon={<IconRocket className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
+                 <SidebarItem
+                   active={view === 'my_ventures'}
+                   onClick={() => handleNav('my_ventures')}
+                   label="Dashboard"
+                   icon={<IconRocket className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
                  />
-                 <SidebarItem 
-                   active={view === 'my_org'} 
-                   onClick={() => handleNav('my_org')} 
-                   label="My Business" 
-                   icon={<IconBuilding className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
+                 <SidebarItem
+                   active={view === 'my_org'}
+                   onClick={() => handleNav('my_org')}
+                   label="My Business"
+                   icon={<IconBuilding className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
                  />
-                 {canAccessInitiatives && (
-                   <SidebarItem 
-                     active={view === 'my_projects'} 
-                     onClick={() => handleNav('my_projects')} 
-                     label="Initiatives" 
-                     icon={<IconBriefcase className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
-                     hoverClass={theme.itemHover}
-                   />
-                 )}
-                 {canAccessTasksAdvice && (
-                   <SidebarItem
-                     active={view === 'todos'}
-                     onClick={() => handleNav('todos')}
-                     label="Tasks & Advice"
-                     icon={<IconList className={iconClass} />}
-                     textColor={theme.itemText}
-                     iconColor={theme.itemIcon}
-                     hoverClass={theme.itemHover}
-                   />
-                 )}
-                 {canAccessGrantLab && (
-                   <SidebarItem
-                     active={view === 'grants'}
-                     onClick={() => handleNav('grants')}
-                     label="Grant Opportunities"
-                     icon={<IconBook className={iconClass} />}
-                     textColor={theme.itemText}
-                     iconColor={theme.itemIcon}
-                     hoverClass={theme.itemHover}
-                   />
-                 )}
-                 {canAccessCommunityCalendar && (
-                   <SidebarItem
-                     active={view === 'community_calendar'}
-                     onClick={() => handleNav('community_calendar')}
-                     label="Community Calendar"
-                     icon={<IconList className={iconClass} />}
-                     textColor={theme.itemText}
-                     iconColor={theme.itemIcon}
-                     hoverClass={theme.itemHover}
-                   />
-                 )}
                </>
              )}
 
@@ -502,7 +380,8 @@ export const AppShell: React.FC<AppShellProps> = ({
              {isPrivileged && (
                <>
                  <div className={`pt-4 pb-1 px-4 text-xs font-bold uppercase tracking-wider ${theme.headerSub}`}>System</div>
-                 {isPlatformAdmin && <SidebarItem
+                 {isPlatformAdmin && (
+                 <SidebarItem
                    active={view === 'platform_admin'}
                    onClick={() => handleNav('platform_admin')}
                    label="Platform Admin"
@@ -510,8 +389,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                    textColor={theme.itemText}
                    iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
-                 />}
-                 {isSuper && <SidebarItem
+                 />
+                 )}
+                 {isSuper && (
+                 <SidebarItem
                    active={view === 'ecosystem_config'}
                    onClick={() => handleNav('ecosystem_config')}
                    label="Ecosystem Config"
@@ -519,81 +400,60 @@ export const AppShell: React.FC<AppShellProps> = ({
                    textColor={theme.itemText}
                    iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
-                 />}
-                 {isSuper && canAccessProcesses && (
-                  <SidebarItem 
-                    active={view === 'pipelines'} 
-                    onClick={() => handleNav('pipelines')} 
-                    label="Processes" 
-                    icon={<IconMap className={iconClass} />} 
-                    textColor={theme.itemText} 
-                    iconColor={theme.itemIcon} 
-                    hoverClass={theme.itemHover}
-                  />
+                 />
                  )}
-                 {isPrivileged && <SidebarItem 
-                   active={view === 'user_management'} 
-                   onClick={() => handleNav('user_management')} 
-                   label="User Management" 
-                   icon={<IconShield className={iconClass} />} 
-                   textColor={theme.itemText} 
-                   iconColor={theme.itemIcon} 
+                 <SidebarItem
+                   active={view === 'user_management'}
+                   onClick={() => handleNav('user_management')}
+                   label="User Management"
+                   icon={<IconShield className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
                    hoverClass={theme.itemHover}
-                 />}
+                 />
                  {canAccessDataQuality && (
-                   <SidebarItem 
-                     active={view === 'data_quality'} 
-                     onClick={() => handleNav('data_quality')} 
-                     label="Data Quality" 
-                     icon={<IconDatabase className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
-                     hoverClass={theme.itemHover}
-                   />
-                 )}
-                 {canAccessMetricsManager && (
-                   <SidebarItem 
-                     active={view === 'metrics_manager'} 
-                     onClick={() => handleNav('metrics_manager')} 
-                     label="Metrics Manager" 
-                     icon={<IconChart className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
-                     hoverClass={theme.itemHover}
-                   />
+                 <SidebarItem
+                   active={view === 'data_quality'}
+                   onClick={() => handleNav('data_quality')}
+                   label="Data Quality"
+                   icon={<IconDatabase className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
                  {canAccessDataStandards && (
-                   <SidebarItem 
-                     active={view === 'data_standards'} 
-                     onClick={() => handleNav('data_standards')} 
-                     label="Data Standards" 
-                     icon={<IconBook className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
-                     hoverClass={theme.itemHover}
-                   />
+                 <SidebarItem
+                   active={view === 'data_standards'}
+                   onClick={() => handleNav('data_standards')}
+                   label="Data Standards"
+                   icon={<IconBook className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
                  {canAccessApiConsole && (
-                   <SidebarItem 
-                     active={view === 'api_console'} 
-                     onClick={() => handleNav('api_console')} 
-                     label="API Console" 
-                     icon={<IconTerminal className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
-                     hoverClass={theme.itemHover}
-                   />
+                 <SidebarItem
+                   active={view === 'api_console'}
+                   onClick={() => handleNav('api_console')}
+                   label="API Keys & Webhooks"
+                   icon={<IconTerminal className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
                  {canAccessInboundIntake && (
-                   <SidebarItem 
-                     active={view === 'inbound_intake'} 
-                     onClick={() => handleNav('inbound_intake')} 
-                     label="Inbound Intake" 
-                     icon={<IconChat className={iconClass} />} 
-                     textColor={theme.itemText} 
-                     iconColor={theme.itemIcon} 
-                     hoverClass={theme.itemHover}
-                   />
+                 <SidebarItem
+                   active={view === 'inbound_intake'}
+                   onClick={() => handleNav('inbound_intake')}
+                   label="Inbound Intake"
+                   icon={<IconChat className={iconClass} />}
+                   textColor={theme.itemText}
+                   iconColor={theme.itemIcon}
+                   hoverClass={theme.itemHover}
+                 />
                  )}
                </>
              )}

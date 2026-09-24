@@ -28,17 +28,6 @@ export const CONFIG = {
   // and every feature flag forced on. Demo builds opt in via .env(.example).
   IS_DEMO_MODE: getEnv('REACT_APP_DEMO_MODE', 'VITE_DEMO_MODE', 'false') === 'true',
 
-  // Which surfaces a demo build exposes.
-  //   'full'    — every feature flag on (the original exploratory demo)
-  //   'compact' — only the interoperability core: referrals, directory,
-  //               people, the entrepreneur portal, interactions, and the API
-  //               console. Used for the consortium demo, where extra modules
-  //               are a distraction from the compact itself.
-  // Ignored unless IS_DEMO_MODE is true.
-  DEMO_PROFILE: getEnv('REACT_APP_DEMO_PROFILE', 'VITE_DEMO_PROFILE', 'full') === 'compact'
-    ? 'compact' as const
-    : 'full' as const,
-
 
   // External API Endpoints (Real Integration)
   API_BASE_URL: getEnv('REACT_APP_API_URL', 'VITE_API_URL', 'https://api.entrepreneurship-nexus.org'),

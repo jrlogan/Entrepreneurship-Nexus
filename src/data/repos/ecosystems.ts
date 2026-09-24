@@ -1,6 +1,5 @@
 
-import type { Ecosystem, ChecklistTemplate } from '../../domain/ecosystems/types';
-import type { PipelineDefinition } from '../../domain/pipelines/types';
+import type { Ecosystem } from '../../domain/ecosystems/types';
 import { ALL_ECOSYSTEMS } from '../mockData';
 
 /**
@@ -51,24 +50,6 @@ export class EcosystemsRepo {
     const ecosystem = this.getById(id);
     if (ecosystem && ecosystem.tags) {
         ecosystem.tags = ecosystem.tags.filter(t => t !== tag);
-    }
-  }
-
-  // --- Pipelines & Checklists ---
-
-  addPipeline(ecosystemId: string, pipeline: PipelineDefinition): void {
-    const ecosystem = this.getById(ecosystemId);
-    if (ecosystem) {
-      if (!ecosystem.pipelines) ecosystem.pipelines = [];
-      ecosystem.pipelines.push(pipeline);
-    }
-  }
-
-  addChecklistTemplate(ecosystemId: string, template: ChecklistTemplate): void {
-    const ecosystem = this.getById(ecosystemId);
-    if (ecosystem) {
-      if (!ecosystem.checklist_templates) ecosystem.checklist_templates = [];
-      ecosystem.checklist_templates.push(template);
     }
   }
 }

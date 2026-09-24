@@ -1,53 +1,45 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { Card, Badge, DemoLink } from '../../shared/ui/Components';
-import { MetricLog } from '../../domain/metrics/types';
-import { IconChart } from '../../shared/ui/Icons';
+import { Card, DemoLink } from '../../shared/ui/Components';
 import type { Organization } from '../../domain/organizations/types';
-import type { Person } from '../../domain/people/types';
 import type { Interaction } from '../../domain/interactions/types';
-import type { Initiative } from '../../domain/pipelines/types';
 import type { Referral } from '../../domain/referrals/types';
+import type { Ecosystem } from '../../domain/ecosystems/types';
 
-import { Ecosystem } from '../../domain/ecosystems/types';
-import { CONFIG } from '../../app/config';
-
-export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) => {
+/**
+ * Staff landing page: what needs attention, and what the network has been
+ * doing with the people you work with.
+ *
+ * Activity from other organizations is shown as a fact — who, what kind, when
+ * — never with its notes. Notes stay with the organization that wrote them.
+ */
+export const DashboardView = ({ ecosystem, onOpenReferrals }: { ecosystem: Ecosystem | null; onOpenReferrals?: () => void }) => {
     const repos = useRepos();
     const viewer = useViewer();
-    const [showMetricBreakdown, setShowMetricBreakdown] = useState(false);
     const [organizations, setOrganizations] = useState<Organization[]>([]);
-    const [people, setPeople] = useState<Person[]>([]);
     const [interactions, setInteractions] = useState<Interaction[]>([]);
-    const [initiatives, setInitiatives] = useState<Initiative[]>([]);
     const [referrals, setReferrals] = useState<Referral[]>([]);
-    
+
     const portalLinks = useMemo(() => {
-        return (ecosystem?.portal_links || []).filter(link => 
+        return (ecosystem?.portal_links || []).filter(link =>
             link.audience === 'all' || link.audience === 'eso'
         );
     }, [ecosystem]);
-    
-    const metricsLogs = repos.metrics.getAll(viewer);
 
     useEffect(() => {
         let cancelled = false;
 
         const loadData = async () => {
-            const [nextOrganizations, nextPeople, nextInteractions, nextInitiatives, nextReferrals] = await Promise.all([
-                repos.organizations.getAll(viewer, viewer.ecosystemId),
-                repos.people.getAll(viewer.ecosystemId),
-                repos.interactions.getAll(viewer, viewer.ecosystemId),
-                repos.pipelines.getInitiativesForViewer(viewer, viewer.ecosystemId),
-                repos.referrals.getAll(viewer),
+            const [nextOrganizations, nextInteractions, nextReferrals] = await Promise.all([
+                repos.organizations.getAll(viewer, viewer.ecosystemId).catch(() => []),
+                repos.interactions.getAll(viewer, viewer.ecosystemId).catch(() => []),
+                repos.referrals.getAll(viewer).catch(() => []),
             ]);
 
             if (!cancelled) {
                 setOrganizations(nextOrganizations);
-                setPeople(nextPeople);
                 setInteractions(nextInteractions);
-                setInitiatives(nextInitiatives);
                 setReferrals(nextReferrals);
             }
         };
@@ -58,324 +50,76 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
         };
     }, [repos, viewer]);
 
-    // Role Logic
-    const isEcoManager = ['platform_admin', 'ecosystem_manager'].includes(viewer.role);
-    const isEso = ['eso_admin', 'eso_staff', 'eso_coach'].includes(viewer.role);
-    const isEntrepreneur = viewer.role === 'entrepreneur';
+    const isNetworkOperator = ['platform_admin', 'ecosystem_manager'].includes(viewer.role);
+    const orgName = (id?: string | null) => organizations.find(o => o.id === id)?.name || 'A partner organization';
 
-    // Metrics Calculation
-    const metrics = useMemo(() => {
-        const now = new Date();
-        const oneYearAgo = new Date();
-        oneYearAgo.setFullYear(now.getFullYear() - 1);
+    const stats = useMemo(() => {
+        const incomingPending = referrals.filter(r => r.receiving_org_id === viewer.orgId && r.status === 'pending');
+        const outgoingOpen = referrals.filter(r => r.referring_org_id === viewer.orgId && (r.status === 'pending' || r.status === 'accepted'));
+        const loggedByUs = interactions.filter(i => i.author_org_id === viewer.orgId);
+        const loggedByOthers = interactions.filter(i => i.author_org_id !== viewer.orgId);
 
-        if (isEcoManager) {
-            return [
-                { label: "Total Organizations", value: organizations.length, color: "text-indigo-600" },
-                { label: "Network Participants", value: people.length, color: "text-green-600" },
-                { label: "Total Interactions", value: interactions.length, color: "text-blue-600" },
-                { label: "Active Projects", value: initiatives.filter(i => i.status === 'active').length, color: "text-purple-600" }
-            ];
+        if (isNetworkOperator) {
+            return {
+                incomingPending,
+                cards: [
+                    { label: 'Organizations', value: organizations.length },
+                    { label: 'Open referrals', value: referrals.filter(r => r.status === 'pending' || r.status === 'accepted').length },
+                    { label: 'Referrals completed', value: referrals.filter(r => r.status === 'completed').length },
+                    { label: 'Activity logged', value: interactions.length },
+                ],
+            };
         }
-
-        if (isEso) {
-            // ESO Context: Focus on served clients and output
-            const myClients = organizations.filter(o => o.managed_by_ids?.includes(viewer.orgId));
-            // Count everything this org has logged, not a rolling window.
-            // The sample data is historical, so a 12-month window rendered as
-            // "0" directly above a visible list of interactions — which reads
-            // as broken rather than as an empty window.
-            const recentInteractions = interactions.filter(i => i.author_org_id === viewer.orgId);
-            const pendingReferrals = referrals.filter(r => r.receiving_org_id === viewer.orgId && r.status === 'pending');
-            
-            // Projects belonging to my clients
-            const clientProjectIds = new Set(myClients.map(c => c.id));
-            const activeClientProjects = initiatives.filter(i => clientProjectIds.has(i.organization_id) && i.status === 'active');
-
-            return [
-                { label: "Active Clients Served", value: myClients.length, color: "text-indigo-600" },
-                { label: "Interactions Logged", value: recentInteractions.length, color: "text-blue-600" },
-                { label: "Pending Referrals", value: pendingReferrals.length, color: "text-orange-600" },
-                { label: "Client Projects", value: activeClientProjects.length, color: "text-purple-600" }
-            ];
-        }
-
-        if (isEntrepreneur) {
-            // Entrepreneur Context: Focus on my stuff
-            const myVentures = initiatives.filter(i => i.organization_id === viewer.orgId);
-            const myTeam = people.filter(p => p.organization_id === viewer.orgId);
-            const myOrg = organizations.find(o => o.id === viewer.orgId);
-            const supportOrgsCount = myOrg?.managed_by_ids?.length || 0;
-            const myInteractions = interactions.filter(i => i.organization_id === viewer.orgId);
-
-            return [
-                { label: "Active Initiatives", value: myVentures.filter(i => i.status === 'active').length, color: "text-indigo-600" },
-                { label: "Team Size", value: myTeam.length, color: "text-green-600" },
-                { label: "Supporting ESOs", value: supportOrgsCount, color: "text-blue-600" },
-                { label: "Interactions Logged", value: myInteractions.length, color: "text-gray-600" }
-            ];
-        }
-        
-        return [];
-    }, [organizations, people, interactions, initiatives, referrals, viewer, isEcoManager, isEso, isEntrepreneur]);
-
-    // Aggregate Impact Logic
-    const impactStats = useMemo(() => {
-        // Group by Org -> Metric Type -> Latest Log
-        const latestValues: Record<string, Record<string, MetricLog>> = {};
-
-        metricsLogs.forEach(log => {
-            if (!latestValues[log.organization_id]) {
-                latestValues[log.organization_id] = {};
-            }
-            const current = latestValues[log.organization_id][log.metric_type];
-            // Simple logic: Take the one with the latest date
-            if (!current || new Date(log.date) > new Date(current.date)) {
-                latestValues[log.organization_id][log.metric_type] = log;
-            }
-        });
-
-        let totalJobs = 0;
-        let totalRevenue = 0;
-        let totalCapital = 0;
-        let verifiedCount = 0;
-        let selfReportedCount = 0;
-
-        Object.values(latestValues).forEach(orgMetrics => {
-            // Jobs (FT + PT if desired, currently just FT per prompt implication of "Jobs created")
-            if (orgMetrics['jobs_ft']) totalJobs += Number(orgMetrics['jobs_ft'].value);
-            
-            // Revenue
-            if (orgMetrics['revenue']) totalRevenue += Number(orgMetrics['revenue'].value);
-            
-            // Capital
-            if (orgMetrics['capital_raised']) totalCapital += Number(orgMetrics['capital_raised'].value);
-            
-            // Source Breakdown
-            Object.values(orgMetrics).forEach(m => {
-                if (['jobs_ft', 'revenue', 'capital_raised'].includes(m.metric_type)) {
-                    if (m.source === 'verified') verifiedCount++;
-                    else selfReportedCount++;
-                }
-            });
-        });
-
-        // Per-organization rows behind the headline totals, so "where does this
-        // number come from?" is answerable in place rather than by leaving for
-        // a separate reporting tool.
-        const breakdown = Object.entries(latestValues)
-            .map(([orgId, orgMetrics]) => ({
-                organizationId: orgId,
-                jobs: orgMetrics['jobs_ft'] ? Number(orgMetrics['jobs_ft'].value) : null,
-                revenue: orgMetrics['revenue'] ? Number(orgMetrics['revenue'].value) : null,
-                capital: orgMetrics['capital_raised'] ? Number(orgMetrics['capital_raised'].value) : null,
-                latestDate: Object.values(orgMetrics)
-                    .map((m) => m.date)
-                    .sort()
-                    .pop() || '',
-                sources: Array.from(new Set(Object.values(orgMetrics).map((m) => m.source))),
-            }))
-            .filter((r) => r.jobs !== null || r.revenue !== null || r.capital !== null)
-            .sort((a, b) => (b.capital || 0) + (b.revenue || 0) - ((a.capital || 0) + (a.revenue || 0)));
 
         return {
-            totalJobs,
-            totalRevenue,
-            totalCapital,
-            verifiedCount,
-            selfReportedCount,
-            totalSources: verifiedCount + selfReportedCount,
-            breakdown,
+            incomingPending,
+            cards: [
+                { label: 'Referrals awaiting your answer', value: incomingPending.length },
+                { label: 'Your open referrals out', value: outgoingOpen.length },
+                { label: 'Activity you logged', value: loggedByUs.length },
+                { label: 'Partner activity visible to you', value: loggedByOthers.length },
+            ],
         };
-    }, [metricsLogs]);
+    }, [organizations, interactions, referrals, viewer.orgId, isNetworkOperator]);
 
-    // Filter Activity List for Relevance
-    const recentActivity = useMemo(() => {
-        let filtered = interactions;
-        if (isEso) {
-            // Show interactions authored by my ESO or about my clients
-             const myClientIds = organizations.filter(o => o.managed_by_ids?.includes(viewer.orgId)).map(o => o.id);
-             filtered = interactions.filter(i => i.author_org_id === viewer.orgId || myClientIds.includes(i.organization_id));
-        } else if (isEntrepreneur) {
-            // Only about me/my org
-            filtered = interactions.filter(i => i.organization_id === viewer.orgId);
-        }
-        
-        return filtered.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
-    }, [interactions, viewer, isEso, isEntrepreneur, organizations]);
-
-    // Entrepreneur Relationship Data
-    const myRelationships = useMemo(() => {
-        if (!isEntrepreneur) return null;
-        const myOrg = organizations.find(o => o.id === viewer.orgId);
-        const supportingOrgs = organizations.filter(o => myOrg?.managed_by_ids?.includes(o.id));
-        return { myOrg, supportingOrgs };
-    }, [isEntrepreneur, organizations, viewer.orgId]);
-
-    const activityTitle = isEntrepreneur ? "My Recent Activity" : isEso ? "My Organization's Activity" : "Recent Network Activity";
-    const isDemoMode = CONFIG.IS_DEMO_MODE;
+    const recentActivity = useMemo(
+        () => [...interactions]
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .slice(0, 8),
+        [interactions]
+    );
 
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                {metrics.map((m, i) => (
-                    <div key={i} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                        <div className="text-sm font-medium text-gray-500 uppercase truncate" title={m.label}>{m.label}</div>
-                        <div className={`mt-2 text-3xl font-bold ${m.color}`}>{m.value}</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+                {stats.cards.map((m) => (
+                    <div key={m.label} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <div className="text-sm font-medium text-gray-500 uppercase" title={m.label}>{m.label}</div>
+                        <div className="mt-2 text-3xl font-bold text-gray-900 tabular-nums">{m.value}</div>
                     </div>
                 ))}
             </div>
 
-            {/* Ecosystem Impact Card (Admin/ESO only) — metrics are mock-only; hide in production */}
-            {isDemoMode && (isEcoManager || isEso) && (
-                <Card title={isEcoManager ? "Ecosystem Impact" : "Portfolio Impact"}>
-                    <div className="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-gray-100">
-                        <div className="flex-1 p-4 text-center">
-                            <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Jobs Created</div>
-                            <div className="text-3xl font-bold text-gray-900">
-                                {impactStats.totalJobs}
+            {stats.incomingPending.length > 0 && (
+                <Card title="Referrals waiting on you">
+                    <div className="space-y-3">
+                        {stats.incomingPending.slice(0, 5).map((r) => (
+                            <div key={r.id} className="flex items-center justify-between gap-4 border-b border-gray-50 pb-3 last:border-0 last:pb-0">
+                                <div className="text-sm">
+                                    <div className="font-medium text-gray-900">From {orgName(r.referring_org_id)}</div>
+                                    <div className="text-xs text-gray-500">Sent {new Date(r.date).toLocaleDateString()}</div>
+                                </div>
+                                {onOpenReferrals && (
+                                    <button type="button" onClick={onOpenReferrals} className="text-sm font-semibold text-indigo-600 hover:underline">
+                                        Review
+                                    </button>
+                                )}
                             </div>
-                            <div className="text-xs text-gray-400 mt-1">Full-Time Equivalents</div>
-                        </div>
-                        <div className="flex-1 p-4 text-center">
-                            <div className="text-xs font-bold text-gray-500 uppercase mb-1">Total Revenue</div>
-                            <div className="text-3xl font-bold text-gray-900">
-                                ${(impactStats.totalRevenue / 1000).toFixed(1)}k
-                            </div>
-                            <div className="text-xs text-gray-400 mt-1">Annual Recurring</div>
-                        </div>
-                        <div className="flex-1 p-4 text-center">
-                            <div className="text-xs font-bold text-gray-500 uppercase mb-1">Capital Raised</div>
-                            <div className="text-3xl font-bold text-gray-900">
-                                ${(impactStats.totalCapital / 1000).toFixed(1)}k
-                            </div>
-                            <div className="text-xs text-gray-400 mt-1">Equity & Grants</div>
-                        </div>
+                        ))}
                     </div>
-                    
-                    <div className="bg-gray-50 p-3 rounded-b-lg border-t border-gray-100 flex justify-between items-center text-xs">
-                        <div className="flex items-center gap-2">
-                            <span className="font-bold text-gray-600">Data Confidence:</span>
-                            <span className="flex items-center gap-1 bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
-                                {impactStats.verifiedCount} Verified
-                            </span>
-                            <span className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                                {impactStats.selfReportedCount} Self-Reported
-                            </span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowMetricBreakdown(v => !v)}
-                            className="text-indigo-600 font-bold hover:underline flex items-center gap-1"
-                            aria-expanded={showMetricBreakdown}
-                        >
-                            <IconChart className="w-3 h-3" />
-                            {showMetricBreakdown ? 'Hide breakdown' : 'Show breakdown'}
-                        </button>
-                    </div>
-
-                    {showMetricBreakdown && (
-                        <div className="border-t border-gray-100 bg-white rounded-b-lg overflow-x-auto">
-                            {impactStats.breakdown.length === 0 ? (
-                                <p className="p-4 text-sm text-gray-500">
-                                    No outcome metrics recorded yet. Numbers appear here as organizations log jobs,
-                                    revenue, and capital against the ventures they support.
-                                </p>
-                            ) : (
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-gray-100">
-                                            <th className="px-4 py-2 font-medium">Venture</th>
-                                            <th className="px-4 py-2 font-medium text-right">Jobs (FT)</th>
-                                            <th className="px-4 py-2 font-medium text-right">Revenue</th>
-                                            <th className="px-4 py-2 font-medium text-right">Capital raised</th>
-                                            <th className="px-4 py-2 font-medium">Latest</th>
-                                            <th className="px-4 py-2 font-medium">Source</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="tabular-nums">
-                                        {impactStats.breakdown.map(row => {
-                                            const org = organizations.find(o => o.id === row.organizationId);
-                                            return (
-                                                <tr key={row.organizationId} className="border-b border-gray-50 last:border-0">
-                                                    <td className="px-4 py-2 font-medium text-gray-800">
-                                                        {org?.name || 'Restricted venture'}
-                                                    </td>
-                                                    <td className="px-4 py-2 text-right text-gray-700">{row.jobs ?? '—'}</td>
-                                                    <td className="px-4 py-2 text-right text-gray-700">
-                                                        {row.revenue === null ? '—' : `$${row.revenue.toLocaleString()}`}
-                                                    </td>
-                                                    <td className="px-4 py-2 text-right text-gray-700">
-                                                        {row.capital === null ? '—' : `$${row.capital.toLocaleString()}`}
-                                                    </td>
-                                                    <td className="px-4 py-2 text-gray-500">{row.latestDate || '—'}</td>
-                                                    <td className="px-4 py-2">
-                                                        <span className="flex flex-wrap gap-1">
-                                                            {row.sources.map(s => (
-                                                                <span
-                                                                    key={s}
-                                                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
-                                                                        s === 'verified'
-                                                                            ? 'bg-green-50 text-green-700 border-green-200'
-                                                                            : 'bg-gray-50 text-gray-600 border-gray-200'
-                                                                    }`}
-                                                                >
-                                                                    {s.replace(/_/g, ' ')}
-                                                                </span>
-                                                            ))}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            )}
-                            <p className="px-4 py-2 text-xs text-gray-500 border-t border-gray-100">
-                                Latest value per venture per metric. These roll up into the ecosystem totals above —
-                                no separate reporting exercise.
-                            </p>
-                        </div>
-                    )}
                 </Card>
             )}
 
-            {/* Entrepreneur Context: Relationships Overview */}
-            {isEntrepreneur && myRelationships && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card title="My Primary Venture">
-                        {myRelationships.myOrg ? (
-                             <div>
-                                <h4 className="text-xl font-bold text-gray-900">{myRelationships.myOrg.name}</h4>
-                                <p className="text-sm text-gray-500 mb-3">{myRelationships.myOrg.description}</p>
-                                <div className="flex flex-wrap gap-2">
-                                     <Badge color="purple">My Workplace</Badge>
-                                     {myRelationships.myOrg.org_type && <Badge key="type" color="blue">{myRelationships.myOrg.org_type.replace(/_/g, ' ')}</Badge>}
-                                     {myRelationships.myOrg.roles.map(r => <Badge key={r} color="indigo">{r}</Badge>)}
-                                </div>
-                             </div>
-                        ) : <p className="text-gray-500 text-sm">No primary organization found.</p>}
-                    </Card>
-                    <Card title="My Support Network (ESOs)">
-                        {myRelationships.supportingOrgs.length > 0 ? (
-                            <div className="space-y-3">
-                                {myRelationships.supportingOrgs.map(eso => (
-                                    <div key={eso.id} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
-                                        <div>
-                                            <div className="font-bold text-gray-900 text-sm">{eso.name}</div>
-                                            <div className="text-xs text-gray-500">Providing Support</div>
-                                        </div>
-                                        <Badge color="green">Active</Badge>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-gray-500 text-sm italic">You are not currently connected to any support organizations.</p>
-                        )}
-                    </Card>
-                </div>
-            )}
-            
             {portalLinks.length > 0 && (
                 <Card title="Quick Links & Resources">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -391,27 +135,34 @@ export const DashboardView = ({ ecosystem }: { ecosystem: Ecosystem | null }) =>
                     </div>
                 </Card>
             )}
-            
-            <Card title={activityTitle}>
+
+            <Card title="Recent activity across the network">
                 <div className="space-y-4">
                     {recentActivity.length === 0 ? (
-                        <p className="text-gray-500 text-sm">No recent activity found.</p>
+                        <p className="text-gray-500 text-sm">No activity yet. Activity appears here as partners log meetings, programs, and referrals for the people you both work with.</p>
                     ) : (
-                        recentActivity.map(int => (
-                            <div key={int.id} className="flex items-start pb-4 border-b border-gray-50 last:border-0 last:pb-0">
-                                <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
-                                    {int.type[0].toUpperCase()}
+                        recentActivity.map(int => {
+                            const isOurs = int.author_org_id === viewer.orgId;
+                            return (
+                                <div key={int.id} className="flex items-start pb-4 border-b border-gray-50 last:border-0 last:pb-0">
+                                    <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                        {int.type[0].toUpperCase()}
+                                    </div>
+                                    <div className="ml-4 min-w-0">
+                                        <p className="text-sm text-gray-900 font-medium">
+                                            {isOurs ? 'Your organization' : orgName(int.author_org_id)} logged a {int.type} with {orgName(int.organization_id)}
+                                        </p>
+                                        {isOurs && int.notes && (
+                                            <p className="text-sm text-gray-600 mt-0.5 truncate">{int.notes}</p>
+                                        )}
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            {new Date(int.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            {!isOurs && ' · notes stay with the recording organization'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="ml-4">
-                                    <p className="text-sm text-gray-900 font-medium">
-                                        {int.notes.length > 80 ? int.notes.substring(0, 80) + '...' : int.notes}
-                                    </p>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        {new Date(int.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • {organizations.find(o => o.id === int.organization_id)?.name}{int.recorded_by ? ` • Recorded by ${int.recorded_by}` : ''}
-                                    </p>
-                                </div>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             </Card>

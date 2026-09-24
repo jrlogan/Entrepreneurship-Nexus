@@ -155,8 +155,7 @@ export const PersonDetailView = ({
   const visibleAffiliations = allAffiliations.filter((affiliation) => affiliation.organization_id);
   const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
   const featureFlags = ecosystem?.settings?.feature_flags || {};
-  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
+  const canAccessInteractions = featureFlags.interactions !== false;
   const isOwnProfile = viewer.personId === person.id;
   const canEditProfile = isOwnProfile
     || viewer.role === 'platform_admin'

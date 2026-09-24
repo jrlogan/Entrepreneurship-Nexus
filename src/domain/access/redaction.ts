@@ -1,11 +1,9 @@
 
-import { Organization, Initiative, Interaction, Referral, MetricLog, SystemRole } from '../types';
+import { Organization, Interaction, Referral, SystemRole } from '../types';
 import { ViewerContext } from './policy';
 
 // --- Constants ---
 export const REDACTED_TEXT = "REDACTED";
-export const RESTRICTED_INITIATIVE_NAME = "Restricted Project";
-export const RESTRICTED_METRIC_NOTE = "Value Hidden";
 
 // --- Admin Viewer for Backward Compatibility ---
 export const ADMIN_VIEWER: ViewerContext = {
@@ -27,25 +25,13 @@ export function redactOrganization(org: Organization): Organization {
     };
 }
 
-export function redactInitiative(init: Initiative): Initiative {
-    return {
-        ...init,
-        name: RESTRICTED_INITIATIVE_NAME,
-        description: REDACTED_TEXT,
-        notes: REDACTED_TEXT,
-        checklists: [] // Hide specific progress details
-        // Keep: id, status, current_stage_index, dates (Velocity metadata)
-    };
-}
-
 export function redactInteraction(int: Interaction): Interaction {
     return {
         ...int,
         notes: REDACTED_TEXT,
         attendees: [], // Hide specific people present
         recorded_by: "Agency Staff", // Mask specific staff member if needed (optional)
-        advisor_suggestions: [],
-        advisor_acceptances: []
+
         // Keep: id, date, type, author_org, visibility (Metadata)
     };
 }
@@ -74,14 +60,5 @@ export function redactReferral(ref: Referral): Referral {
         owner_id: undefined,              // Mask internal owner
         follow_up_date: undefined         // Mask internal workflow
         // Keep: id, referring_org_id, receiving_org_id, status, dates (Flow metadata)
-    };
-}
-
-export function redactMetric(met: MetricLog): MetricLog {
-    return {
-        ...met,
-        value: -1, // Sentinel value for hidden
-        notes: RESTRICTED_METRIC_NOTE
-        // Keep: type, date, source (Impact metadata)
     };
 }

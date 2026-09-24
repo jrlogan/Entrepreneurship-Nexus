@@ -40,20 +40,6 @@ export class InteractionsRepo {
       return results;
   }
 
-  // List specifically for an initiative context
-  async listForInitiative(viewer: ViewerContext, initiativeId: string): Promise<Interaction[]> {
-      // 1. Enforce Ecosystem Scope
-      const scope = validateEcosystemScope(viewer);
-
-      const initInteractions = MOCK_INTERACTIONS.filter(i => 
-          i.initiative_id === initiativeId && 
-          i.ecosystem_id === scope
-      );
-      
-      const results = await Promise.all(initInteractions.map(int => this.applySecurity(viewer, int)));
-      return results;
-  }
-
   async add(interaction: Interaction): Promise<void> {
     MOCK_INTERACTIONS.push(interaction);
     return Promise.resolve();

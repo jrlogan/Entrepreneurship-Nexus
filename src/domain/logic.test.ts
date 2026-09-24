@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectDuplicates, calculatePipelineProgress } from './logic';
+import { detectDuplicates } from './logic';
 import type { Organization } from './organizations/types';
 
 // ---------------------------------------------------------------------------
@@ -147,43 +147,3 @@ describe('detectDuplicates', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// calculatePipelineProgress
-// ---------------------------------------------------------------------------
-describe('calculatePipelineProgress', () => {
-  const pipeline = {
-    id: 'p1',
-    name: 'Test',
-    ecosystem_id: 'eco_test',
-    stages: [
-      { id: 's1', name: 'Intake', order: 0 },
-      { id: 's2', name: 'Active', order: 1 },
-      { id: 's3', name: 'Complete', order: 2 },
-    ],
-  } as any;
-
-  it('returns 0 for first stage', () => {
-    expect(calculatePipelineProgress({ current_stage_index: 0 } as any, pipeline)).toBe(0);
-  });
-
-  it('returns 100 for last stage', () => {
-    expect(calculatePipelineProgress({ current_stage_index: 2 } as any, pipeline)).toBe(100);
-  });
-
-  it('returns 50 for middle stage', () => {
-    expect(calculatePipelineProgress({ current_stage_index: 1 } as any, pipeline)).toBe(50);
-  });
-
-  it('returns 100 for a single-stage pipeline', () => {
-    const single = { ...pipeline, stages: [pipeline.stages[0]] };
-    expect(calculatePipelineProgress({ current_stage_index: 0 } as any, single)).toBe(100);
-  });
-
-  it('returns 0 for empty pipeline', () => {
-    expect(calculatePipelineProgress({ current_stage_index: 0 } as any, { ...pipeline, stages: [] })).toBe(0);
-  });
-
-  it('clamps out-of-bounds index to last stage', () => {
-    expect(calculatePipelineProgress({ current_stage_index: 99 } as any, pipeline)).toBe(100);
-  });
-});

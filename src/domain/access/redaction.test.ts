@@ -1,16 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   redactOrganization,
-  redactInitiative,
   redactInteraction,
   redactReferral,
-  redactMetric,
   REDACTED_TEXT,
-  RESTRICTED_INITIATIVE_NAME,
-  RESTRICTED_METRIC_NOTE,
   ADMIN_VIEWER,
 } from './redaction';
-import type { Organization, Interaction, Referral, MetricLog, Initiative } from '../types';
+import type { Organization, Interaction, Referral } from '../types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -34,19 +30,6 @@ const baseOrg: Organization = {
   api_keys: [{ id: 'k1', label: 'Prod', prefix: 'sk_live_...', created_at: '2024-01-01', status: 'active' }],
 };
 
-const baseInitiative: Initiative = {
-  id: 'init_1',
-  organization_id: 'org_1',
-  ecosystem_id: 'eco_1',
-  name: 'Project Moonshot',
-  description: 'Building a rocket',
-  notes: 'Secret fuel formula',
-  current_stage_index: 2,
-  status: 'active',
-  stage_history: [],
-  checklists: [{ template_id: 'c1', items_checked: {} }],
-};
-
 const baseInteraction: Interaction = {
   id: 'int_1',
   organization_id: 'org_1',
@@ -59,8 +42,6 @@ const baseInteraction: Interaction = {
   notes: 'Founder mentioned running out of cash.',
   attendees: ['Sarah Connor', 'John Doe'],
   recorded_by: 'Special Agent',
-  advisor_suggestions: [{ id: 'sug_1' } as any],
-  advisor_acceptances: [{ id: 'acc_1' } as any],
 };
 
 const baseReferral: Referral = {
@@ -80,17 +61,6 @@ const baseReferral: Referral = {
   follow_up_date: '2024-02-01',
 };
 
-const baseMetric: MetricLog = {
-  id: 'met_1',
-  organization_id: 'org_1',
-  ecosystem_id: 'eco_1',
-  date: '2024-01-01',
-  metric_type: 'revenue',
-  value: 500_000,
-  source: 'self_reported',
-  notes: 'Q4 revenue',
-};
-
 // ---------------------------------------------------------------------------
 // Sentinel constants
 // ---------------------------------------------------------------------------
@@ -100,15 +70,6 @@ describe('Redaction sentinel constants', () => {
     expect(REDACTED_TEXT.length).toBeGreaterThan(0);
   });
 
-  it('RESTRICTED_INITIATIVE_NAME is a non-empty string', () => {
-    expect(typeof RESTRICTED_INITIATIVE_NAME).toBe('string');
-    expect(RESTRICTED_INITIATIVE_NAME.length).toBeGreaterThan(0);
-  });
-
-  it('RESTRICTED_METRIC_NOTE is a non-empty string', () => {
-    expect(typeof RESTRICTED_METRIC_NOTE).toBe('string');
-    expect(RESTRICTED_METRIC_NOTE.length).toBeGreaterThan(0);
-  });
 
   it('ADMIN_VIEWER has platform_admin role', () => {
     expect(ADMIN_VIEWER.role).toBe('platform_admin');
@@ -146,39 +107,6 @@ describe('redactOrganization', () => {
 });
 
 // ---------------------------------------------------------------------------
-// redactInitiative
-// ---------------------------------------------------------------------------
-describe('redactInitiative', () => {
-  it('replaces name with RESTRICTED_INITIATIVE_NAME sentinel', () => {
-    expect(redactInitiative(baseInitiative).name).toBe(RESTRICTED_INITIATIVE_NAME);
-  });
-
-  it('replaces description with REDACTED_TEXT', () => {
-    expect(redactInitiative(baseInitiative).description).toBe(REDACTED_TEXT);
-  });
-
-  it('replaces notes with REDACTED_TEXT', () => {
-    expect(redactInitiative(baseInitiative).notes).toBe(REDACTED_TEXT);
-  });
-
-  it('clears checklists — hides specific progress details', () => {
-    expect(redactInitiative(baseInitiative).checklists).toEqual([]);
-  });
-
-  it('preserves velocity metadata: id, status, current_stage_index', () => {
-    const r = redactInitiative(baseInitiative);
-    expect(r.id).toBe(baseInitiative.id);
-    expect(r.status).toBe(baseInitiative.status);
-    expect(r.current_stage_index).toBe(baseInitiative.current_stage_index);
-  });
-
-  it('does not mutate the original object', () => {
-    redactInitiative(baseInitiative);
-    expect(baseInitiative.name).toBe('Project Moonshot');
-  });
-});
-
-// ---------------------------------------------------------------------------
 // redactInteraction
 // ---------------------------------------------------------------------------
 describe('redactInteraction', () => {
@@ -192,14 +120,6 @@ describe('redactInteraction', () => {
 
   it('masks recorded_by to generic "Agency Staff"', () => {
     expect(redactInteraction(baseInteraction).recorded_by).toBe('Agency Staff');
-  });
-
-  it('clears advisor_suggestions', () => {
-    expect(redactInteraction(baseInteraction).advisor_suggestions).toEqual([]);
-  });
-
-  it('clears advisor_acceptances', () => {
-    expect(redactInteraction(baseInteraction).advisor_acceptances).toEqual([]);
   });
 
   it('preserves flow metadata: id, author_org_id, date, type, visibility', () => {
@@ -273,26 +193,3 @@ describe('redactReferral', () => {
 // ---------------------------------------------------------------------------
 // redactMetric
 // ---------------------------------------------------------------------------
-describe('redactMetric', () => {
-  it('sets value to -1 sentinel — hides actual figure', () => {
-    expect(redactMetric(baseMetric).value).toBe(-1);
-  });
-
-  it('replaces notes with RESTRICTED_METRIC_NOTE sentinel', () => {
-    expect(redactMetric(baseMetric).notes).toBe(RESTRICTED_METRIC_NOTE);
-  });
-
-  it('preserves impact metadata: id, metric_type, date, source', () => {
-    const r = redactMetric(baseMetric);
-    expect(r.id).toBe(baseMetric.id);
-    expect(r.metric_type).toBe(baseMetric.metric_type);
-    expect(r.date).toBe(baseMetric.date);
-    expect(r.source).toBe(baseMetric.source);
-  });
-
-  it('does not mutate the original object', () => {
-    redactMetric(baseMetric);
-    expect(baseMetric.value).toBe(500_000);
-    expect(baseMetric.notes).toBe('Q4 revenue');
-  });
-});

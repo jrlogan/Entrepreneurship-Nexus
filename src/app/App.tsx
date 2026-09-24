@@ -2,10 +2,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Organization, 
-  Initiative, 
-  PipelineDefinition, 
-  MetricLog,
-  PipelineStage,
   Person,
   Interaction,
   InteractionType,
@@ -21,10 +17,6 @@ import { getCapabilitiesForRole } from '../domain/access/policy'; // Imported he
 import { computeNavAccess } from '../domain/access/navAccess';
 import { 
   ALL_ORGANIZATIONS,
-  INITIATIVE_A, 
-  INITIATIVE_B, 
-  INITIATIVE_C,
-  METRIC_LOGS,
   MOCK_PEOPLE,
   MOCK_INTERACTIONS,
   MOCK_REFERRALS,
@@ -35,7 +27,6 @@ import {
   MOCK_SERVICES,
   DARKSTAR_MARINE 
 } from '../data/mockData';
-import { calculatePipelineProgress, calculateDaysBetween, detectDuplicates } from '../domain/logic';
 
 // Repos & Context
 import { AppRepos } from '../data/repos';
@@ -53,8 +44,6 @@ import { OrganizationDetailView } from '../features/directory/OrganizationDetail
 import { AddOrgForm } from '../features/directory/AddOrgForm';
 import { ContactsView } from '../features/people/ContactsView';
 import { PersonDetailView } from '../features/people/PersonDetailView';
-import { InitiativesView } from '../features/pipelines/InitiativesView';
-import { PipelinesView } from '../features/pipelines/PipelinesView';
 import { InteractionsView } from '../features/interactions/InteractionsView';
 import { ReferralsView } from '../features/referrals/ReferralsView';
 import { ReferralFormView } from '../features/referrals/ReferralFormView';
@@ -64,7 +53,6 @@ import { DataStandardsView } from '../features/admin/DataStandardsView';
 import { APIConsoleView } from '../features/admin/APIConsoleView';
 import { EcosystemConfigView } from '../features/admin/EcosystemConfigView';
 import { UserManagementView } from '../features/admin/UserManagementView';
-import { MetricsManagerView } from '../features/admin/MetricsManagerView';
 import { InboundIntakeView } from '../features/admin/InboundIntakeView';
 import { PlatformAdminView } from '../features/admin/PlatformAdminView';
 import { AdminAccessLogView } from '../features/admin/AdminAccessLogView';
@@ -73,10 +61,7 @@ import { AgreementGate } from '../shared/ui/AgreementGate';
 import { LinkedAccountBanner } from '../features/sso/LinkedAccountBanner';
 import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
-import { VentureScoutView } from '../features/scout/VentureScoutView';
-import { TodosView } from '../features/todos/TodosView';
-import { GrantsView } from '../features/grants/GrantsView';
-import { CalendarView } from '../features/calendar/CalendarView';
+import { IntegrationGuideView } from '../features/integration/IntegrationGuideView';
 
 // App Shell
 import { AppShell } from './AppShell';
@@ -93,11 +78,9 @@ import { signOutUser } from '../services/authService';
 import { NEW_HAVEN_ECOSYSTEM as DEFAULT_ECO } from '../data/mockData';
 
 const APP_VIEWS = new Set<ViewMode>([
-  'dashboard', 'directory', 'detail', 'pipelines', 'initiatives', 'reports', 'contacts', 'person_detail',
-  'my_clients', 'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
-  'journey', 'ecosystem_config', 'scout', 'todos', 'my_org', 'my_projects', 'data_standards',
-  'metrics_manager', 'my_metrics_tasks', 'inbound_intake', 'grants',
-  'community_calendar', 'platform_admin', 'admin_access_log',
+  'dashboard', 'directory', 'detail', 'reports', 'contacts', 'person_detail',
+  'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
+  'ecosystem_config', 'my_org', 'data_standards', 'inbound_intake', 'platform_admin', 'admin_access_log', 'integration',
 ]);
 
 type RouteState = {
@@ -162,15 +145,12 @@ const App = () => {
 
   // Which personas the demo offers.
   //
-  // The compact build is the interoperability core, where the coach/mentor
-  // seat is deliberately out of scope: in this model a mentor works in their
-  // own ESO's system and their activity reaches the network through the API,
-  // rather than holding an account in the shared node. Offering the persona
-  // would imply a central seat the compact does not ask for.
+  // The coach/mentor seat is deliberately out of scope: a mentor works in
+  // their own ESO's system and their activity reaches the network through
+  // the API, rather than holding an account in the shared node. Offering the
+  // persona would imply a central seat the compact does not ask for.
   const demoPersonas = useMemo(
-    () => (CONFIG.DEMO_PROFILE === 'compact'
-      ? MOCK_PEOPLE.filter((p) => p.system_role !== 'eso_coach')
-      : MOCK_PEOPLE),
+    () => MOCK_PEOPLE.filter((p) => p.system_role !== 'eso_coach'),
     []
   );
   const [resolvedAuthPerson, setResolvedAuthPerson] = useState<Person | null>(null);
@@ -296,52 +276,14 @@ const App = () => {
       ...baseEcosystem.settings,
       ...(override.settings || {}),
       // Deep-merge feature_flags so a partial override doesn't wipe base flags.
-      // Demo builds force flags on so visitors can explore without an admin.
-      // The 'full' profile opens everything; 'compact' opens only the
-      // interoperability core (see CONFIG.DEMO_PROFILE) so the consortium
-      // demo isn't cluttered with modules that aren't part of the compact.
+      // Demo builds open the operator views too so visitors can explore
+      // without an admin configuring the ecosystem first.
       feature_flags: CONFIG.IS_DEMO_MODE
-        ? (CONFIG.DEMO_PROFILE === 'compact'
-          ? {
-              // Core: the shared record, referrals, and the entrepreneur experience.
-              dashboard: true,
-              interactions: true,
-              api_console: true,
-              data_standards: true,
-              notify_entrepreneurs: true,
-              inbound_intake: true,
-              // Duplicate review IS part of the compact: matching happens in
-              // the API, but resolving a flagged pair needs a human screen.
-              data_quality: true,
-              // Deliberately off — valuable, but not part of the compact.
-              advanced_workflows: false,
-              tasks_advice: false,
-              initiatives: false,
-              processes: false,
-              reports: false,
-              venture_scout: false,
-              metrics_manager: false,
-              grant_lab: false,
-              community_calendar: false,
-            }
-          : {
-            advanced_workflows: true,
-            dashboard: true,
-            tasks_advice: true,
-            initiatives: true,
-            processes: true,
-            interactions: true,
-            reports: true,
-            venture_scout: true,
-            api_console: true,
+        ? {
             data_quality: true,
-            data_standards: true,
-            metrics_manager: true,
             inbound_intake: true,
             notify_entrepreneurs: true,
-            grant_lab: true,
-            community_calendar: true,
-          })
+          }
         : {
             ...(baseEcosystem.settings.feature_flags || {}),
             ...(override.settings?.feature_flags || {}),
@@ -352,19 +294,13 @@ const App = () => {
   const isPlatformAdmin = currentRole === 'platform_admin';
   const {
     canAccessDashboard,
-    canAccessTasksAdvice,
-    canAccessInitiatives,
-    canAccessProcesses,
     canAccessInteractions,
     canAccessReports,
-    canAccessVentureScout,
+    canAccessIntegrationGuide,
     canAccessApiConsole,
     canAccessDataQuality,
     canAccessDataStandards,
-    canAccessMetricsManager,
     canAccessInboundIntake,
-    canAccessGrantLab,
-    canAccessCommunityCalendar,
   } = computeNavAccess(currentRole, featureFlags);
   const canAccessPlatformAdmin = isPlatformAdmin;
 
@@ -570,9 +506,7 @@ const App = () => {
   const [organizations, setOrganizations] = useState<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]>([]);
   const [archivedOrganizations, setArchivedOrganizations] = useState<Organization[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
-  const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
-  const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
 
@@ -603,14 +537,6 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.pipelines.getInitiativesForViewer(viewerContext, currentEcosystemId).then(setInitiatives).catch((error) => {
-        console.error('Failed to load initiatives', error);
-      });
-    }
-  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
-
-  useEffect(() => {
-    if (viewerContext) {
       fetchAcrossViewerNetworks((ecosystemId) =>
         repos.interactions.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
       ).then(setInteractions).catch((error) => {
@@ -618,16 +544,6 @@ const App = () => {
       });
     }
   }, [repos, viewerContext, currentEcosystemId, dataVersion, fetchAcrossViewerNetworks]);
-
-  useEffect(() => {
-    if (shouldRequireAuth && !viewerContext) {
-      return;
-    }
-
-    repos.pipelines.getPipelines(currentEcosystemId).then(setPipelines).catch((error) => {
-      console.error('Failed to load pipelines', error);
-    });
-  }, [repos, currentEcosystemId, dataVersion, shouldRequireAuth, viewerContext]);
 
   useEffect(() => {
     if (viewerContext) {
@@ -731,19 +647,13 @@ const App = () => {
   useEffect(() => {
     const viewFeatureBlocked =
       (view === 'dashboard' && !canAccessDashboard) ||
-      (view === 'todos' && !canAccessTasksAdvice) ||
-      (view === 'initiatives' && !canAccessInitiatives) ||
-      (view === 'pipelines' && !canAccessProcesses) ||
       (view === 'interactions' && !canAccessInteractions) ||
       (view === 'reports' && !canAccessReports) ||
-      (view === 'scout' && !canAccessVentureScout) ||
+      (view === 'integration' && !canAccessIntegrationGuide) ||
       (view === 'api_console' && !canAccessApiConsole) ||
       (view === 'data_quality' && !canAccessDataQuality) ||
       (view === 'data_standards' && !canAccessDataStandards) ||
-      (view === 'metrics_manager' && !canAccessMetricsManager) ||
       (view === 'inbound_intake' && !canAccessInboundIntake) ||
-      (view === 'grants' && !canAccessGrantLab) ||
-      (view === 'community_calendar' && !canAccessCommunityCalendar) ||
       (view === 'platform_admin' && !canAccessPlatformAdmin);
 
     if (viewFeatureBlocked) {
@@ -754,16 +664,11 @@ const App = () => {
     canAccessDashboard,
     canAccessDataQuality,
     canAccessDataStandards,
-    canAccessGrantLab,
     canAccessInboundIntake,
+    canAccessIntegrationGuide,
     canAccessInteractions,
-    canAccessInitiatives,
-    canAccessMetricsManager,
     canAccessPlatformAdmin,
-    canAccessProcesses,
     canAccessReports,
-    canAccessTasksAdvice,
-    canAccessVentureScout,
     currentRole,
     view,
   ]);
@@ -887,7 +792,7 @@ const App = () => {
            )}
            {view === 'dashboard' && (
                canAccessDashboard ? (
-               <DashboardView ecosystem={currentEcosystem} />
+               <DashboardView ecosystem={currentEcosystem} onOpenReferrals={() => handleNavigate('referrals')} />
                ) : null
            )}
            {view === 'directory' && (
@@ -907,39 +812,9 @@ const App = () => {
                    onSelectPerson={navigateToPerson} 
                />
            )}
-           {view === 'initiatives' && (
-               canAccessInitiatives ? (
-               <InitiativesView initiatives={initiatives} organizations={organizations} pipelines={pipelines} currentEcosystem={currentEcosystem} onRefresh={refreshData} />
-               ) : null
-           )}
-           {view === 'pipelines' && (
-               canAccessProcesses ? (
-               <PipelinesView pipelines={pipelines} />
-               ) : null
-           )}
-           {view === 'scout' && (
-               canAccessVentureScout ? (
-               <VentureScoutView />
-               ) : null
-           )}
            {view === 'interactions' && (
                canAccessInteractions ? (
                <InteractionsView />
-               ) : null
-           )}
-           {view === 'todos' && (
-               canAccessTasksAdvice ? (
-               <TodosView />
-               ) : null
-           )}
-           {view === 'grants' && (
-               canAccessGrantLab ? (
-               <GrantsView onLinkToInitiative={(organizationId) => navigateToOrg(organizationId, 'initiatives')} />
-               ) : null
-           )}
-           {view === 'community_calendar' && (
-               canAccessCommunityCalendar ? (
-               <CalendarView />
                ) : null
            )}
            {view === 'referrals' && (
@@ -976,6 +851,15 @@ const App = () => {
                <DataStandardsView />
                ) : null
            )}
+           {view === 'integration' && canAccessIntegrationGuide && (
+               <IntegrationGuideView
+                 organization={myOrganization}
+                 ecosystem={currentEcosystem}
+                 viewerRole={currentRole}
+                 onOpenApiConsole={() => handleNavigate('api_console')}
+                 onOpenOrganization={(orgId) => navigateToOrg(orgId, 'settings')}
+               />
+           )}
            {view === 'api_console' && (
                canAccessApiConsole ? (
                <APIConsoleView />
@@ -992,11 +876,6 @@ const App = () => {
                  viewerRole={currentRole}
                />
            )}
-           {view === 'metrics_manager' && (
-               canAccessMetricsManager ? (
-               <MetricsManagerView />
-               ) : null
-           )}
            {view === 'inbound_intake' && (
                canAccessInboundIntake ? (
                <InboundIntakeView />
@@ -1011,14 +890,12 @@ const App = () => {
            {view === 'my_ventures' && (
                <MyVenturesView 
                   person={activeUser} 
-                  initiatives={initiatives} 
                   organizations={organizations} 
                   people={people}
                   interactions={interactions}
                   referrals={referrals}
                   services={services}
                   actingOrgId={currentOrgId}
-                  onAdvance={() => {}} 
                   onRefresh={refreshData}
                   onSelectOrganization={navigateToOrg}
                   onCreateOrganization={() => setIsAddOrgOpen(true)}
@@ -1041,7 +918,6 @@ const App = () => {
                 org={selectedOrganization}
                 organizations={organizations}
                 people={people}
-                initiatives={initiatives}
                 interactions={interactions}
                 referrals={referrals}
                 services={services}
@@ -1083,7 +959,6 @@ const App = () => {
                 org={myOrganization} 
                 organizations={organizations}
                 people={people}
-                initiatives={initiatives}
                 interactions={interactions}
                 referrals={referrals}
                 services={services}
@@ -1101,21 +976,9 @@ const App = () => {
                 Your account does not currently have a primary organization linked in this ecosystem yet.
               </div>
            )}
-           {view === 'my_projects' && (
-               <InitiativesView 
-                  initiatives={initiatives.filter(i => i.organization_id === currentOrgId)} 
-                  organizations={organizations.filter(o => 
-                      o.id === currentOrgId || 
-                      (activeUser.secondary_profile && o.id === activeUser.secondary_profile.organization_id)
-                  )} 
-                  pipelines={pipelines}
-                  currentEcosystem={currentEcosystem}
-                  onRefresh={refreshData}
-               />
-           )}
            
            {/* Fallback for other views */}
-           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin', 'admin_access_log', 'grants', 'community_calendar', 'referral_form'].includes(view) && (
+           {!APP_VIEWS.has(view) && (
               <div className="flex items-center justify-center h-full text-gray-400">
                 View "{view}" is under construction.
               </div>

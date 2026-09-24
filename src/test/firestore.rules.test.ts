@@ -128,11 +128,13 @@ beforeEach(async () => {
       status: 'pending',
     });
 
-    await setDoc(doc(db, 'initiatives/init_b'), {
-      id: 'init_b',
+    await setDoc(doc(db, 'participations/part_b'), {
+      id: 'part_b',
       ecosystem_id: ECO_B,
-      organization_id: ORG_B,
-      name: 'Project B',
+      provider_org_id: ORG_B,
+      recipient_person_id: 'founder_b',
+      participation_type: 'program',
+      status: 'active',
     });
 
     await setDoc(doc(db, 'ecosystems/eco_a'), { id: ECO_A, name: 'Ecosystem A' });
@@ -171,9 +173,9 @@ describe('cross-ecosystem isolation', () => {
     await assertFails(getDoc(doc(db, 'referrals/ref_b')));
   });
 
-  it('blocks reading an initiative from another ecosystem', async () => {
+  it('blocks reading a participation from another ecosystem', async () => {
     const db = authed('staff_a');
-    await assertFails(getDoc(doc(db, 'initiatives/init_b')));
+    await assertFails(getDoc(doc(db, 'participations/part_b')));
   });
 
   it('allows a multi-ecosystem member to read in both ecosystems', async () => {
@@ -313,13 +315,15 @@ describe('in-ecosystem writes still work', () => {
     }));
   });
 
-  it('allows creating an initiative in the caller\'s own ecosystem', async () => {
+  it('allows recording a participation in the caller\'s own ecosystem', async () => {
     const db = authed('staff_a');
-    await assertSucceeds(setDoc(doc(db, 'initiatives/init_new'), {
-      id: 'init_new',
+    await assertSucceeds(setDoc(doc(db, 'participations/part_new'), {
+      id: 'part_new',
       ecosystem_id: ECO_A,
-      organization_id: ORG_A,
-      name: 'New Project',
+      provider_org_id: ORG_A,
+      recipient_person_id: 'founder_a',
+      participation_type: 'program',
+      status: 'active',
     }));
   });
 });

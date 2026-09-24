@@ -1,6 +1,4 @@
 
-import type { PipelineDefinition } from '../pipelines/types';
-
 export interface PortalLink {
   id: string;
   label: string;
@@ -8,18 +6,6 @@ export interface PortalLink {
   icon?: string; // emoji or svg name
   description?: string;
   audience: 'all' | 'entrepreneur' | 'eso'; // New: Who sees this link
-}
-
-export interface ChecklistTemplate {
-  id: string;
-  name: string; // e.g. "Legal & Admin"
-  description?: string; // Added
-  items: string[]; // e.g. ["Incorporation Documents", "EIN Obtained", "Bank Account Open"]
-}
-
-export interface ChecklistProgress {
-  template_id: string;
-  items_checked: Record<string, boolean>; // {"Incorporation Documents": true}
 }
 
 export interface Ecosystem {
@@ -30,35 +16,16 @@ export interface Ecosystem {
     // Default visibility for newly logged interactions (InteractionVisibility vocabulary)
     interaction_privacy_default: 'network_shared' | 'eso_private';
     feature_flags?: {
-      advanced_workflows?: boolean;
       dashboard?: boolean;
-      tasks_advice?: boolean;
-      initiatives?: boolean;
-      processes?: boolean;
       interactions?: boolean;
-      interactions_ai?: boolean;
       reports?: boolean;
-      venture_scout?: boolean;
       api_console?: boolean;
       data_quality?: boolean;
       data_standards?: boolean;
-      metrics_manager?: boolean;
       inbound_intake?: boolean;
       notify_entrepreneurs?: boolean;
-      grant_lab?: boolean;
-      community_calendar?: boolean;
     };
-    // Community Calendar geographic profile — used for cross-ecosystem routing
-    geo_state?: string;
-    geo_metros?: string[];
-    geo_adjacent?: string[];
-    // Default auto-approve threshold for AI-classified events (0–1). Per-source can override.
-    calendar_auto_approve_threshold?: number;
   };
-  // Configurable checklists available to all initiatives in this ecosystem
-  checklist_templates?: ChecklistTemplate[];
-  // Configurable pipelines specific to this ecosystem
-  pipelines: PipelineDefinition[];
   // Admin configurable links for the client portal
   portal_links?: PortalLink[];
   // Admin configurable tags available for entities in this ecosystem

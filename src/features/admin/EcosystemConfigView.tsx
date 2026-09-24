@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Ecosystem } from '../../domain/types';
-import { AdvisorConfig, AdvisorResource } from '../../domain/advisor/types';
 import { Card, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, FORM_TEXTAREA_CLASS, Badge, DemoLink, Modal } from '../../shared/ui/Components';
 import { useRepos } from '../../data/AppDataContext';
 import { PortalLink } from '../../domain/ecosystems/types';
@@ -22,9 +21,6 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
     const [activeEcoId, setActiveEcoId] = useState(ecosystem.id);
     const activeEco = allEcosystems.find(e => e.id === activeEcoId) || ecosystem;
 
-    // --- Advisor config ---
-    const [advisorConfig, setAdvisorConfig] = useState<AdvisorConfig | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -49,22 +45,14 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
 
     // --- Feature flags ---
     const [featureFlags, setFeatureFlags] = useState({
-        advanced_workflows: activeEco.settings.feature_flags?.advanced_workflows ?? false,
-        dashboard: activeEco.settings.feature_flags?.dashboard ?? false,
-        tasks_advice: activeEco.settings.feature_flags?.tasks_advice ?? false,
-        initiatives: activeEco.settings.feature_flags?.initiatives ?? false,
-        processes: activeEco.settings.feature_flags?.processes ?? false,
-        interactions: activeEco.settings.feature_flags?.interactions ?? false,
-        reports: activeEco.settings.feature_flags?.reports ?? false,
-        venture_scout: activeEco.settings.feature_flags?.venture_scout ?? false,
-        api_console: activeEco.settings.feature_flags?.api_console ?? false,
+        dashboard: activeEco.settings.feature_flags?.dashboard ?? true,
+        interactions: activeEco.settings.feature_flags?.interactions ?? true,
+        reports: activeEco.settings.feature_flags?.reports ?? true,
+        api_console: activeEco.settings.feature_flags?.api_console ?? true,
+        data_standards: activeEco.settings.feature_flags?.data_standards ?? true,
         data_quality: activeEco.settings.feature_flags?.data_quality ?? false,
-        data_standards: activeEco.settings.feature_flags?.data_standards ?? false,
-        metrics_manager: activeEco.settings.feature_flags?.metrics_manager ?? false,
         inbound_intake: activeEco.settings.feature_flags?.inbound_intake ?? false,
         notify_entrepreneurs: activeEco.settings.feature_flags?.notify_entrepreneurs ?? false,
-        grant_lab: activeEco.settings.feature_flags?.grant_lab ?? false,
-        community_calendar: activeEco.settings.feature_flags?.community_calendar ?? false,
     });
 
     // --- Add Ecosystem modal ---
@@ -73,40 +61,22 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
     const [newEcoRegion, setNewEcoRegion] = useState('');
     const [isCreatingEco, setIsCreatingEco] = useState(false);
 
-    // Resource form
-    const [newResTitle, setNewResTitle] = useState('');
-    const [newResUrl, setNewResUrl] = useState('');
-    const [newResNote, setNewResNote] = useState('');
-
     // Reset all state when the active ecosystem changes
     useEffect(() => {
-        setIsLoading(true);
-        const config = repos.advisor.getConfig(activeEcoId);
-        setAdvisorConfig(config ? { ...config } : null);
-        setIsLoading(false);
-
         setEcoName(activeEco.name);
         setEcoRegion(activeEco.region);
         setEcoPrivacy(activeEco.settings.interaction_privacy_default);
         setTags(activeEco.tags || []);
         setPortalLinks(activeEco.portal_links || []);
         setFeatureFlags({
-            advanced_workflows: activeEco.settings.feature_flags?.advanced_workflows ?? false,
-            dashboard: activeEco.settings.feature_flags?.dashboard ?? false,
-            tasks_advice: activeEco.settings.feature_flags?.tasks_advice ?? false,
-            initiatives: activeEco.settings.feature_flags?.initiatives ?? false,
-            processes: activeEco.settings.feature_flags?.processes ?? false,
-            interactions: activeEco.settings.feature_flags?.interactions ?? false,
-            reports: activeEco.settings.feature_flags?.reports ?? false,
-            venture_scout: activeEco.settings.feature_flags?.venture_scout ?? false,
-            api_console: activeEco.settings.feature_flags?.api_console ?? false,
+            dashboard: activeEco.settings.feature_flags?.dashboard ?? true,
+            interactions: activeEco.settings.feature_flags?.interactions ?? true,
+            reports: activeEco.settings.feature_flags?.reports ?? true,
+            api_console: activeEco.settings.feature_flags?.api_console ?? true,
+            data_standards: activeEco.settings.feature_flags?.data_standards ?? true,
             data_quality: activeEco.settings.feature_flags?.data_quality ?? false,
-            data_standards: activeEco.settings.feature_flags?.data_standards ?? false,
-            metrics_manager: activeEco.settings.feature_flags?.metrics_manager ?? false,
             inbound_intake: activeEco.settings.feature_flags?.inbound_intake ?? false,
             notify_entrepreneurs: activeEco.settings.feature_flags?.notify_entrepreneurs ?? false,
-            grant_lab: activeEco.settings.feature_flags?.grant_lab ?? false,
-            community_calendar: activeEco.settings.feature_flags?.community_calendar ?? false,
         });
 
         // Overlay with saved data — localStorage first (instant, all envs), then Firestore if available
@@ -149,9 +119,6 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             tags,
             settings: { ...activeEco.settings, interaction_privacy_default: ecoPrivacy, feature_flags: featureFlags },
         });
-        if (advisorConfig) {
-            repos.advisor.updateConfig(activeEcoId, advisorConfig);
-        }
 
         const payload = {
             id: activeEcoId,
@@ -212,24 +179,6 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
         setPortalLinks(prev => prev.filter(l => l.id !== id));
     };
 
-    // --- Advisor helpers ---
-    const toggleAdvisorFeature = (field: 'enable_advisor_suggestions' | 'enable_referral_suggestions') => {
-        if (!advisorConfig) return;
-        setAdvisorConfig({ ...advisorConfig, [field]: !advisorConfig[field] });
-    };
-
-    const addResource = () => {
-        if (!advisorConfig || !newResTitle || !newResUrl) return;
-        const newResource: AdvisorResource = { id: `res_${Date.now()}`, title: newResTitle, url: newResUrl, note: newResNote };
-        setAdvisorConfig({ ...advisorConfig, resources: [...advisorConfig.resources, newResource] });
-        setNewResTitle(''); setNewResUrl(''); setNewResNote('');
-    };
-
-    const removeResource = (id: string) => {
-        if (!advisorConfig) return;
-        setAdvisorConfig({ ...advisorConfig, resources: advisorConfig.resources.filter(r => r.id !== id) });
-    };
-
     // --- Feature flags ---
     const toggleWorkspaceFeature = (field: keyof typeof featureFlags) => {
         setFeatureFlags(prev => ({ ...prev, [field]: !prev[field] }));
@@ -244,7 +193,6 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             id,
             name: newEcoName.trim(),
             region: newEcoRegion.trim(),
-            pipelines: [],
             settings: { interaction_privacy_default: 'network_shared' },
         };
         try {
@@ -354,82 +302,6 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
                 </Card>
             </div>
 
-            {/* AI Advisor */}
-            <Card title="AI Advisor Configuration" className="border-t-4 border-t-purple-500">
-                {isLoading ? <p className="text-gray-500 p-4">Loading...</p> : advisorConfig ? (
-                    <div className="space-y-6">
-                        <div className="flex gap-6 p-4 bg-purple-50 rounded-lg border border-purple-100">
-                            {(['enable_advisor_suggestions', 'enable_referral_suggestions'] as const).map(field => (
-                                <div key={field} className="flex items-center gap-3">
-                                    <button
-                                        onClick={() => toggleAdvisorFeature(field)}
-                                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${advisorConfig[field] ? 'bg-purple-600' : 'bg-gray-200'}`}
-                                    >
-                                        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${advisorConfig[field] ? 'translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
-                                    <span className="text-sm font-medium text-gray-900">
-                                        {field === 'enable_advisor_suggestions' ? 'Enable Suggestions' : 'Allow Automated Referrals'}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <label className={FORM_LABEL_CLASS}>System Instruction / Persona</label>
-                            <p className="text-xs text-gray-500 mb-1">Define how the AI should behave for this ecosystem.</p>
-                            <textarea
-                                className={`${FORM_TEXTAREA_CLASS} font-mono text-sm`}
-                                rows={5}
-                                value={advisorConfig.system_instruction_template}
-                                onChange={e => setAdvisorConfig({ ...advisorConfig, system_instruction_template: e.target.value })}
-                            />
-                        </div>
-                        <div>
-                            <label className={FORM_LABEL_CLASS}>Knowledge Base: Key Resources</label>
-                            <p className="text-xs text-gray-500 mb-2">External links the Advisor should recommend.</p>
-                            <div className="border border-gray-200 rounded-md overflow-hidden mb-3">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
-                                        <tr>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Context Note</th>
-                                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
-                                        {advisorConfig.resources.map(res => (
-                                            <tr key={res.id}>
-                                                <td className="px-3 py-2 text-sm text-gray-900 font-medium">{res.title}</td>
-                                                <td className="px-3 py-2 text-sm text-indigo-600 truncate max-w-[150px]">
-                                                    <DemoLink href={res.url} title={res.title}>{res.url}</DemoLink>
-                                                </td>
-                                                <td className="px-3 py-2 text-sm text-gray-500">{res.note}</td>
-                                                <td className="px-3 py-2 text-right">
-                                                    <button onClick={() => removeResource(res.id)} className="text-red-600 hover:text-red-900 text-xs font-bold">Remove</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {advisorConfig.resources.length === 0 && (
-                                            <tr><td colSpan={4} className="px-3 py-4 text-center text-sm text-gray-400 italic">No custom resources added.</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="bg-gray-50 p-3 rounded border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-                                <input className={FORM_INPUT_CLASS} placeholder="Title" value={newResTitle} onChange={e => setNewResTitle(e.target.value)} />
-                                <input className={FORM_INPUT_CLASS} placeholder="https://..." value={newResUrl} onChange={e => setNewResUrl(e.target.value)} />
-                                <input className={FORM_INPUT_CLASS} placeholder="Short note for AI..." value={newResNote} onChange={e => setNewResNote(e.target.value)} />
-                                <button onClick={addResource} disabled={!newResTitle || !newResUrl} className="w-full px-3 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
-                                    + Add Resource
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="p-4 text-red-500">No advisor configuration found for this ecosystem.</div>
-                )}
-            </Card>
-
             {/* Portal Links */}
             <Card title="Portal Quick Links (Resource Hub)">
                 <div className="space-y-2">
@@ -468,22 +340,14 @@ export const EcosystemConfigView = ({ ecosystem, allEcosystems, viewerRole }: Pr
             <Card title="Workspace Features">
                 <div className="divide-y divide-gray-100">
                     {([
-                        { key: 'notify_entrepreneurs', label: 'Notify Entrepreneurs', description: 'Send email notifications to entrepreneurs for referral decisions.' },
-                        { key: 'inbound_intake', label: 'Inbound Intake', description: 'Enable inbound email processing for activity capture.' },
-                        { key: 'grant_lab', label: 'Grant Lab', description: 'Enable collaborative grant research, automated matching, and joint drafting.' },
-                        { key: 'community_calendar', label: 'Community Calendar', description: 'Aggregate entrepreneurial events from multiple sources with AI classification and ecosystem-scoped iCal feeds.' },
-                        { key: 'interactions', label: 'Interactions', description: 'Track and manage interactions between parties.' },
-                        { key: 'dashboard', label: 'Dashboard', description: 'Show the activity dashboard.' },
-                        { key: 'reports', label: 'Reports', description: 'Enable reporting features.' },
-                        { key: 'data_quality', label: 'Data Quality', description: 'Show data quality tools.' },
-                        { key: 'data_standards', label: 'Data Standards', description: 'Enable data standards management.' },
-                        { key: 'metrics_manager', label: 'Metrics Manager', description: 'Enable metrics tracking and management.' },
-                        { key: 'venture_scout', label: 'Venture Scout', description: 'Enable venture scouting features.' },
-                        { key: 'api_console', label: 'API Console', description: 'Show the API console for developers.' },
-                        { key: 'advanced_workflows', label: 'Advanced Workflows', description: 'Enable advanced workflow automation.' },
-                        { key: 'tasks_advice', label: 'Tasks & Advice', description: 'Enable tasks and advice tracking.' },
-                        { key: 'initiatives', label: 'Initiatives', description: 'Enable initiatives management.' },
-                        { key: 'processes', label: 'Processes', description: 'Enable process tracking.' },
+                        { key: 'dashboard', label: 'Dashboard', description: 'Staff landing page: referrals waiting, recent partner activity.' },
+                        { key: 'interactions', label: 'Activity', description: 'Log meetings and support, and see the facts partners share about people you both work with.' },
+                        { key: 'reports', label: 'Reports', description: 'Referral follow-through and anonymous network statistics.' },
+                        { key: 'api_console', label: 'API Keys & Webhooks', description: 'Let ESO admins issue their organization API keys and register webhooks.' },
+                        { key: 'data_standards', label: 'Data Standards', description: 'Let staff read the shared field standard and vocabularies they map onto.' },
+                        { key: 'data_quality', label: 'Data Quality for ESO admins', description: 'Let ESO admins review duplicate records. Network operators always can.' },
+                        { key: 'inbound_intake', label: 'Inbound Intake for ecosystem managers', description: 'Review inbound referral emails (BCC intake).' },
+                        { key: 'notify_entrepreneurs', label: 'Notify Entrepreneurs', description: 'Email entrepreneurs about referral decisions.' },
                     ] as Array<{ key: keyof typeof featureFlags, label: string, description: string }>).map(({ key, label, description }) => (
                         <div key={key} className="flex items-center justify-between py-3">
                             <div>

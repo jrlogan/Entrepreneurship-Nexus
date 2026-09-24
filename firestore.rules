@@ -259,40 +259,6 @@ service cloud.firestore {
       allow delete: if isPlatformAdmin();
     }
 
-    match /pipelines/{pipelineId} {
-      allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin();
-    }
-
-    // The collections below are always queried with an ecosystem_id filter by
-    // the Firebase repos, so tenancy scoping here matches the real read path.
-    match /initiatives/{initiativeId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isPlatformAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update, delete: if (isPlatformAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-    }
-
-    match /grants/{grantId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /monitored_grant_sources/{sourceId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /grant_drafts/{draftId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-      allow delete: if isPlatformAdmin();
-    }
-
     // Participation records are service-utilization data — who is enrolled in
     // which program at which agency. Reads are scoped to the caller's own
     // ecosystems; writes additionally require the caller to be an operator in
@@ -479,37 +445,6 @@ service cloud.firestore {
     match /security_events/{eventId} {
       allow read: if isPlatformAdmin();
       allow write: if false;
-    }
-
-    // Community Calendar
-    // Events: public read for approved/auto-approved + public visibility; admins see everything.
-    match /events/{eventId} {
-      allow read: if (
-        resource.data.visibility == 'public' &&
-        (resource.data.status == 'approved' || resource.data.status == 'auto_approved')
-      ) || isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /event_sources/{sourceId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /event_source_runs/{runId} {
-      allow read: if isNetworkAdmin() || isEsoOperator();
-      allow write: if false;
-    }
-
-    match /event_flags/{flagId} {
-      // Flags can be filed by anyone — including unauthenticated visitors —
-      // because public-facing event listings need a way to surface bad data.
-      allow read: if isNetworkAdmin() || isEsoOperator();
-      allow create: if true;
-      allow update: if isNetworkAdmin() || isEsoOperator();
-      allow delete: if isPlatformAdmin();
     }
 
     match /ecosystems/{ecosystemId} {
