@@ -1385,7 +1385,7 @@ export const onInteractionCreatedDeliverWebhooks = onDocumentCreated(
 /**
  * Fires on every referral create or update.
  * Delivers `referral.received` on creation, `referral.updated` on changes.
- * Events are sent to webhooks on the receiving ESO's org.
+ * Events go to the receiving org; status changes also go to the referring org.
  *
  * Tier-aware: payload is built by buildReferralWebhookPayload, which
  * never includes notes or response_notes (tier-3 ESO-owned content).
@@ -1411,6 +1411,13 @@ export const onReferralWrittenDeliverWebhooks = onDocumentWritten(
     const referralId = event.data?.after?.id ?? '';
     const payload = buildReferralWebhookPayload(after, referralId);
     await deliverWebhooksForOrg(db, receivingOrgId, eventName, payload as unknown as Record<string, unknown>);
+
+    // The referring organization needs to know how its referral was answered
+    // (accepted, declined, completed) to close the loop in its own system.
+    const referringOrgId = after.referring_org_id as string | undefined;
+    if (!isCreate && referringOrgId && referringOrgId !== receivingOrgId && before?.status !== after.status) {
+      await deliverWebhooksForOrg(db, referringOrgId, 'referral.updated', payload as unknown as Record<string, unknown>);
+    }
   }
 );
 

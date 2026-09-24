@@ -676,21 +676,22 @@ export const APIConsoleView = () => {
                                 shown here are what an integrator will copy. It authenticates
                                 with X-Nexus-API-Key, not a bearer token. */}
                             <p className="text-sm text-gray-600">Authenticate every request with your organization's key in this header:</p>
-                            <CodeBlock code={`X-Nexus-API-Key: nxk_live_...`} />
+                            <CodeBlock code={`X-Nexus-API-Key: sk_live_...`} />
                             <p className="text-sm text-gray-600 mt-4">Example — push a person from your own system (idempotent on <code>external_ref</code>):</p>
                             <CodeBlock code={`curl -s -X POST $BASE/partnerUpsertPerson \\
   -H "Content-Type: application/json" \\
-  -H "X-Nexus-API-Key: nxk_live_..." \\
+  -H "X-Nexus-API-Key: sk_live_..." \\
   -d '{"external_ref":{"source":"your_crm","id":"42"},
       "ecosystem_id":"...","eso_org_id":"...",
       "first_name":"Ada","last_name":"Founder",
       "email":"ada@example.com"}'`} />
                             <p className="text-sm text-gray-600 mt-4">Read it back — you only ever see your own identifiers:</p>
                             <CodeBlock code={`curl "$BASE/partnerGetPerson?source=your_crm&id=42" \\
-  -H "X-Nexus-API-Key: nxk_live_..."`} />
+  -H "X-Nexus-API-Key: sk_live_..."`} />
                             <p className="text-xs text-gray-500">
-                                Full reference, an importable OpenAPI spec, and prompts you can hand to an AI
-                                assistant are in <span className="font-mono">docs/partner-api/</span> in the repository.
+                                The step-by-step integration brief — with your identifiers filled in, ready to hand to a
+                                developer or AI coding assistant — is on the <strong>Connect Your System</strong> page. The OpenAPI
+                                spec is in <span className="font-mono">docs/partner-api/</span> in the repository.
                             </p>
                         </div>
                     </Card>

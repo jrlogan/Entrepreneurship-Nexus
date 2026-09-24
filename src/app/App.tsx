@@ -930,8 +930,9 @@ const App = () => {
                  organization={myOrganization}
                  ecosystem={currentEcosystem}
                  viewerRole={currentRole}
+                 orgSignature={orgSignature}
                  onOpenApiConsole={() => handleNavigate('api_console')}
-                 onOpenOrganization={(orgId) => navigateToOrg(orgId, 'settings')}
+                 onOpenJoinNetwork={() => handleNavigate('join_network')}
                />
            )}
            {view === 'api_console' && (
