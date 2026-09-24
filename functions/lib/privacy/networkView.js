@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getNetworkView = exports.loadNetworkData = exports.resolveViewer = void 0;
+exports.getNetworkStats = exports.getNetworkView = exports.loadNetworkData = exports.resolveViewer = void 0;
 /**
  * getNetworkView — the redacting read path.
  *
@@ -49,6 +49,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const policy_1 = require("./policy");
 const orgSignatures_1 = require("../agreements/orgSignatures");
+const networkStats_1 = require("../metrics/networkStats");
 const VIEWER_ROLES = ['platform_admin', 'ecosystem_manager', 'eso_admin', 'eso_staff', 'eso_coach', 'entrepreneur'];
 const setCors = (res) => {
     res.set('Access-Control-Allow-Origin', '*');
@@ -183,4 +184,58 @@ exports.getNetworkView = (0, https_1.onRequest)({ invoker: 'public' }, async (re
         viewer: { role: viewer.role, org_id: viewer.orgId, ecosystem_id: viewer.ecosystemId, org_has_signed: viewer.orgHasSigned !== false },
         ...view,
     });
+});
+/**
+ * getNetworkStats — anonymous aggregate statistics for one network.
+ *
+ * POST { ecosystem_id, from?, to? } with a Firebase ID token. For partner
+ * staff whose organization has signed the agreements, and network operators.
+ * Computed over every partner's records; only counts are returned
+ * (functions/src/metrics/networkStats.ts).
+ */
+exports.getNetworkStats = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
+    setCors(res);
+    if (req.method === 'OPTIONS') {
+        res.status(204).send('');
+        return;
+    }
+    if (req.method !== 'POST') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    const token = bearer(req);
+    if (!token) {
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+    }
+    let uid;
+    try {
+        uid = (await admin.auth().verifyIdToken(token)).uid;
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid authentication token' });
+        return;
+    }
+    const ecosystemId = typeof req.body?.ecosystem_id === 'string' ? req.body.ecosystem_id.trim() : '';
+    if (!ecosystemId) {
+        res.status(400).json({ error: 'ecosystem_id is required' });
+        return;
+    }
+    const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const window = {
+        ...(isDate(req.body?.from) ? { from: req.body.from } : {}),
+        ...(isDate(req.body?.to) ? { to: req.body.to } : {}),
+    };
+    const db = admin.firestore();
+    const viewer = await (0, exports.resolveViewer)(db, uid, ecosystemId, req.body?.acting_org_id || null);
+    if (!viewer || viewer.role === 'entrepreneur') {
+        res.status(403).json({ error: 'Network statistics are available to partner staff and network operators' });
+        return;
+    }
+    if (viewer.orgHasSigned === false) {
+        res.status(403).json({ error: 'Your organization sees network statistics once it has signed the network agreements', reason: 'agreements_unsigned' });
+        return;
+    }
+    const data = await (0, exports.loadNetworkData)(db, ecosystemId);
+    res.json({ ok: true, stats: (0, networkStats_1.computeNetworkStats)(data, window) });
 });

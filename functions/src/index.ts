@@ -4623,7 +4623,7 @@ export const previewQueuedNotices = onRequest({ invoker: 'public' }, async (req,
 });
 
 // ─── Network view — the redacting read path (see privacy/policy.ts) ──────────
-export { getNetworkView } from './privacy/networkView';
+export { getNetworkView, getNetworkStats } from './privacy/networkView';
 
 // ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
 export {
