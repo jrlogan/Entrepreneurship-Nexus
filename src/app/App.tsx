@@ -680,6 +680,10 @@ const App = () => {
   }, [view, selectedOrgId, selectedPersonId, selectedTab, currentEcosystemId, pendingInviteToken]);
 
   useEffect(() => {
+    // Until the signed-in person has resolved, the role is unknown — don't
+    // bounce a deep link (an invite landing on Joining, a bookmarked
+    // Partners page) to Referrals on the way in.
+    if (shouldRequireAuth && !activeUser) return;
     const viewFeatureBlocked =
       (view === 'dashboard' && !canAccessDashboard) ||
       (view === 'interactions' && !canAccessInteractions) ||
@@ -708,6 +712,8 @@ const App = () => {
     canAccessReports,
     currentRole,
     view,
+    shouldRequireAuth,
+    activeUser,
   ]);
 
   useEffect(() => {
