@@ -547,8 +547,8 @@ export const MOCK_CONSENT_POLICIES: ConsentPolicy[] = [
     }
 ];
 
-// Founders who opted into a network's directory. Listing is off by default and
-// chosen per network; everyone else is visible only to partners who already
+// Founders listed in a network's directory (on by default when they consent,
+// chosen per network); everyone else is visible only to partners who already
 // work with them.
 /** Founders who left a network in the demo session (`personId|ecosystemId`). */
 export const MOCK_WITHDRAWN = new Set<string>();

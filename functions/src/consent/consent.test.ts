@@ -12,10 +12,18 @@ describe('consent terms', () => {
     assert.deepEqual(a.documents.map((d) => d.type), ['federation_compact', 'privacy_policy']);
   });
 
-  it('default both optional choices to off', async () => {
+  it('default directory listing on and detail sharing off', async () => {
     const terms = await buildConsentTerms();
-    assert.equal(terms.choices.directory_listing.default, false);
+    assert.equal(terms.choices.directory_listing.default, true);
     assert.equal(terms.choices.share_details.default, false);
+  });
+
+  it('carry the hosted full-text link when the server knows its address, without changing the hash', async () => {
+    const plain = await buildConsentTerms();
+    const linked = await buildConsentTerms({ termsUrl: 'https://example.test/network-terms' });
+    assert.equal(plain.terms_url, undefined);
+    assert.equal(linked.terms_url, 'https://example.test/network-terms');
+    assert.equal(plain.terms_hash, linked.terms_hash);
   });
 });
 

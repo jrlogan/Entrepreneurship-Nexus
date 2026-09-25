@@ -23,10 +23,18 @@ exports.AGREEMENT_VERSIONS = {
     // 0.2 aligned the entrepreneur-facing text with the privacy model presented
     // to the consortium (always shared / only with consent / never shared):
     // directory listing became opt-in, and notes are never shared.
-    privacy_policy: '1.1-pilot',
+    // 0.3 / 1.2: email is shared only once an organization needs it (accepting
+    // a referral); directory listing is on by default, detail sharing off; the
+    // "why not a central database" argument became "who is in the network"
+    // (approved members who signed not to sell or spam); anonymous aggregate
+    // statistics are stated explicitly.
+    privacy_policy: '1.2-pilot',
     data_usage_agreement: '1.0',
-    federation_compact: '0.2-pilot',
-    network_membership: '0.2-pilot',
+    federation_compact: '0.3-pilot',
+    // 0.3: the governance clause no longer promises a seat in a governance body
+    // that does not exist yet; it states the intent (a member-benefit nonprofit)
+    // and that no member is bound by a version it has not signed.
+    network_membership: '0.3-pilot',
 };
 /**
  * What an organization signs, per network it joins, before it can connect:
@@ -49,7 +57,7 @@ exports.PRIVACY_POLICY_CONTENT = {
         },
         {
             heading: 'Who can see your data',
-            body: 'Organizations you work with see your name and email, the records they keep themselves, and the fact that other partners are also supporting you — which organization, what kind of support, and when — so they can coordinate rather than duplicate. Organizations you have not worked with do not see you at all, unless you choose to be listed in the network directory.',
+            body: 'Organizations you work with see your name, the records they keep themselves, and the fact that other partners are also supporting you — which organization, what kind of support, and when — so they can coordinate rather than duplicate. Your email is shared with an organization only once it needs it: when it accepts a referral for you, or because you signed up with it directly. Organizations you have not worked with see only your directory listing — name and venture, no contact details — and only while you are listed.',
         },
         {
             heading: 'Cross-organization sharing',
@@ -57,11 +65,15 @@ exports.PRIVACY_POLICY_CONTENT = {
         },
         {
             heading: 'Your rights',
-            body: 'You can see which organizations have access to your records, turn your directory listing on or off, and approve or revoke sharing at any time from your privacy settings. Each choice applies to one network. You can request a copy or deletion of your records by contacting your network administrator.',
+            body: 'You can see which organizations have access to your records, turn your directory listing off or on (it is on when you join), approve or revoke sharing, and leave the network altogether at any time from your privacy settings. Each choice applies to one network, and none of them ends your relationship with any individual organization. You can request a copy or deletion of your records by contacting your network administrator.',
+        },
+        {
+            heading: 'Anonymous statistics',
+            body: 'The network publishes aggregate statistics — how many entrepreneurs were served, referred and helped, and where organizations record them, businesses started, jobs and capital — to show what the region\'s support organizations do together. Your record counts toward those totals whatever your choices; the totals are anonymous, small groups are suppressed, and nothing published identifies you or your venture.',
         },
         {
             heading: 'What we do not do',
-            body: 'We do not sell your data to third parties. We do not share your information outside this network without your consent. Notes stay with the organization that wrote them, and each organization\'s internal record numbers stay private to that organization. Statistics the network publishes are anonymous and aggregate.',
+            body: 'Every organization in the network is approved by the network and has signed the same agreements: it may not sell your information, use it to send you unsolicited marketing, or use it for anything other than entrepreneurship support. Nothing is shared outside the network without your consent. Notes stay with the organization that wrote them, each organization\'s internal record numbers stay private to it, and the network does not collect financial information.',
         },
     ],
 };
@@ -113,19 +125,23 @@ exports.FEDERATION_COMPACT_CONTENT = {
         },
         {
             heading: 'What becomes visible across organizations',
-            body: 'Always shared, with organizations you actually work with: your name and email, their own records with you, and the fact that other partners are helping you (who, what kind of support, when). Only with your consent: being listed in the network directory, where partners you have not worked with can find you, and the details of one organization\'s records being seen by another. Never shared: interaction notes, financials, and each organization\'s internal record numbers.',
+            body: 'Always shared, with organizations you actually work with: your name, their own records with you, and the fact that other partners are helping you (who, what kind of support, when). Your email reaches an organization only once it needs it — when it accepts a referral for you, or because you signed up with it directly. Your choice: being listed in the network directory, where partners you have not worked with can find you (on unless you turn it off), and the details of one organization\'s records being seen by another (off unless you turn it on). Never shared: notes staff write about you and each organization\'s internal record numbers; the network does not collect financial information.',
         },
         {
             heading: 'You stay in control of what moves',
-            body: 'Directory listing and record sharing are off until you turn them on, and each choice applies to one network. A new organization asking to see another\'s records needs your approval. You can change any choice at any time from your privacy settings, and doing so does not affect your relationship with any individual organization.',
+            body: 'You are listed in the network directory unless you turn that off; sharing the details of one organization\'s records with another is off until you turn it on. Each choice applies to one network. A new organization asking to see another\'s records needs your approval. You can change any choice, or leave the network, at any time from your privacy settings, and doing so does not affect your relationship with any individual organization.',
         },
         {
-            heading: 'Why this is better than a central database',
-            body: 'No single organization holds everyone\'s data. Each ecosystem participant keeps control of its own records, and we agree on shared standards so your information can move between organizations with your permission rather than being duplicated or locked behind one system.',
+            heading: 'Who is in the network',
+            body: 'Every organization in the network was approved by the network before joining and has signed the same membership and data-handling agreements: it may not sell your information, use it to send you unsolicited marketing, or use it for anything other than entrepreneurship support. No single organization holds everyone\'s data — each keeps its own records. An organization that breaks these rules is removed.',
+        },
+        {
+            heading: 'Anonymous statistics',
+            body: 'The network publishes aggregate statistics — how many entrepreneurs were served, referred and helped, and where organizations record them, businesses started, jobs and capital. Your record counts toward those totals whatever your choices; the totals are anonymous and nothing published identifies you or your venture.',
         },
         {
             heading: 'What this organization will not do',
-            body: 'We do not sell your data, we do not share it outside the compact without your consent, and we do not use it for purposes unrelated to entrepreneurship support. Organizations violating the compact can be removed from the network.',
+            body: 'We do not sell your data, we do not use it to send you unsolicited marketing, we do not share it outside the network without your consent, and we do not use it for purposes unrelated to entrepreneurship support.',
         },
     ],
 };
@@ -163,8 +179,8 @@ exports.NETWORK_MEMBERSHIP_CONTENT = {
             body: 'API keys and sign-in integrations are issued to your organization and identify every action it takes in the network. You agree to store them as secrets, to limit them to staff who need them, and to notify the network administrator promptly if one may have been exposed so it can be revoked.',
         },
         {
-            heading: 'You participate in governance',
-            body: 'Members share responsibility for the standard and the compact. Each member organization is entitled to a seat in the governance of the network, and agrees that changes to the shared standard, the agreements, and the operator arrangement are made collectively rather than by any single organization.',
+            heading: 'How the network is governed',
+            body: 'How the network is governed is not yet settled. The intent is for it to become a nonprofit organization run for the benefit of its members, which would then decide changes to the shared standard, to these agreements, and to who operates the network. Until it is formed, a proposed change is sent to every member and takes effect for a member only when that member signs the new version. You are never bound by a version you have not signed, and you may leave at any time.',
         },
         {
             heading: 'Aggregate reporting',

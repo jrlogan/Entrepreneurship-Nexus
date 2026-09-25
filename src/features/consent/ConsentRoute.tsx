@@ -10,8 +10,9 @@ import { buildConsentTerms, type ConsentTerms } from '../../../functions/src/con
  * Where a founder lands from the consent email, or from a partner's signup
  * flow that sent them here with partnerCreateConsentLink. No account needed:
  * the one-time token is the credential. Shows the plain-language summary, the
- * full Network Compact and Privacy Notice, and the two choices — both off by
- * default — then records the answers (consentAccept) and, if the partner gave
+ * full Network Compact and Privacy Notice, and the two choices — directory
+ * listing on by default, detail sharing off — then records the answers
+ * (consentAccept) and, if the partner gave
  * a return URL, sends the founder back to the partner's site.
  *
  * `/consent?demo=1` renders the page with sample data and records nothing,
@@ -56,6 +57,7 @@ export const ConsentRoute = () => {
         if (isDemo) {
           const terms = await buildConsentTerms();
           if (!cancelled) {
+            setDirectoryListing(terms.choices.directory_listing.default);
             setPhase({
               kind: 'ready',
               session: {
@@ -77,8 +79,11 @@ export const ConsentRoute = () => {
         }
         const session = await callHttpFunction<{ token: string }, Session & { ok: boolean }>('getConsentSession', { token });
         if (!cancelled) {
-          setDirectoryListing(session.current.directory_listed);
-          setShareDetails(session.current.shares_details);
+          // Someone who already answered sees their answers; a first visit
+          // starts from the network's defaults (directory on, details off).
+          const asked = session.current.terms_accepted;
+          setDirectoryListing(asked ? session.current.directory_listed : session.terms.choices.directory_listing.default);
+          setShareDetails(asked ? session.current.shares_details : session.terms.choices.share_details.default);
           setPhase({ kind: 'ready', session });
         }
       } catch (error: any) {
@@ -180,7 +185,7 @@ export const ConsentRoute = () => {
 
               <div className="mt-6 space-y-3">
                 <SummaryRow tone="always" title="Always shared, with organizations you work with" body={summary.always} />
-                <SummaryRow tone="choice" title="Only if you choose" body={summary.choice} />
+                <SummaryRow tone="choice" title="Your choice" body={summary.choice} />
                 <SummaryRow tone="never" title="Never shared" body={summary.never} />
               </div>
 
@@ -236,7 +241,8 @@ export const ConsentRoute = () => {
                 </button>
               </div>
               <p className="mt-4 text-xs text-gray-500">
-                Part of {session.network_name}. Organizations in the network have signed the same agreement about how your information is handled.
+                Part of {session.network_name}. Every organization in the network was approved by the network before joining and has signed
+                the same agreements: it may not sell your information or use it to spam you.
               </p>
             </div>
           );

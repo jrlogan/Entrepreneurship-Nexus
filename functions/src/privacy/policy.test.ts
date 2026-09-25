@@ -172,7 +172,8 @@ describe('directory listing is consent-gated', () => {
     const view = buildNetworkView(staff('org_ipf', 'staff_ipf'), baseData());
     const sam = find(view.people, 'person_sam')!;
     assert.equal(sam._visibility, 'directory');
-    assert.equal(sam.email, 'sam@example.com');
+    assert.equal(sam.first_name, 'Sam');
+    assert.equal(sam.email, undefined, 'the directory carries no contact details');
     assert.equal(sam.external_refs?.length, 0);
     assert.equal(find(view.organizations, 'org_sam_co')?._visibility, 'directory');
   });
@@ -321,6 +322,39 @@ describe('leaving the network', () => {
     // She still sees her own history.
     const grace = buildNetworkView({ personId: 'person_grace', orgId: 'org_grace_co', role: 'entrepreneur', ecosystemId: ECO }, data);
     assert.ok(find(grace.interactions, 'int_mh_shared'));
+  });
+});
+
+describe('email only once an organization needs it', () => {
+  it('an organization working with the founder sees their email', () => {
+    const view = buildNetworkView(staff('org_mh', 'staff_mh'), baseData());
+    assert.equal(find(view.people, 'person_grace')!.email, 'grace@example.com');
+  });
+
+  it('the receiver of a referral it has not yet accepted sees the person, not their email', () => {
+    const data = baseData();
+    data.referrals[0].status = 'pending';
+    data.people[0].external_refs = data.people[0].external_refs!.filter((ref) => ref.owner_org_id !== 'org_ef');
+    const pending = buildNetworkView(staff('org_ef', 'staff_ef'), data);
+    const grace = find(pending.people, 'person_grace')!;
+    assert.equal(grace._visibility, 'works_with');
+    assert.equal(grace.email, undefined);
+    assert.ok(find(pending.referrals, 'ref_mh_to_ef'), 'the referral itself, with its intro note, is theirs to read');
+
+    data.referrals[0].status = 'accepted';
+    const accepted = buildNetworkView(staff('org_ef', 'staff_ef'), data);
+    assert.equal(find(accepted.people, 'person_grace')!.email, 'grace@example.com');
+  });
+
+  it('the directory carries no contact details', () => {
+    const view = buildNetworkView(staff('org_ipf', 'staff_ipf'), baseData());
+    const sam = find(view.people, 'person_sam')!;
+    assert.equal(sam._visibility, 'directory');
+    assert.equal(sam.first_name, 'Sam');
+    assert.equal(sam.email, undefined);
+    const samCo = find(view.organizations, 'org_sam_co')!;
+    assert.equal(samCo._visibility, 'directory');
+    assert.equal(samCo.email, undefined);
   });
 });
 

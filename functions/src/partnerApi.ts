@@ -21,7 +21,8 @@
  * Consent model (see functions/src/privacy/policy.ts):
  * The pushing organization works with the person immediately. Nothing beyond
  * the compact's "always shared" tier happens until the founder chooses:
- * directory listing and detail sharing both start off, per network. Consent is
+ * directory listing (on by default) and detail sharing (off) are recorded per
+ * network only when the founder is asked. Consent is
  * collected in the partner's own form (pass `consent` — see getConsentTerms) or
  * on the hosted page (partnerCreateConsentLink). Anyone added without consent
  * attached is emailed the notice automatically (ensureConsentNotice).
@@ -53,7 +54,7 @@ import {
 import { followMergePointer } from './recordMerge';
 import { enforceRateLimit } from './rateLimit';
 import { externalRefIndexId, readExternalRefIndex } from './externalRefIndex';
-import { buildConsentTerms, parseFounderConsent, type FounderConsentChoices } from './consent/terms';
+import { CONSENT_SUMMARY, buildConsentTerms, parseFounderConsent, type FounderConsentChoices } from './consent/terms';
 import { canTransitionReferral, type ReferralStatus } from './referrals/transitions';
 import {
   appBaseUrl,
@@ -571,9 +572,9 @@ const enqueueConsentEmail = async (
         '',
         `${esoName} is part of a regional network of organizations that support entrepreneurs. Partners in the network share a small amount of information so they can coordinate instead of asking you the same questions again.`,
         '',
-        '- Organizations you work with can see your name and email, and that other partners are also helping you.',
-        "- You choose whether to be listed in the network directory and whether partners can see the details of each other's records. Both are off unless you turn them on.",
-        '- Notes staff write about your meetings are never shared.',
+        `- ${CONSENT_SUMMARY.always}`,
+        `- ${CONSENT_SUMMARY.choice}`,
+        `- ${CONSENT_SUMMARY.never}`,
         '',
         `Read the terms and make your choices:\n${consentUrl}`,
         '',
@@ -597,9 +598,9 @@ p{margin:0 0 16px}
 <p>Hi ${escapeHtml(greeting)},</p>
 <p>${escapeHtml(esoName)} is part of a regional network of organizations that support entrepreneurs. Partners share a small amount of information so they can coordinate instead of asking you the same questions again.</p>
 <ul>
-<li>Organizations you work with can see your name and email, and that other partners are also helping you.</li>
-<li>You choose whether to be listed in the network directory and whether partners can see the details of each other's records. Both are off unless you turn them on.</li>
-<li>Notes staff write about your meetings are never shared.</li>
+<li>${escapeHtml(CONSENT_SUMMARY.always)}</li>
+<li>${escapeHtml(CONSENT_SUMMARY.choice)}</li>
+<li>${escapeHtml(CONSENT_SUMMARY.never)}</li>
 </ul>
 <p><a class="btn" href="${consentUrl}">Read the terms and choose</a></p>
 <p class="muted">If you do nothing, nothing more is shared. This link works for 30 days.</p>
@@ -1512,7 +1513,7 @@ export const getConsentTerms = onRequest({ invoker: 'public' }, async (req, res)
     return;
   }
   res.set('Cache-Control', 'public, max-age=300');
-  res.json({ ok: true, ...(await buildConsentTerms()) });
+  res.json({ ok: true, ...(await buildConsentTerms({ termsUrl: `${appBaseUrl()}/network-terms` })) });
 });
 
 /**
@@ -1971,11 +1972,14 @@ export const partnerListReferrals = onRequest({ invoker: 'public' }, async (req,
         accepted_at: r.accepted_at || null,
         declined_at: r.declined_at || null,
         closed_at: r.closed_at || null,
+        // Email only once you need it: an incoming referral you have not yet
+        // accepted names the person but does not carry their contact details
+        // (unless the record is already yours).
         entrepreneur: person ? {
           nexus_id: r.subject_person_id,
           first_name: person.first_name || '',
           last_name: person.last_name || '',
-          email: person.email || '',
+          ...(direction === 'outgoing' || r.status !== 'pending' || ownRef ? { email: person.email || '' } : {}),
           your_external_ref: ownRef ? { source: ownRef.source, id: ownRef.id } : null,
         } : null,
       };

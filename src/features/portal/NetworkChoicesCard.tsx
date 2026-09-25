@@ -5,9 +5,9 @@ import type { NetworkChoices } from '../../data/repos/networkProfiles';
 
 /**
  * The founder's two network choices, per network — the same two offered on
- * the consent page and in partners' signup forms. Both are off by default.
- * Whatever they choose, notes are never shared and organizations that do not
- * work with them see nothing.
+ * the consent page and in partners' signup forms (directory on by default,
+ * details off). Whatever they choose, notes are never shared and
+ * organizations that do not work with them see nothing beyond the listing.
  */
 export const NetworkChoicesCard = ({
   networks,
@@ -62,12 +62,12 @@ export const NetworkChoicesCard = ({
           </select>
         )}
         <p className="text-sm text-gray-600">
-          Organizations you work with in {networkName} always see your name and email, and that other partners are helping you.
-          These two choices are yours, and both start off. Notes staff write are never shared.
+          Organizations you work with in {networkName} see your name and that other partners are helping you; they get your
+          email only once they accept a referral for you. These two choices are yours. Notes staff write are never shared.
         </p>
         <ChoiceRow
           title="List me in the network directory"
-          description="Support organizations you have not worked with yet can find you."
+          description="Support organizations you have not worked with yet can find you — your name and venture, never your contact details. They reach you through a referral."
           checked={!!choices?.directoryListed}
           disabled={!choices || busy !== null || !!choices?.withdrawn}
           onChange={(on) => void set('directoryListed', on)}

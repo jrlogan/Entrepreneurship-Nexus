@@ -4,7 +4,8 @@ import { getDocument, setDocument } from '../../services/firestoreClient';
 /**
  * A founder's own network choices, per network: whether they are listed in
  * the directory, and whether partners they work with may see the details of
- * each other's records. Both off by default; the founder changes them here or
+ * each other's records. Directory on, details off, once they have been asked;
+ * the founder changes them here or
  * on the hosted consent page. Stored on network_profiles/{personId}, which
  * only the founder (and network operators) can read — see firestore.rules.
  */

@@ -12,19 +12,23 @@
  * The rules, as presented to the consortium:
  *
  *   ALWAYS SHARED — with staff at organizations the entrepreneur actually
- *   works with: name and email, each organization's own records with them,
- *   and the FACT of other partners' activity (who, what kind, when).
+ *   works with: name, each organization's own records with them, and the
+ *   FACT of other partners' activity (who, what kind, when). EMAIL only once
+ *   the organization needs it: an organization whose only relationship is a
+ *   referral it has not yet accepted sees the person without contact
+ *   details, and the directory never carries them (spam protection).
  *
- *   ONLY WITH CONSENT — off by default, granted by the entrepreneur, revocable,
- *   scoped to one network:
+ *   THE ENTREPRENEUR'S CHOICE — per network, revocable:
  *     - listing in the network directory (visible to partners who do NOT
- *       already work with them);
+ *       already work with them; name and venture only) — ON by default at
+ *       consent time, so the network builds a list of people to connect;
  *     - another organization seeing the DETAILS of a first organization's
- *       records (program names, referral outcomes).
+ *       records (program names, referral outcomes) — OFF by default.
  *
  *   NEVER SHARED — stays with the organization that wrote it:
  *     - notes (interaction notes, referral intro/response notes);
  *     - other organizations' internal record IDs (external_refs).
+ *   Financial information is not collected by the network at all.
  *
  * Pure and dependency-free on purpose: no Firebase imports, so it can be unit
  * tested and imported by the frontend.
@@ -72,8 +76,12 @@ const ventureOrgIdsFor = (person, orgsById) => {
  * interaction it logged, a record it pushed through the API, or a venture it
  * manages. Working with a venture means working with its founders, and the
  * other way round.
+ *
+ * With `acceptedOnly`, a referral the organization received but has not yet
+ * answered does not count: that is the set of subjects it may CONTACT, and
+ * the person's email is withheld until then.
  */
-const computeWorksWith = (orgId, data) => {
+const computeWorksWith = (orgId, data, options = {}) => {
     const keys = new Set();
     const orgsById = new Map(data.organizations.map((o) => [o.id, o]));
     for (const p of data.participations) {
@@ -86,7 +94,8 @@ const computeWorksWith = (orgId, data) => {
     }
     for (const r of data.referrals) {
         const isReferrer = r.referring_org_id === orgId;
-        const isActiveReceiver = r.receiving_org_id === orgId && r.status !== 'rejected';
+        const isActiveReceiver = r.receiving_org_id === orgId && r.status !== 'rejected'
+            && !(options.acceptedOnly && r.status === 'pending');
         if (!isReferrer && !isActiveReceiver)
             continue;
         if (r.subject_person_id)
@@ -191,8 +200,9 @@ const detailReferral = (r) => ({ ...without(r, [...NOTE_FIELDS, 'owner_id', 'fol
 /** Parties to a referral share its notes: the intro is written for the receiver. */
 const partyReferral = (r) => r;
 const PERSON_CORE_FIELDS = ['id', 'first_name', 'last_name', 'email', 'avatar_url', 'system_role', 'organization_id', 'organization_affiliations', 'tags', 'status', 'ecosystem_id', 'memberships', 'links'];
-const PERSON_DIRECTORY_FIELDS = ['id', 'first_name', 'last_name', 'email', 'avatar_url', 'organization_id', 'system_role'];
-const ORG_DIRECTORY_FIELDS = ['id', 'name', 'description', 'url', 'logo_url', 'roles', 'org_type', 'classification', 'tags', 'ecosystem_ids', 'support_offerings', 'status', 'tax_status', 'email'];
+/** The directory carries no contact details: an organization reaches a listed person through a referral. */
+const PERSON_DIRECTORY_FIELDS = ['id', 'first_name', 'last_name', 'avatar_url', 'organization_id', 'system_role'];
+const ORG_DIRECTORY_FIELDS = ['id', 'name', 'description', 'url', 'logo_url', 'roles', 'org_type', 'classification', 'tags', 'ecosystem_ids', 'support_offerings', 'status', 'tax_status'];
 // ---------------------------------------------------------------------------
 // The view
 // ---------------------------------------------------------------------------
@@ -222,6 +232,9 @@ const buildNetworkView = (viewer, data) => {
         }
         return out;
     };
+    // A withdrawn person, and their ventures, are invisible across organizations.
+    const withdrawn = new Set((data.withdrawnPersonIds || []).map(personKey));
+    const isWithdrawnSubject = (subjects) => subjects.flatMap(expand).some((key) => withdrawn.has(key));
     const isOperator = (0, exports.isOperatorRole)(viewer.role);
     const isStaff = (0, exports.isStaffRole)(viewer.role) && !!viewer.orgId;
     const isEntrepreneur = viewer.role === 'entrepreneur';
@@ -229,12 +242,17 @@ const buildNetworkView = (viewer, data) => {
     // access to its own records but sees nothing of its partners'.
     const hasSigned = viewer.orgHasSigned !== false;
     const worksWith = isStaff && hasSigned ? (0, exports.computeWorksWith)(viewer.orgId, data) : new Set();
+    // Email is shared only once the organization needs it: a referral it has
+    // not yet accepted shows the person, not how to reach them.
+    const mayContact = isStaff && hasSigned ? (0, exports.computeWorksWith)(viewer.orgId, data, { acceptedOnly: true }) : new Set();
     const ownSubjects = isEntrepreneur ? subjectKeysForEntrepreneur(viewer.personId, data) : new Set();
     const touches = (subjects, set) => subjects.some((key) => set.has(key));
     /** Tier for a record another organization wrote about `subjects`. */
     const tierForOthersRecord = (subjects) => {
         if (isEntrepreneur)
             return touches(subjects, ownSubjects) ? 'detail' : null;
+        if (isWithdrawnSubject(subjects))
+            return null;
         if (isStaff && touches(subjects, worksWith)) {
             return hasDetailConsent(subjects, viewer.orgId, eco, data, expand) ? 'detail' : 'fact';
         }
@@ -288,7 +306,7 @@ const buildNetworkView = (viewer, data) => {
         referrals.push({ ...(tier === 'detail' ? detailReferral(r) : factReferral(r)), _access: tier });
     }
     // --- People -------------------------------------------------------------
-    const listed = new Set(data.directoryListedPersonIds);
+    const listed = new Set(data.directoryListedPersonIds.filter((id) => !withdrawn.has(personKey(id))));
     const people = [];
     for (const person of data.people) {
         let visibility = null;
@@ -309,6 +327,8 @@ const buildNetworkView = (viewer, data) => {
         const base = visibility === 'directory'
             ? pick(person, PERSON_DIRECTORY_FIELDS)
             : pick(person, PERSON_CORE_FIELDS);
+        if (visibility === 'works_with' && !mayContact.has(personKey(person.id)))
+            delete base.email;
         people.push({
             ...base,
             external_refs: visibility === 'self' ? person.external_refs || [] : ownRefsOnly(person.external_refs, viewer.orgId),

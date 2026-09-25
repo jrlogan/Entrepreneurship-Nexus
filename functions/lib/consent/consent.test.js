@@ -15,10 +15,17 @@ const recordConsent_1 = require("./recordConsent");
         strict_1.default.match(a.terms_hash, /^[0-9a-f]{64}$/);
         strict_1.default.deepEqual(a.documents.map((d) => d.type), ['federation_compact', 'privacy_policy']);
     });
-    (0, node_test_1.it)('default both optional choices to off', async () => {
+    (0, node_test_1.it)('default directory listing on and detail sharing off', async () => {
         const terms = await (0, terms_1.buildConsentTerms)();
-        strict_1.default.equal(terms.choices.directory_listing.default, false);
+        strict_1.default.equal(terms.choices.directory_listing.default, true);
         strict_1.default.equal(terms.choices.share_details.default, false);
+    });
+    (0, node_test_1.it)('carry the hosted full-text link when the server knows its address, without changing the hash', async () => {
+        const plain = await (0, terms_1.buildConsentTerms)();
+        const linked = await (0, terms_1.buildConsentTerms)({ termsUrl: 'https://example.test/network-terms' });
+        strict_1.default.equal(plain.terms_url, undefined);
+        strict_1.default.equal(linked.terms_url, 'https://example.test/network-terms');
+        strict_1.default.equal(plain.terms_hash, linked.terms_hash);
     });
 });
 (0, node_test_1.describe)('parseFounderConsent', () => {

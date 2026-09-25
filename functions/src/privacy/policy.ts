@@ -11,19 +11,23 @@
  * The rules, as presented to the consortium:
  *
  *   ALWAYS SHARED — with staff at organizations the entrepreneur actually
- *   works with: name and email, each organization's own records with them,
- *   and the FACT of other partners' activity (who, what kind, when).
+ *   works with: name, each organization's own records with them, and the
+ *   FACT of other partners' activity (who, what kind, when). EMAIL only once
+ *   the organization needs it: an organization whose only relationship is a
+ *   referral it has not yet accepted sees the person without contact
+ *   details, and the directory never carries them (spam protection).
  *
- *   ONLY WITH CONSENT — off by default, granted by the entrepreneur, revocable,
- *   scoped to one network:
+ *   THE ENTREPRENEUR'S CHOICE — per network, revocable:
  *     - listing in the network directory (visible to partners who do NOT
- *       already work with them);
+ *       already work with them; name and venture only) — ON by default at
+ *       consent time, so the network builds a list of people to connect;
  *     - another organization seeing the DETAILS of a first organization's
- *       records (program names, referral outcomes).
+ *       records (program names, referral outcomes) — OFF by default.
  *
  *   NEVER SHARED — stays with the organization that wrote it:
  *     - notes (interaction notes, referral intro/response notes);
  *     - other organizations' internal record IDs (external_refs).
+ *   Financial information is not collected by the network at all.
  *
  * Pure and dependency-free on purpose: no Firebase imports, so it can be unit
  * tested and imported by the frontend.
@@ -234,8 +238,12 @@ const ventureOrgIdsFor = (person: PolicyPerson, orgsById: Map<string, PolicyOrga
  * interaction it logged, a record it pushed through the API, or a venture it
  * manages. Working with a venture means working with its founders, and the
  * other way round.
+ *
+ * With `acceptedOnly`, a referral the organization received but has not yet
+ * answered does not count: that is the set of subjects it may CONTACT, and
+ * the person's email is withheld until then.
  */
-export const computeWorksWith = (orgId: string, data: NetworkData): Set<string> => {
+export const computeWorksWith = (orgId: string, data: NetworkData, options: { acceptedOnly?: boolean } = {}): Set<string> => {
   const keys = new Set<string>();
   const orgsById = new Map(data.organizations.map((o) => [o.id, o]));
 
@@ -247,7 +255,8 @@ export const computeWorksWith = (orgId: string, data: NetworkData): Set<string> 
 
   for (const r of data.referrals) {
     const isReferrer = r.referring_org_id === orgId;
-    const isActiveReceiver = r.receiving_org_id === orgId && r.status !== 'rejected';
+    const isActiveReceiver = r.receiving_org_id === orgId && r.status !== 'rejected'
+      && !(options.acceptedOnly && r.status === 'pending');
     if (!isReferrer && !isActiveReceiver) continue;
     if (r.subject_person_id) keys.add(personKey(r.subject_person_id));
     if (r.subject_org_id) keys.add(orgKey(r.subject_org_id));
@@ -379,9 +388,10 @@ const detailReferral = (r: PolicyReferral) =>
 const partyReferral = (r: PolicyReferral) => r;
 
 const PERSON_CORE_FIELDS = ['id', 'first_name', 'last_name', 'email', 'avatar_url', 'system_role', 'organization_id', 'organization_affiliations', 'tags', 'status', 'ecosystem_id', 'memberships', 'links'];
-const PERSON_DIRECTORY_FIELDS = ['id', 'first_name', 'last_name', 'email', 'avatar_url', 'organization_id', 'system_role'];
+/** The directory carries no contact details: an organization reaches a listed person through a referral. */
+const PERSON_DIRECTORY_FIELDS = ['id', 'first_name', 'last_name', 'avatar_url', 'organization_id', 'system_role'];
 
-const ORG_DIRECTORY_FIELDS = ['id', 'name', 'description', 'url', 'logo_url', 'roles', 'org_type', 'classification', 'tags', 'ecosystem_ids', 'support_offerings', 'status', 'tax_status', 'email'];
+const ORG_DIRECTORY_FIELDS = ['id', 'name', 'description', 'url', 'logo_url', 'roles', 'org_type', 'classification', 'tags', 'ecosystem_ids', 'support_offerings', 'status', 'tax_status'];
 
 // ---------------------------------------------------------------------------
 // The view
@@ -424,6 +434,9 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
   // access to its own records but sees nothing of its partners'.
   const hasSigned = viewer.orgHasSigned !== false;
   const worksWith = isStaff && hasSigned ? computeWorksWith(viewer.orgId as string, data) : new Set<string>();
+  // Email is shared only once the organization needs it: a referral it has
+  // not yet accepted shows the person, not how to reach them.
+  const mayContact = isStaff && hasSigned ? computeWorksWith(viewer.orgId as string, data, { acceptedOnly: true }) : new Set<string>();
   const ownSubjects = isEntrepreneur ? subjectKeysForEntrepreneur(viewer.personId, data) : new Set<string>();
 
   const touches = (subjects: string[], set: Set<string>) => subjects.some((key) => set.has(key));
@@ -499,6 +512,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
     const base = visibility === 'directory'
       ? pick(person, PERSON_DIRECTORY_FIELDS)
       : pick(person, PERSON_CORE_FIELDS);
+    if (visibility === 'works_with' && !mayContact.has(personKey(person.id))) delete (base as Record<string, unknown>).email;
     people.push({
       ...(base as PolicyPerson),
       external_refs: visibility === 'self' ? person.external_refs || [] : ownRefsOnly(person.external_refs, viewer.orgId),

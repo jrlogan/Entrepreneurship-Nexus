@@ -22,7 +22,8 @@
  * Consent model (see functions/src/privacy/policy.ts):
  * The pushing organization works with the person immediately. Nothing beyond
  * the compact's "always shared" tier happens until the founder chooses:
- * directory listing and detail sharing both start off, per network. Consent is
+ * directory listing (on by default) and detail sharing (off) are recorded per
+ * network only when the founder is asked. Consent is
  * collected in the partner's own form (pass `consent` — see getConsentTerms) or
  * on the hosted page (partnerCreateConsentLink). Anyone added without consent
  * attached is emailed the notice automatically (ensureConsentNotice).
@@ -439,9 +440,9 @@ const enqueueConsentEmail = async (db, personId, firstName, email, ecosystemId, 
                 '',
                 `${esoName} is part of a regional network of organizations that support entrepreneurs. Partners in the network share a small amount of information so they can coordinate instead of asking you the same questions again.`,
                 '',
-                '- Organizations you work with can see your name and email, and that other partners are also helping you.',
-                "- You choose whether to be listed in the network directory and whether partners can see the details of each other's records. Both are off unless you turn them on.",
-                '- Notes staff write about your meetings are never shared.',
+                `- ${terms_1.CONSENT_SUMMARY.always}`,
+                `- ${terms_1.CONSENT_SUMMARY.choice}`,
+                `- ${terms_1.CONSENT_SUMMARY.never}`,
                 '',
                 `Read the terms and make your choices:\n${consentUrl}`,
                 '',
@@ -465,9 +466,9 @@ p{margin:0 0 16px}
 <p>Hi ${escapeHtml(greeting)},</p>
 <p>${escapeHtml(esoName)} is part of a regional network of organizations that support entrepreneurs. Partners share a small amount of information so they can coordinate instead of asking you the same questions again.</p>
 <ul>
-<li>Organizations you work with can see your name and email, and that other partners are also helping you.</li>
-<li>You choose whether to be listed in the network directory and whether partners can see the details of each other's records. Both are off unless you turn them on.</li>
-<li>Notes staff write about your meetings are never shared.</li>
+<li>${escapeHtml(terms_1.CONSENT_SUMMARY.always)}</li>
+<li>${escapeHtml(terms_1.CONSENT_SUMMARY.choice)}</li>
+<li>${escapeHtml(terms_1.CONSENT_SUMMARY.never)}</li>
 </ul>
 <p><a class="btn" href="${consentUrl}">Read the terms and choose</a></p>
 <p class="muted">If you do nothing, nothing more is shared. This link works for 30 days.</p>
@@ -491,6 +492,10 @@ const ensureConsentNotice = async (db, personId, firstName, email, ecosystemId, 
     const profile = (await profileRef.get()).data() || {};
     const accepted = Array.isArray(profile.terms_accepted_ecosystems) && profile.terms_accepted_ecosystems.includes(ecosystemId);
     if (accepted)
+        return false;
+    // Someone who left the network is not asked again by partners' pushes.
+    const withdrawn = Array.isArray(profile.withdrawn_ecosystems) && profile.withdrawn_ecosystems.includes(ecosystemId);
+    if (withdrawn)
         return false;
     const notices = (profile.consent_notices || {});
     const key = `${ecosystemId}__${orgId}`;
@@ -1275,7 +1280,7 @@ exports.getConsentTerms = (0, https_1.onRequest)({ invoker: 'public' }, async (r
         return;
     }
     res.set('Cache-Control', 'public, max-age=300');
-    res.json({ ok: true, ...(await (0, terms_1.buildConsentTerms)()) });
+    res.json({ ok: true, ...(await (0, terms_1.buildConsentTerms)({ termsUrl: `${(0, recordConsent_1.appBaseUrl)()}/network-terms` })) });
 });
 /**
  * POST /partnerCreateConsentLink
@@ -1709,11 +1714,14 @@ exports.partnerListReferrals = (0, https_1.onRequest)({ invoker: 'public' }, asy
                 accepted_at: r.accepted_at || null,
                 declined_at: r.declined_at || null,
                 closed_at: r.closed_at || null,
+                // Email only once you need it: an incoming referral you have not yet
+                // accepted names the person but does not carry their contact details
+                // (unless the record is already yours).
                 entrepreneur: person ? {
                     nexus_id: r.subject_person_id,
                     first_name: person.first_name || '',
                     last_name: person.last_name || '',
-                    email: person.email || '',
+                    ...(direction === 'outgoing' || r.status !== 'pending' || ownRef ? { email: person.email || '' } : {}),
                     your_external_ref: ownRef ? { source: ownRef.source, id: ownRef.id } : null,
                 } : null,
             };

@@ -8,12 +8,15 @@ network agreements; entrepreneurs agree to it on the consent terms.
 
 | | What | Who sees it |
 |---|---|---|
-| **Always shared** | Name and email; each organization's own records with the entrepreneur; the *fact* of each other's activity — which partner, what kind (meeting, program, referral), when, status | Staff at organizations that actually work with the entrepreneur |
-| **Only with consent** | Listing in the network directory | Partners who do *not* already work with them |
-| | Details of another organization's records — program names, descriptions, referral outcomes | Partners who work with them, if the entrepreneur shares with all of them or with that partner |
-| **Never shared** | Interaction notes; referral notes outside the two parties; financials; each organization's internal record IDs (`external_refs`) | Only the organization that wrote them |
+| **Always shared** | Name; each organization's own records with the entrepreneur; the *fact* of each other's activity — which partner, what kind (meeting, program, referral), when, status | Staff at organizations that actually work with the entrepreneur |
+| | Email — only once the organization needs it: the receiver of a referral sees no email until it accepts (`computeWorksWith(…, { acceptedOnly: true })`); the directory never carries contact details | Same, once they have accepted |
+| **The entrepreneur's choice** | Listing in the network directory (name and venture only) — **on by default** when they consent, so the network builds a list of people to connect | Partners who do *not* already work with them |
+| | Details of another organization's records — program names, descriptions, referral outcomes — **off by default** | Partners who work with them, if the entrepreneur shares with all of them or with that partner |
+| **Never shared** | Interaction notes; referral notes outside the two parties; each organization's internal record IDs (`external_refs`). Financial information is not collected at all | Only the organization that wrote them |
 
-Consent choices are **off by default**, **per network**, and **revocable**.
+Consent choices are **per network** and **revocable**; the directory default
+is on and detail sharing off, and both are recorded only when the founder is
+actually asked (a person pushed without consent is listed nowhere).
 A founder can also **leave a network** (their privacy settings → *Leave this
 network*): nothing about them then crosses between organizations there — not
 even the fact of activity — and they are not listed; each organization they

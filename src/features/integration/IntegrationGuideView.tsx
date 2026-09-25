@@ -217,9 +217,12 @@ export const IntegrationGuideView = ({ organization, ecosystem, viewerRole, orgS
 
       <Card title="The consent block for your signup form">
         <p className="text-sm text-gray-700">
-          Paste this inside the form where entrepreneurs sign up for your programs. It shows the network's terms in the
-          network's own words, with two choices that start off, and adds hidden fields your server passes on when it
-          sends the person. Joining the network stays optional — it never blocks your own signup.
+          Paste this inside the form where entrepreneurs sign up for your programs. It adds one checkbox with a short
+          summary in the network's own words and a link to the full terms — not an extra page — plus the two choices
+          (directory on, details off) once they tick it, and hidden fields your server passes on when it sends the
+          person. Joining the network stays optional and never blocks your own signup. Add{' '}
+          <code className="rounded bg-gray-100 px-1">data-default-agreed="true"</code> to pre-tick it, or{' '}
+          <code className="rounded bg-gray-100 px-1">data-layout="full"</code> for the long form with the terms inline.
         </p>
         <pre className="mt-3 overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs">{snippet}</pre>
         <div className="mt-3 flex flex-wrap gap-2">

@@ -108,7 +108,7 @@ const resolveViewer = async (db, uid, ecosystemId, requestedOrgId) => {
 exports.resolveViewer = resolveViewer;
 /** Load everything the policy needs for one network. */
 const loadNetworkData = async (db, ecosystemId) => {
-    const [peopleByIds, peopleByLegacy, orgs, interactions, participations, referrals, grants, profiles, sharers,] = await Promise.all([
+    const [peopleByIds, peopleByLegacy, orgs, interactions, participations, referrals, grants, profiles, sharers, withdrawn,] = await Promise.all([
         db.collection('people').where('ecosystem_ids', 'array-contains', ecosystemId).get(),
         db.collection('people').where('ecosystem_id', '==', ecosystemId).get(),
         db.collection('organizations').where('ecosystem_ids', 'array-contains', ecosystemId).get(),
@@ -118,6 +118,7 @@ const loadNetworkData = async (db, ecosystemId) => {
         db.collection('consent_policies').where('is_active', '==', true).get(),
         db.collection('network_profiles').where('directory_listed_ecosystems', 'array-contains', ecosystemId).get(),
         db.collection('network_profiles').where('detail_sharing_ecosystems', 'array-contains', ecosystemId).get(),
+        db.collection('network_profiles').where('withdrawn_ecosystems', 'array-contains', ecosystemId).get(),
     ]);
     const consentGrants = grants.docs.map((d) => {
         const g = d.data();
@@ -140,6 +141,7 @@ const loadNetworkData = async (db, ecosystemId) => {
         consentGrants,
         directoryListedPersonIds: profiles.docs.map((d) => d.get('person_id') || d.id),
         detailSharingPersonIds: sharers.docs.map((d) => d.get('person_id') || d.id),
+        withdrawnPersonIds: withdrawn.docs.map((d) => d.get('person_id') || d.id),
     };
 };
 exports.loadNetworkData = loadNetworkData;

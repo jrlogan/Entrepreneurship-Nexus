@@ -205,21 +205,30 @@ Pick one of these to show the terms:
 ${buildEmbedSnippet(input)}
 \`\`\`
 
-It renders the summary, the full terms, and three checkboxes — the agreement plus two
-choices that start off — and adds hidden fields to your form:
-\`nexus_consent_agreed\`, \`nexus_consent_terms_hash\`, \`nexus_consent_directory_listing\`,
-\`nexus_consent_share_details\`, \`nexus_consent_accepted_at\`. Your server maps them to
-the \`consent\` object in step 1, and sends \`consent\` only when
-\`nexus_consent_agreed == "true"\`. The block never blocks your own signup: joining the
-network is optional for the entrepreneur.
+It is one checkbox, not an extra page: "Join the network" with a four-line summary in
+the network's own words and a link to the full terms (\`terms_url\`), and — once ticked —
+the two choices (directory listing pre-ticked, detail sharing off). It adds hidden
+fields to your form: \`nexus_consent_agreed\`, \`nexus_consent_terms_hash\`,
+\`nexus_consent_directory_listing\`, \`nexus_consent_share_details\`,
+\`nexus_consent_accepted_at\`. Your server maps them to the \`consent\` object in step 1,
+and sends \`consent\` only when \`nexus_consent_agreed == "true"\` (omit \`accepted_at\`
+if the field is empty). The block never blocks your own signup: joining the network is
+optional for the entrepreneur.
+
+Options on the element: \`data-default-agreed="true"\` pre-ticks joining (the timestamp
+is then taken when the form is submitted; use this only where the surrounding form
+makes the choice obvious — an unticked box is stronger evidence of consent);
+\`data-layout="full"\` shows the full terms inline and all choices up front;
+\`data-field-prefix\` renames the hidden fields.
 
 Preview what entrepreneurs see: ${input.appBaseUrl}/consent?demo=1
 
 **B. Render the terms yourself** (server-rendered forms, native apps): \`GET ${B}/getConsentTerms\`
 returns \`summary\` (heading, intro, always, choice, never), \`choices\` (labels, help
-text and defaults for \`agree\`, \`directory_listing\`, \`share_details\`), the full
-\`documents\` and \`terms_hash\`. Show the summary and choice labels verbatim, offer
-the full documents, and send back \`terms_hash\` with the answers. Cache the response
+text and defaults for \`agree\`, \`directory_listing\`, \`share_details\` — respect the
+defaults: directory on, details off), \`terms_url\` (link to the full text), the full
+\`documents\` and \`terms_hash\`. Show the summary and choice labels verbatim, link or
+show the full documents, and send back \`terms_hash\` with the answers. Cache the response
 for a few minutes, not permanently: a stale hash is refused (\`409 terms_outdated\`).
 If the terms cannot be fetched, do not offer joining — nobody can agree to terms
 they have not seen.
@@ -259,8 +268,10 @@ Partner organization IDs are listed on the network's Organizations page.
 
 **Receive referrals** either by webhook (step 6) or by polling:
 \`GET ${B}/partnerListReferrals?ecosystem_id=${input.ecosystemId}&direction=incoming&status=pending\`.
-Each includes the entrepreneur's name and email and, if you already know them,
-\`your_external_ref\`.
+Each includes the entrepreneur's name and, if you already know them, \`your_external_ref\`.
+Their email arrives once you accept — a pending referral names the person without
+contact details, so nobody in the network can be contacted by an organization that
+has not taken them on.
 
 **Answer them:** \`POST ${B}/partnerUpdateReferral\` with
 \`{ "referral_id", "status": "accepted" | "rejected" | "completed", "response_notes"?, "outcome"? }\`.

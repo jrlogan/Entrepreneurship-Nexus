@@ -26,14 +26,16 @@ const CONTENT: Record<FounderAgreementType, AgreementContent> = {
 
 /**
  * The plain-language summary shown above the checkboxes. This is the part
- * people actually read, so it states the whole model in three lines.
+ * people actually read, so it states the whole model in three lines: what is
+ * always shared (and that email waits until it is needed), what the founder
+ * chooses (directory on by default, details off), and what never moves.
  */
 export const CONSENT_SUMMARY = {
   heading: 'Join the regional entrepreneurship network',
-  intro: 'Organizations that support entrepreneurs in this region share a small amount of information so they can coordinate instead of asking you the same questions again.',
-  always: 'Organizations you work with can see your name and email, and that other partners are also helping you (who, what kind of support, when).',
-  choice: 'You choose whether to be listed in the network directory and whether partners you work with can see the details of each other\'s records. Both are off unless you turn them on.',
-  never: 'Notes staff write about your meetings, your financials, and each organization\'s internal record numbers are never shared.',
+  intro: 'Organizations that support entrepreneurs in this region share a little information so they can coordinate instead of asking you the same questions again. Every one of them is approved by the network and has signed an agreement not to sell your information or use it to spam you.',
+  always: 'Organizations you work with see your name, and that other partners are also helping you (who, what kind of support, when). Your email reaches an organization only once it needs it — when it accepts a referral for you.',
+  choice: 'You choose whether to be listed in the network directory, so organizations you have not worked with yet can find you (on unless you turn it off), and whether organizations you work with can see the details of each other\'s records (off unless you turn it on).',
+  never: 'Notes staff write about your meetings and each organization\'s internal record numbers are never shared, and the network does not collect financial information. The network publishes only anonymous totals — how many entrepreneurs were served, referred and helped — never anything that identifies you.',
 };
 
 export const CONSENT_CHOICES = {
@@ -42,9 +44,9 @@ export const CONSENT_CHOICES = {
     required: true,
   },
   directory_listing: {
-    label: 'List me in the network directory, so support organizations I have not worked with yet can find me',
-    help: 'Off by default. You can change this at any time.',
-    default: false,
+    label: 'List me in the network directory, so organizations I have not worked with yet can find me',
+    help: 'On by default — this is how the network connects you with help. You can turn it off at any time.',
+    default: true,
   },
   share_details: {
     label: 'Let organizations I work with see the details of each other\'s records about me (such as program names and referral outcomes)',
@@ -64,6 +66,8 @@ export interface ConsentTermsDocument {
 export interface ConsentTerms {
   /** One hash over both documents' text hashes — what a partner sends back. */
   terms_hash: string;
+  /** The hosted page with the full text, for a "read the full terms" link. */
+  terms_url?: string;
   versions: Record<FounderAgreementType, string>;
   summary: typeof CONSENT_SUMMARY;
   choices: typeof CONSENT_CHOICES;
@@ -75,7 +79,7 @@ const sha256Hex = async (text: string): Promise<string> => {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 };
 
-export const buildConsentTerms = async (): Promise<ConsentTerms> => {
+export const buildConsentTerms = async (options: { termsUrl?: string } = {}): Promise<ConsentTerms> => {
   const documents: ConsentTermsDocument[] = [];
   for (const type of FOUNDER_AGREEMENTS) {
     const content = CONTENT[type];
@@ -90,6 +94,7 @@ export const buildConsentTerms = async (): Promise<ConsentTerms> => {
   const terms_hash = await sha256Hex(documents.map((d) => `${d.type}@${d.version}:${d.text_hash}`).join('|'));
   return {
     terms_hash,
+    ...(options.termsUrl ? { terms_url: options.termsUrl } : {}),
     versions: {
       federation_compact: AGREEMENT_VERSIONS.federation_compact,
       privacy_policy: AGREEMENT_VERSIONS.privacy_policy,

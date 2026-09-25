@@ -24,12 +24,14 @@ info:
     call updates the existing record rather than creating a duplicate.
 
     **Privacy model** — the compact every partner signs:
-    - *Always shared*, with partners who work with the same entrepreneur: name and
-      email, and the fact of each other's activity (who, what kind, when).
-    - *Only with the entrepreneur's consent* (off by default, per network): being
-      listed in the network directory, and partners seeing the details of each
-      other's records (program names, referral outcomes).
-    - *Never shared*: notes, financials, and each partner's own record IDs.
+    - *Always shared*, with partners who work with the same entrepreneur: name, and
+      the fact of each other's activity (who, what kind, when). Email only once a
+      partner needs it: an incoming referral carries no email until you accept it.
+    - *The entrepreneur's choice* (per network): being listed in the network
+      directory (on by default; name and venture, no contact details), and
+      partners seeing the details of each other's records (off by default).
+    - *Never shared*: notes and each partner's own record IDs. The network does
+      not collect financial information.
 
     **Consent** — Collect it where the entrepreneur signs up: embed the consent
     block (`/embed/nexus-consent.js`) or render `getConsentTerms` yourself, and
@@ -897,11 +899,13 @@ paths:
       operationId: getConsentTerms
       summary: The current consent terms to show entrepreneurs
       description: |
-        Plain-language summary, the choice labels and defaults (both optional
-        choices start off), the full Network Compact and Privacy Notice, and
-        `terms_hash`. Show the summary and labels verbatim; send `terms_hash`
-        back in `consent`. Public — no key needed. The embeddable consent block
-        (`/embed/nexus-consent.js`) renders these for you.
+        Plain-language summary, the choice labels and defaults (directory
+        listing starts on, detail sharing off), the full Network Compact and
+        Privacy Notice, `terms_url` (the hosted full-text page, for a "read the
+        full terms" link) and `terms_hash`. Show the summary and labels
+        verbatim; send `terms_hash` back in `consent`. Public — no key needed.
+        The embeddable consent block (`/embed/nexus-consent.js`) renders these
+        for you.
       tags: [Consent]
       security: []
       responses:

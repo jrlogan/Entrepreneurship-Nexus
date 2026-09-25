@@ -6,6 +6,7 @@ import { AuthProvider } from './app/AuthProvider';
 import { SsoStartRoute } from './features/sso/SsoStartRoute';
 import { SsoCallbackRoute } from './features/sso/SsoCallbackRoute';
 import { ConsentRoute } from './features/consent/ConsentRoute';
+import { NetworkTermsRoute } from './features/consent/NetworkTermsRoute';
 
 const pickRoute = () => {
   const { pathname } = window.location;
@@ -36,6 +37,12 @@ const pickRoute = () => {
   // one-time token from the email or partner link is the credential.
   if (pathname === '/consent' || pathname === '/consent/') {
     return <ConsentRoute />;
+  }
+
+  // /network-terms — the full founder-facing terms, public. Partners' signup
+  // forms link here so their consent block can stay one checkbox long.
+  if (pathname === '/network-terms' || pathname === '/network-terms/') {
+    return <NetworkTermsRoute />;
   }
 
   return (

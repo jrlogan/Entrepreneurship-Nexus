@@ -162,7 +162,8 @@ const find = (list, id) => list.find((x) => x.id === id);
         const view = (0, policy_1.buildNetworkView)(staff('org_ipf', 'staff_ipf'), baseData());
         const sam = find(view.people, 'person_sam');
         strict_1.default.equal(sam._visibility, 'directory');
-        strict_1.default.equal(sam.email, 'sam@example.com');
+        strict_1.default.equal(sam.first_name, 'Sam');
+        strict_1.default.equal(sam.email, undefined, 'the directory carries no contact details');
         strict_1.default.equal(sam.external_refs?.length, 0);
         strict_1.default.equal(find(view.organizations, 'org_sam_co')?._visibility, 'directory');
     });
@@ -269,6 +270,62 @@ const find = (list, id) => list.find((x) => x.id === id);
         strict_1.default.equal(view.interactions.length, 0);
         strict_1.default.equal(view.participations.length, 0);
         strict_1.default.equal(find(view.people, 'person_sam'), undefined);
+    });
+});
+(0, node_test_1.describe)('leaving the network', () => {
+    (0, node_test_1.it)('a withdrawn founder is invisible across organizations, but each keeps its own records', () => {
+        const data = baseData();
+        data.withdrawnPersonIds = ['person_grace'];
+        data.directoryListedPersonIds = ['person_grace', 'person_sam'];
+        // Foundation received a referral about Grace and works with her, but sees
+        // nothing MakeHaven recorded — not even the fact of the meeting.
+        const ef = (0, policy_1.buildNetworkView)(staff('org_ef', 'staff_ef'), data);
+        strict_1.default.equal(find(ef.interactions, 'int_mh_shared'), undefined);
+        strict_1.default.equal(find(ef.participations, 'part_mh'), undefined);
+        strict_1.default.equal(find(ef.referrals, 'ref_mh_to_ef')._access, 'full', 'its own referral is still its own record');
+        // MakeHaven keeps its own records with her in full.
+        const mh = (0, policy_1.buildNetworkView)(staff('org_mh', 'staff_mh'), data);
+        strict_1.default.equal(find(mh.interactions, 'int_mh_shared')._access, 'full');
+        strict_1.default.equal(find(mh.participations, 'part_mh')._access, 'full');
+        // Not listed, whatever the directory flag says; Sam still is.
+        const ipf = (0, policy_1.buildNetworkView)(staff('org_ipf', 'staff_ipf'), data);
+        strict_1.default.equal(find(ipf.people, 'person_grace'), undefined);
+        strict_1.default.ok(find(ipf.people, 'person_sam'));
+        // Operators see no facts about her either.
+        const ops = (0, policy_1.buildNetworkView)({ personId: 'admin', orgId: null, role: 'ecosystem_manager', ecosystemId: ECO }, data);
+        strict_1.default.equal(find(ops.interactions, 'int_mh_shared'), undefined);
+        // She still sees her own history.
+        const grace = (0, policy_1.buildNetworkView)({ personId: 'person_grace', orgId: 'org_grace_co', role: 'entrepreneur', ecosystemId: ECO }, data);
+        strict_1.default.ok(find(grace.interactions, 'int_mh_shared'));
+    });
+});
+(0, node_test_1.describe)('email only once an organization needs it', () => {
+    (0, node_test_1.it)('an organization working with the founder sees their email', () => {
+        const view = (0, policy_1.buildNetworkView)(staff('org_mh', 'staff_mh'), baseData());
+        strict_1.default.equal(find(view.people, 'person_grace').email, 'grace@example.com');
+    });
+    (0, node_test_1.it)('the receiver of a referral it has not yet accepted sees the person, not their email', () => {
+        const data = baseData();
+        data.referrals[0].status = 'pending';
+        data.people[0].external_refs = data.people[0].external_refs.filter((ref) => ref.owner_org_id !== 'org_ef');
+        const pending = (0, policy_1.buildNetworkView)(staff('org_ef', 'staff_ef'), data);
+        const grace = find(pending.people, 'person_grace');
+        strict_1.default.equal(grace._visibility, 'works_with');
+        strict_1.default.equal(grace.email, undefined);
+        strict_1.default.ok(find(pending.referrals, 'ref_mh_to_ef'), 'the referral itself, with its intro note, is theirs to read');
+        data.referrals[0].status = 'accepted';
+        const accepted = (0, policy_1.buildNetworkView)(staff('org_ef', 'staff_ef'), data);
+        strict_1.default.equal(find(accepted.people, 'person_grace').email, 'grace@example.com');
+    });
+    (0, node_test_1.it)('the directory carries no contact details', () => {
+        const view = (0, policy_1.buildNetworkView)(staff('org_ipf', 'staff_ipf'), baseData());
+        const sam = find(view.people, 'person_sam');
+        strict_1.default.equal(sam._visibility, 'directory');
+        strict_1.default.equal(sam.first_name, 'Sam');
+        strict_1.default.equal(sam.email, undefined);
+        const samCo = find(view.organizations, 'org_sam_co');
+        strict_1.default.equal(samCo._visibility, 'directory');
+        strict_1.default.equal(samCo.email, undefined);
     });
 });
 (0, node_test_1.describe)('founder <-> venture linkage', () => {

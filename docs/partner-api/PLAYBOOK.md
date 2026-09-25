@@ -47,11 +47,14 @@ and the shared network directory.
 The network runs on the compact every partner signs (full detail in
 [../PRIVACY_MODEL.md](../PRIVACY_MODEL.md)):
 
-- **Always shared**, with partners who work with the same entrepreneur: name and
-  email, and the fact of each other's activity (who, what kind, when).
-- **Only with the entrepreneur's consent** (off by default, per network): directory
-  listing, and partners seeing the details of each other's records.
-- **Never shared**: your notes, financials, and your internal record IDs.
+- **Always shared**, with partners who work with the same entrepreneur: name, and
+  the fact of each other's activity (who, what kind, when). Email only once a
+  partner needs it — when it accepts a referral (a pending referral names the
+  person without contact details), and never in the directory.
+- **The entrepreneur's choice** (per network): directory listing (on by default),
+  and partners seeing the details of each other's records (off by default).
+- **Never shared**: your notes and your internal record IDs. The network does not
+  collect financial information.
 
 People you push are yours to work with immediately. Collect consent where they sign
 up: add the consent block to your signup form and pass the answers as `consent` on

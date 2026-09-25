@@ -81,7 +81,7 @@ describe('consent collected in a partner\'s own form', () => {
     const { status, body } = await call('GET', 'getConsentTerms');
     assert.equal(status, 200);
     assert.match(body.terms_hash, /^[0-9a-f]{64}$/);
-    assert.equal(body.choices.directory_listing.default, false);
+    assert.equal(body.choices.directory_listing.default, true);
   });
 
   it('records consent sent with the person, against the current terms', async () => {
@@ -226,7 +226,7 @@ describe('referrals between partners', () => {
     assert.equal(second.body.action, 'existing');
   });
 
-  it('the receiver sees it, with the entrepreneur\'s contact and the intro', async () => {
+  it('the receiver sees it, with the intro — the entrepreneur\'s email waits until they accept', async () => {
     const { status, body } = await call('GET', 'partnerListReferrals', undefined, KEY_B, {
       ecosystem_id: ECO_ID, direction: 'incoming', status: 'pending',
     });
@@ -234,8 +234,13 @@ describe('referrals between partners', () => {
     const row = body.referrals.find((r: any) => r.referral_id === referralId);
     assert.ok(row);
     assert.equal(row.notes, 'Needs patent help');
-    assert.equal(row.entrepreneur.email, 'ref1@example.com');
+    assert.equal(row.entrepreneur.first_name, 'Pilot');
+    assert.equal(row.entrepreneur.email, undefined, 'no contact details before accepting');
     assert.equal(row.entrepreneur.your_external_ref, null, "partner B never sees partner A's record ID");
+
+    const outgoing = await call('GET', 'partnerListReferrals', undefined, KEY_A, { ecosystem_id: ECO_ID, direction: 'outgoing' });
+    const sent = outgoing.body.referrals.find((r: any) => r.referral_id === referralId);
+    assert.equal(sent.entrepreneur.email, 'ref1@example.com', 'the referring partner already has it');
   });
 
   it('only the receiver can answer, following the lifecycle', async () => {
@@ -245,6 +250,8 @@ describe('referrals between partners', () => {
     assert.equal(skip.status, 409, 'pending cannot jump to completed');
     const accept = await call('POST', 'partnerUpdateReferral', { referral_id: referralId, status: 'accepted', response_notes: 'Meeting booked' }, KEY_B);
     assert.equal(accept.status, 200);
+    const accepted = await call('GET', 'partnerListReferrals', undefined, KEY_B, { ecosystem_id: ECO_ID, direction: 'incoming', status: 'accepted' });
+    assert.equal(accepted.body.referrals.find((r: any) => r.referral_id === referralId).entrepreneur.email, 'ref1@example.com', 'email arrives once accepted');
     const complete = await call('POST', 'partnerUpdateReferral', { referral_id: referralId, status: 'completed', outcome: 'service_delivered' }, KEY_B);
     assert.equal(complete.status, 200);
     const doc = (await db.collection('referrals').doc(referralId).get()).data()!;
