@@ -3,7 +3,7 @@ import type { Organization, Ecosystem, SystemRole } from '../../domain/types';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { getFunctionsBaseUrl } from '../../services/httpFunctionClient';
 import { Card } from '../../shared/ui/Components';
-import { buildEmbedSnippet, buildIntegrationBrief, type IntegrationBriefInput } from './integrationBrief';
+import { buildEmbedSnippet, buildIntegrationBrief, SANDBOX, type IntegrationBriefInput } from './integrationBrief';
 
 /**
  * Connect Your System — the page a partner lands on after signing.
@@ -175,6 +175,23 @@ export const IntegrationGuideView = ({ organization, ecosystem, viewerRole, orgS
         {showBrief && (
           <pre className="mt-4 max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs leading-5 text-gray-800">{brief}</pre>
         )}
+      </Card>
+
+      <Card title="Test against the sandbox first">
+        <p className="text-sm text-gray-700">
+          The network runs a sandbox — a separate project with the same API, invented people only, purged periodically.
+          Develop and test there, then switch four settings to the production values below. The brief walks your
+          developer or AI assistant through it, and the acceptance test in the repository proves the integration
+          before it touches real data.
+        </p>
+        <dl className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-[max-content_1fr]">
+          <dt className="font-medium text-gray-600">Sandbox API base URL</dt>
+          <dd><code className="rounded bg-gray-100 px-2 py-0.5">{SANDBOX.functionsBaseUrl}</code></dd>
+          <dt className="font-medium text-gray-600">Sandbox network ID</dt>
+          <dd><code className="rounded bg-gray-100 px-2 py-0.5">{SANDBOX.ecosystemId}</code></dd>
+          <dt className="font-medium text-gray-600">Sandbox org ID and key</dt>
+          <dd className="text-gray-700">Mint your own with <code>provisionDemoAgency</code> — it needs an invite code from the network administrator, which is not published because the repository is public.</dd>
+        </dl>
       </Card>
 
       <Card title="Your identifiers">
