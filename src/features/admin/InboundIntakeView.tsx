@@ -368,7 +368,6 @@ export const InboundIntakeView = () => {
                   onChange={e => setNewRoute({ ...newRoute, activity_type: e.target.value as InboundActivityType })}
                 >
                   <option value="referral">referral — ESO refers or introduces an entrepreneur to another ESO (fully active)</option>
-                  <option value="grant">grant — Inbound grant opportunity email (fully active)</option>
                   <option value="followup">followup — Update on an existing referral (captured, manual review only)</option>
                   <option value="outcome">outcome — Referral close / outcome email (captured, manual review only)</option>
                 </select>
@@ -433,7 +432,6 @@ export const InboundIntakeView = () => {
             <div className="font-semibold text-gray-700 mb-2">Activity type reference</div>
             {[
               { type: 'referral', label: 'Referral', status: 'active', desc: 'ESO BCCs the route address when referring or introducing an entrepreneur to another ESO. Auto-creates a referral record and notifies both parties.' },
-              { type: 'grant', label: 'Grant', status: 'active', desc: 'Forwarded or scraped grant opportunity emails. Auto-creates a Grant Lab entry.' },
               { type: 'followup', label: 'Follow-up', status: 'partial', desc: 'Status update emails on an existing referral. Captured for review — linking to the original referral is not yet automated.' },
               { type: 'outcome', label: 'Outcome', status: 'partial', desc: 'Referral close/outcome emails. Captured for review — auto-closing the referral record is not yet implemented.' },
             ].map(({ type, label, status, desc }) => (

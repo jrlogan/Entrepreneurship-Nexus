@@ -25,5 +25,13 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  // The web app only. Pure modules it imports from functions/src (privacy
+  // policy, agreement text, consent terms, referral lifecycle, network
+  // statistics) are still compiled, because tsc follows imports — but nothing
+  // else under functions/, which needs functions/node_modules. CI builds the
+  // web app before installing those, so a Firebase import leaking into a
+  // shared module fails the build there.
+  "include": ["src", "scripts", "playwright-tests", "*.ts"],
+  "exclude": ["node_modules", "dist", "dist-demo", "dist-demo-compact", "functions"]
 }

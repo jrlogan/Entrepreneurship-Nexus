@@ -170,7 +170,7 @@ describe('partnerUpsertPerson — create new person', () => {
   });
 
   it('writes external_ref_index with deterministic document ID', async () => {
-    const indexDoc = await getDoc('external_ref_index', 'person:makehaven_civicrm:1001');
+    const indexDoc = await getDoc('external_ref_index', 'person:org_makehaven:makehaven_civicrm:1001');
     assert.ok(indexDoc, 'Index entry should exist');
     assert.equal(indexDoc!.entity_id, nexusId);
     assert.equal(indexDoc!.entity_type, 'person');
@@ -303,7 +303,7 @@ describe('partnerUpsertPerson — link by email to pre-existing person', () => {
     const refs = person!.external_refs as Array<{ source: string; id: string }>;
     assert.ok(refs.some(r => r.source === 'makehaven_civicrm' && r.id === '3001'));
 
-    const indexDoc = await getDoc('external_ref_index', 'person:makehaven_civicrm:3001');
+    const indexDoc = await getDoc('external_ref_index', 'person:org_makehaven:makehaven_civicrm:3001');
     assert.ok(indexDoc, 'Index entry must be created on link');
     assert.equal(indexDoc!.entity_id, existingNexusId);
   });
@@ -348,7 +348,7 @@ describe('partnerUpsertOrganization — create new organization', () => {
   });
 
   it('writes external_ref_index entry for the organization', async () => {
-    const indexDoc = await getDoc('external_ref_index', 'organization:makehaven_civicrm:org_5001');
+    const indexDoc = await getDoc('external_ref_index', 'organization:org_makehaven:makehaven_civicrm:org_5001');
     assert.ok(indexDoc, 'Index entry should exist');
     assert.equal(indexDoc!.entity_id, nexusOrgId);
     assert.equal(indexDoc!.entity_type, 'organization');

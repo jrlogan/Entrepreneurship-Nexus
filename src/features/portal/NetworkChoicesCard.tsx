@@ -1,0 +1,112 @@
+import React, { useEffect, useState } from 'react';
+import { Card } from '../../shared/ui/Components';
+import { useRepos, useViewer } from '../../data/AppDataContext';
+import type { NetworkChoices } from '../../data/repos/networkProfiles';
+
+/**
+ * The founder's two network choices, per network — the same two offered on
+ * the consent page and in partners' signup forms. Both are off by default.
+ * Whatever they choose, notes are never shared and organizations that do not
+ * work with them see nothing.
+ */
+export const NetworkChoicesCard = ({
+  networks,
+  onChange,
+}: {
+  networks: { id: string; name: string }[];
+  onChange?: () => void;
+}) => {
+  const repos = useRepos();
+  const viewer = useViewer();
+  const [ecosystemId, setEcosystemId] = useState(viewer.ecosystemId);
+  const [choices, setChoices] = useState<NetworkChoices | null>(null);
+  const [busy, setBusy] = useState<keyof NetworkChoices | null>(null);
+  const [error, setError] = useState('');
+  const networkName = networks.find((n) => n.id === ecosystemId)?.name || 'this network';
+
+  useEffect(() => {
+    let cancelled = false;
+    setChoices(null);
+    repos.networkProfiles.getChoices(viewer.personId, ecosystemId)
+      .then((next) => { if (!cancelled) setChoices(next); })
+      .catch(() => { if (!cancelled) setChoices({ directoryListed: false, sharesDetails: false }); });
+    return () => { cancelled = true; };
+  }, [repos, viewer.personId, ecosystemId]);
+
+  const set = async (choice: keyof NetworkChoices, on: boolean) => {
+    setBusy(choice);
+    setError('');
+    try {
+      await repos.networkProfiles.setChoice(viewer.personId, ecosystemId, choice, on);
+      setChoices((prev) => (prev ? { ...prev, [choice]: on } : prev));
+      repos.networkView.invalidate();
+      onChange?.();
+    } catch {
+      setError('Could not save that choice. Please try again.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card title="Your network choices" className="border-t-4 border-t-[#8b1919]">
+      <div className="space-y-4">
+        {networks.length > 1 && (
+          <select
+            aria-label="Network these choices apply to"
+            value={ecosystemId}
+            onChange={(e) => setEcosystemId(e.target.value)}
+            className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm"
+          >
+            {networks.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+          </select>
+        )}
+        <p className="text-sm text-gray-600">
+          Organizations you work with in {networkName} always see your name and email, and that other partners are helping you.
+          These two choices are yours, and both start off. Notes staff write are never shared.
+        </p>
+        <ChoiceRow
+          title="List me in the network directory"
+          description="Support organizations you have not worked with yet can find you."
+          checked={!!choices?.directoryListed}
+          disabled={!choices || busy !== null}
+          onChange={(on) => void set('directoryListed', on)}
+        />
+        <ChoiceRow
+          title="Share record details with every partner I work with"
+          description="Partners already working with you can see the details of each other's records — such as program names and referral outcomes. You can also choose partners one by one below."
+          checked={!!choices?.sharesDetails}
+          disabled={!choices || busy !== null}
+          onChange={(on) => void set('sharesDetails', on)}
+        />
+        {error && <p className="text-sm text-red-700">{error}</p>}
+      </div>
+    </Card>
+  );
+};
+
+const ChoiceRow = ({ title, description, checked, disabled, onChange }: {
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (on: boolean) => void;
+}) => (
+  <div className="flex items-start justify-between gap-4 rounded border border-gray-200 bg-white p-3">
+    <div>
+      <div className="text-sm font-semibold text-gray-900">{title}</div>
+      <div className="text-xs text-gray-600">{description}</div>
+    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={title}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors disabled:opacity-40 ${checked ? 'bg-[#8b1919]' : 'bg-gray-300'}`}
+    >
+      <span aria-hidden className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+    </button>
+  </div>
+);

@@ -1,15 +1,11 @@
 # Try the Nexus Partner API — 5 minutes, any HTTP tool
 
-> **Just want to click around?** Two hosted demos, no signup, sample data
-> that resets on reload. Switch personas from the bottom-left to view as an
-> entrepreneur (support network, activity, sharing controls) or agency staff.
->
-> - **https://nexus-compact-demo.web.app** — the interoperability core only:
->   shared records, referrals, the entrepreneur's view, the API console.
->   This is the surface the consortium would adopt.
-> - **https://entrepreneurship-nexus-demo.web.app** — MakeHaven's wider
->   prototype, including optional modules (grant lab, calendar, scout) that
->   sit outside the compact.
+> **Just want to click around?** The hosted demo, **https://nexus-compact-demo.web.app**,
+> runs the pilot app on sample data, with the same privacy policy as production —
+> no signup, resets on reload. Switch personas from the bottom-left to view as an
+> entrepreneur (activity, sharing choices) or as partner staff (referrals, the
+> integration guide). `https://nexus-compact-demo.web.app/consent?demo=1` shows
+> what entrepreneurs see on the consent page.
 >
 > The API sandbox below is the other half: calling the network from your own
 > system.
@@ -73,7 +69,7 @@ curl -s -X POST $BASE/partnerUpsertPerson \
       "eso_org_id":"PASTE_YOUR_ORG",
       "first_name":"Ada","last_name":"Founder",
       "email":"ada.trial@example.com","tags":["entrepreneur"]}'
-# → {"ok":true,"nexus_id":"…","action":"created"}
+# → {"ok":true,"nexus_id":"…","action":"created","consent":{…},"consent_notice_sent":…}
 # Run it again → "action":"updated", same nexus_id (idempotent — no duplicates, ever)
 ```
 
@@ -110,23 +106,29 @@ the browser, no account needed.
 
 | Endpoint | What it does |
 |---|---|
-| `POST /partnerUpsertPerson` | Add/update an entrepreneur from your system (idempotent; links by email across orgs) |
-| `GET /partnerGetPerson?source&id` | Read the shared record by your own ID |
+| `POST /partnerUpsertPerson` | Add/update an entrepreneur from your system (idempotent; links by email across orgs). Attach `consent` from your own form, or the network emails them the notice |
+| `GET /partnerGetPerson?source&id&ecosystem_id` | Read the shared record by your own ID, with their consent state |
+| `GET /getConsentTerms` | The terms and choices to show in your signup form (public) |
+| `POST /partnerCreateConsentLink` | A one-time link to the hosted consent page |
 | `POST /partnerUpsertOrganization` | Add/update a venture/business |
 | `POST /partnerUpsertParticipation` | Record typed, dated involvement (program, membership…) |
+| `POST /partnerCreateReferral` | Refer someone you work with to another partner |
+| `GET /partnerListReferrals` | Referrals to or from your organization |
+| `POST /partnerUpdateReferral` | Accept, decline or complete a referral sent to you |
+| `POST /partnerLogActivity` | Record that you met with someone (the fact is shared; notes are not) |
 | `POST /partnerRegisterWebhook` | Get HMAC-signed real-time events (try a https://webhook.site URL) |
 
-Full reference: `openapi.yaml` (importable) · integration walkthrough:
-`PLAYBOOK.md` · AI-assisted scaffolding: `AI_INTEGRATION_PROMPT.md` ·
-field standard: `../../data-standards/v1.1/`.
+Full reference: `openapi.yaml` (importable) · step-by-step contract for a
+developer or AI assistant: `INTEGRATION_BRIEF.md` · self-test for an AI
+agent: `AI_AGENT_ACCEPTANCE_TEST.md` · field standard: `../../data-standards/v1.1/`.
 
 ## Two different kinds of reset
 
 The web demos and the API sandbox behave differently, and it matters when you
 are testing:
 
-- **The web demos** (`nexus-compact-demo.web.app`, `entrepreneurship-nexus-demo.web.app`)
-  hold sample data in the browser session. Reload the page and it resets.
+- **The web demo** (`nexus-compact-demo.web.app`) holds sample data in the
+  browser session. Reload the page and it resets.
 - **The API sandbox** persists what you write. Records you create through the
   partner API stay until the sandbox is purged, so your test data is still
   there tomorrow — and so is everyone else's.
@@ -153,6 +155,8 @@ If you lose it, provision a new organization rather than asking for the old key
 
 ## Ground rules
 
-- Sandbox only: fake people, fake ventures. No real client data.
+- Sandbox only: fake people, fake ventures. No real client data. Use
+  `example.com` addresses: anyone added without consent attached is emailed the
+  consent notice, and the sandbox may actually send it.
 - Data is purged without notice; nothing here is durable.
 - Keys are org-scoped and revocable; don't share yours outside your org.

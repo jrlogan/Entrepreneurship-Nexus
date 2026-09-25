@@ -24,7 +24,7 @@ export const ReferralReportsView = () => {
             const [nextReferrals, nextOrganizations, nextPeople] = await Promise.all([
                 repos.referrals.getAll(viewer),
                 repos.organizations.getAll(viewer, viewer.ecosystemId),
-                repos.people.getAll(viewer.ecosystemId),
+                repos.people.getAll(viewer, viewer.ecosystemId),
             ]);
 
             if (!cancelled) {
@@ -109,7 +109,7 @@ export const ReferralReportsView = () => {
             .map(([id, count]) => {
                 const p = people.find(person => person.id === id);
                 const name = p ? `${p.first_name} ${p.last_name}`.trim() : 'Unknown';
-                const org = p?.primary_organization_id ? organizations.find(o => o.id === p.primary_organization_id)?.name ?? null : null;
+                const org = p?.organization_id ? organizations.find(o => o.id === p.organization_id)?.name ?? null : null;
                 return { id, count, name, org };
             });
 
@@ -219,7 +219,7 @@ export const ReferralReportsView = () => {
                         ) : (
                             Object.entries(stats.outcomes).map(([key, count]) => {
                                 const label = enums.ReferralOutcome.find(o => o.id === key)?.label || key;
-                                const percent = Math.round((count / stats.counts.completed) * 100);
+                                const percent = Math.round((Number(count) / stats.counts.completed) * 100);
                                 return (
                                     <div key={key}>
                                         <div className="flex justify-between text-sm mb-1">

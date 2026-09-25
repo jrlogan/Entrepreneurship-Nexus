@@ -52,7 +52,7 @@ export const CreateReferralModal = ({ isOpen, onClose, onSave, subjectOrg, subje
                 return;
             }
 
-            const people = await repos.people.getAll();
+            const people = await repos.people.getAll(viewer);
             if (!cancelled) {
                 setAvailablePeople(people.filter((person) => person.organization_id === activeSubjectId));
             }

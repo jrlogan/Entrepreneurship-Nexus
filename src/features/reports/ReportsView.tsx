@@ -1,37 +1,32 @@
-
 import React, { useState } from 'react';
-import { MetricsPreviewView } from './MetricsPreviewView';
+import { NetworkStatsView } from './NetworkStatsView';
 import { ReferralReportsView } from './ReferralReportsView';
 
 export const ReportsView = () => {
-  const [activeTab, setActiveTab] = useState<'impact' | 'network'>('impact');
+  const [tab, setTab] = useState<'network' | 'referrals'>('network');
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-800">Reports & Analytics</h2>
-        
-        <div className="flex bg-white rounded-lg shadow-sm border border-gray-200 p-1">
-            <button
-                onClick={() => setActiveTab('impact')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'impact' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-                Economic Impact
-            </button>
-            <button
-                onClick={() => setActiveTab('network')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'network' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-                Network Health
-            </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-2xl font-bold text-gray-800">Reports</h2>
+        <div className="flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setTab('network')}
+            className={`rounded-md px-4 py-2 text-sm font-medium ${tab === 'network' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            Network statistics
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('referrals')}
+            className={`rounded-md px-4 py-2 text-sm font-medium ${tab === 'referrals' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            Your referrals
+          </button>
         </div>
       </div>
-
-      {activeTab === 'impact' ? (
-          <MetricsPreviewView />
-      ) : (
-          <ReferralReportsView />
-      )}
+      {tab === 'network' ? <NetworkStatsView /> : <ReferralReportsView />}
     </div>
   );
 };

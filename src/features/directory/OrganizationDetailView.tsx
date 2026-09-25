@@ -1,17 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { Organization, Person, Initiative, Interaction, Referral, Service, Ecosystem } from '../../domain/types';
+import { Organization, Person, Interaction, Referral, Service, Ecosystem } from '../../domain/types';
 import { ALL_ECOSYSTEMS } from '../../data/mockData';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, CompanyLogo, InfoBanner, Modal, FORM_TEXTAREA_CLASS, FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
-import { METRIC_SETS } from '../../domain/metrics/reporting_config';
-import { MetricAssignment } from '../../domain/metrics/reporting_types';
-import { viewerHasCapability, canViewOperationalDetails } from '../../domain/access/policy';
-import { RESTRICTED_INITIATIVE_NAME, REDACTED_TEXT } from '../../domain/access/redaction';
+import { viewerHasCapability } from '../../domain/access/policy';
+import { notesHidden, detailsHidden } from '../../domain/access/recordAccess';
 import { ENUMS } from '../../domain/standards/enums';
-import type { ChecklistTemplate } from '../../domain/ecosystems/types';
-import type { PipelineDefinition } from '../../domain/pipelines/types';
-import { EditOrgModal, ManageInitiativeModal, ManagePersonModal } from './OrgModals';
+import { EditOrgModal, ManagePersonModal } from './OrgModals';
 import { OrgCompactSignatures } from './OrgCompactSignatures';
 import { ConsortiumBanner } from './ConsortiumBanner';
 import { useAdminReadLogger } from '../../data/useAdminReadLogger';
@@ -26,7 +22,6 @@ interface OrganizationDetailViewProps {
     org: Organization;
     organizations: Organization[];
     people: Person[];
-    initiatives: Initiative[];
     interactions: Interaction[];
     referrals: Referral[];
     services: Service[];
@@ -44,7 +39,6 @@ export const OrganizationDetailView = ({
     org, 
     organizations, 
     people, 
-    initiatives, 
     interactions, 
     referrals, 
     services,
@@ -65,8 +59,6 @@ export const OrganizationDetailView = ({
     const [isUpdatingReferral, setIsUpdatingReferral] = useState<string | null>(null);
     const [showCreateReferral, setShowCreateReferral] = useState(false);
     const [referralJustCreated, setReferralJustCreated] = useState(false);
-    const [showCreateInitiative, setShowCreateInitiative] = useState(false);
-    const [initiativeJustCreated, setInitiativeJustCreated] = useState(false);
     const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState('');
     const [selectedAccessLevel, setSelectedAccessLevel] = useState<'read' | 'write' | 'admin'>('read');
     const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
@@ -75,7 +67,6 @@ export const OrganizationDetailView = ({
     const [isSupportRequestOpen, setIsSupportRequestOpen] = useState(false);
     const [supportRequestNotes, setSupportRequestNotes] = useState('');
     const [isSubmittingSupportRequest, setIsSubmittingSupportRequest] = useState(false);
-    const [dataRequestMsg, setDataRequestMsg] = useState('');
     const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
     const [accessRequestSent, setAccessRequestSent] = useState(false);
     const [orgTemplateDrafts, setOrgTemplateDrafts] = useState<Array<{id: string; name: string; subject?: string; body: string}>>(org.referral_templates || []);
@@ -117,7 +108,6 @@ export const OrganizationDetailView = ({
       p.organization_id === org.id ||
       p.organization_affiliations?.some(a => a.organization_id === org.id && a.status !== 'revoked')
     );
-    const orgInitiatives = initiatives.filter(i => i.organization_id === org.id);
     const orgInteractions = interactions.filter(i => i.organization_id === org.id);
     const orgReferrals = referrals.filter(r => r.referring_org_id === org.id || r.receiving_org_id === org.id || r.subject_org_id === org.id);
     const orgParticipations = services
@@ -128,35 +118,18 @@ export const OrganizationDetailView = ({
     const isOwnOrganization = viewer.orgId === org.id || isOrgOwner;
     const isEntrepreneurViewer = viewer.role === 'entrepreneur';
     const ecosystem = currentEcosystem || ALL_ECOSYSTEMS.find((candidate) => candidate.id === viewer.ecosystemId);
-    const ecosystemPipelines = ecosystem?.pipelines || [];
-    const ecosystemChecklists = ecosystem?.checklist_templates || [];
     const featureFlags = ecosystem?.settings?.feature_flags || {};
-    const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-    const canAccessInitiatives = canAccessAdvancedWorkflows || featureFlags.initiatives === true;
-    const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
-    const canAccessMetrics = canAccessAdvancedWorkflows || featureFlags.dashboard === true || featureFlags.metrics_manager === true;
+    const canAccessInteractions = featureFlags.interactions !== false;
     const canRequestSupport = isEntrepreneurViewer && org.roles.includes('eso') && !isOwnOrganization;
     const actingOrganization = organizations.find((candidate) => candidate.id === viewer.orgId) || null;
 
     React.useEffect(() => {
-        if (activeTab === 'metrics' && !canAccessMetrics) {
+        // Tabs from the fuller prototype (metrics, initiatives) no longer exist.
+        if (activeTab === 'metrics' || activeTab === 'initiatives') {
             setActiveTab('overview');
             onTabChange?.('overview');
         }
-        if (activeTab === 'initiatives' && !canAccessInitiatives) {
-            setActiveTab('overview');
-            onTabChange?.('overview');
-        }
-    }, [activeTab, canAccessInitiatives, canAccessMetrics, onTabChange]);
-
-    // Metrics Data
-    const canRequestUpdate = viewerHasCapability(viewer, 'metrics.assign_request');
-    const metricSetId = METRIC_SETS[0].id; // Default to first set 'set_org_overview'
-    
-    const metricReport = repos.flexibleMetrics.getReport(metricSetId, {
-        scope_type: 'organization',
-        scope_id: org.id
-    });
+    }, [activeTab, onTabChange]);
 
     // Tier-5 audit: log admin reads on orgs they don't own. Self-gates on role.
     useAdminReadLogger({
@@ -190,8 +163,11 @@ export const OrganizationDetailView = ({
     );
 
     // Access Control Check
-    const hasConsent = viewer.orgId === org.id || activePolicies.some((policy) => policy.viewerId === viewer.orgId && policy.isActive);
-    const canViewDetails = isOwnOrganization || canViewOperationalDetails(viewer, org, hasConsent);
+    // Team directory and record details: decided by the network view
+    // (functions/src/privacy/policy.ts), which set org._access.
+    const canViewDetails = isOwnOrganization
+        || org._access?.level === 'detailed'
+        || ['platform_admin', 'ecosystem_manager'].includes(viewer.role);
 
     useEffect(() => {
         let cancelled = false;
@@ -204,7 +180,15 @@ export const OrganizationDetailView = ({
             };
         }
 
-        const consentRepo = repos.consent instanceof FirebaseConsentRepo ? repos.consent : new FirebaseConsentRepo();
+        // Only use the async Firestore paths when the app is actually running
+        // against Firebase. Constructing a FirebaseConsentRepo here in demo
+        // mode would query live Firestore from a demo build.
+        if (!(repos.consent instanceof FirebaseConsentRepo)) {
+            return () => {
+                cancelled = true;
+            };
+        }
+        const consentRepo = repos.consent;
         void Promise.all([
             consentRepo.getPoliciesForEntityAsync(org.id),
             consentRepo.getEventsForEntityAsync(org.id),
@@ -295,23 +279,6 @@ export const OrganizationDetailView = ({
         } finally {
             setIsUpdatingReferral(null);
         }
-    };
-
-    const handleAssignUpdate = () => {
-        const assignment: MetricAssignment = {
-            id: `assign_${Date.now()}`,
-            metric_set_id: metricSetId,
-            ecosystem_id: viewer.ecosystemId,
-            scope_type: 'organization',
-            scope_id: org.id,
-            assigned_by_id: viewer.personId,
-            assigned_at: new Date().toISOString(),
-            status: 'pending',
-            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        };
-        repos.flexibleMetrics.createAssignment(assignment);
-        setDataRequestMsg('Data update request sent to organization admins.');
-        setTimeout(() => setDataRequestMsg(''), 3000);
     };
 
     const handleToggleVisibility = () => {
@@ -462,23 +429,29 @@ export const OrganizationDetailView = ({
         onRefresh?.();
     };
 
-    const handleRequestAccess = () => {
+    const handleRequestAccess = async () => {
         if (isOwnOrganization) {
             return;
         }
         const viewerOrgName = organizations.find(o => o.id === viewer.orgId)?.name || 'Partner Org';
-        repos.referrals.add({
-            id: `ref_access_${Date.now()}`,
-            referring_org_id: viewer.orgId,
-            receiving_org_id: org.id,
-            subject_person_id: viewer.personId,
-            subject_org_id: viewer.orgId,
-            date: new Date().toISOString().split('T')[0],
-            status: 'pending',
-            intake_type: 'access_request',
-            notes: `Access Request from ${viewerOrgName}`,
-            outcome_tags: ['Access Request']
-        });
+        try {
+            await repos.referrals.add({
+                id: `ref_access_${Date.now()}`,
+                ecosystem_id: viewer.ecosystemId,
+                referring_org_id: viewer.orgId,
+                receiving_org_id: org.id,
+                subject_person_id: viewer.personId,
+                subject_org_id: viewer.orgId,
+                date: new Date().toISOString(),
+                status: 'pending',
+                intake_type: 'access_request',
+                notes: `Access Request from ${viewerOrgName}`,
+                outcome_tags: ['Access Request']
+            });
+        } catch (err) {
+            console.error('Failed to send access request', err);
+            return;
+        }
         setAccessRequestSent(true);
         setTimeout(() => setAccessRequestSent(false), 3000);
         if (onRefresh) onRefresh();
@@ -510,28 +483,6 @@ export const OrganizationDetailView = ({
         } finally {
             setIsSubmittingSupportRequest(false);
         }
-    };
-
-    const handleCreateInitiative = async (initiative: Partial<Initiative>) => {
-        await repos.pipelines.addInitiative({
-            id: `init_${Date.now()}`,
-            ecosystem_id: viewer.ecosystemId,
-            current_stage_index: 0,
-            stage_history: [],
-            checklists: [],
-            ...initiative,
-        } as Initiative);
-        setShowCreateInitiative(false);
-        setInitiativeJustCreated(true);
-        onRefresh?.();
-    };
-
-    const handleSavePipeline = (pipeline: PipelineDefinition) => {
-        repos.ecosystems.addPipeline(viewer.ecosystemId, pipeline);
-    };
-
-    const handleSaveChecklist = (checklist: ChecklistTemplate) => {
-        repos.ecosystems.addChecklistTemplate(viewer.ecosystemId, checklist);
     };
 
     return (
@@ -720,16 +671,14 @@ export const OrganizationDetailView = ({
                                    <span className="font-bold text-slate-700 block mb-2 border-b border-slate-200 pb-1">VISIBLE TO YOU</span>
                                    <ul className="list-disc list-outside ml-4 text-slate-600 space-y-1.5">
                                        <li>Directory profile (Name, Description, Industry)</li>
-                                       <li>Activity metadata (Dates, Types, Authors)</li>
+                                       <li>Activity facts (which partner, what kind, when)</li>
                                        <li>Referral status (Incoming/Outgoing)</li>
                                    </ul>
                                </div>
                                <div>
                                    <span className="font-bold text-slate-700 block mb-2 border-b border-slate-200 pb-1">RESTRICTED</span>
                                    <ul className="list-disc list-outside ml-4 text-slate-500 space-y-1.5">
-                                       <li>Meeting notes and interaction content</li>
-                                       <li>Specific metrics and financials</li>
-                                       <li>Initiative details and progress</li>
+                                       <li>Program participation and referral details recorded by other partners</li>
                                        <li>Full team directory and contact info</li>
                                    </ul>
                                </div>
@@ -758,16 +707,13 @@ export const OrganizationDetailView = ({
              <nav className="-mb-px flex space-x-6 overflow-x-auto">
                {[
                  { id: 'overview', label: 'Overview' },
-                 ...(canAccessMetrics ? [{ id: 'metrics', label: 'Data & Metrics' }] : []),
                  { id: 'people', label: `People (${isRestricted ? visiblePeople.length : orgPeople.length})` },
                  { id: 'participation', label: `Participation (${orgParticipations.length})` },
-                 ...(canAccessInitiatives ? [{ id: 'initiatives', label: `Initiatives (${orgInitiatives.length})` }] : []),
                  ...(canAccessInteractions ? [{ id: 'interactions', label: `Interactions (${orgInteractions.length})` }] : []),
                  { id: 'referrals', label: `Referrals (${orgReferrals.length})` },
                  { id: 'privacy', label: 'Privacy' },
                  ...(isManageable && org.roles.includes('eso') ? [{ id: 'settings', label: 'Settings' }] : []),
                ].map(tab => {
-                 const isLocked = !canViewDetails && ['metrics', 'initiatives', 'interactions', 'referrals'].includes(tab.id);
                  return (
                     <button
                         key={tab.id}
@@ -782,7 +728,6 @@ export const OrganizationDetailView = ({
                         }`}
                     >
                         {tab.label}
-                        {isLocked && <span className="ml-2 text-xs opacity-60" title="Restricted Content">🔒</span>}
                     </button>
                  );
                })}
@@ -791,7 +736,7 @@ export const OrganizationDetailView = ({
     
            {/* Tab Content */}
            <div className="grid grid-cols-1 gap-6">
-              {['metrics', 'initiatives', 'interactions', 'referrals'].includes(activeTab) && (
+              {['interactions', 'referrals'].includes(activeTab) && (
                 <ConsortiumBanner subjectOrg={org} />
               )}
 
@@ -803,8 +748,8 @@ export const OrganizationDetailView = ({
                             <div className="space-y-2 text-sm text-gray-700">
                                 <p>
                                     Your current visibility is <strong>{org.operational_visibility === 'open' ? 'Open' : 'Restricted'}</strong>.
-                                    Use <strong>Privacy Settings</strong> to control whether ecosystem partners can see operational details like initiatives,
-                                    metrics, interactions, and the broader team directory.
+                                    Use <strong>Privacy Settings</strong> to control whether partners can see participation and referral
+                                    details other partners recorded, and the broader team directory. Interaction notes are never shared.
                                 </p>
                                 <p className="text-xs text-gray-500">
                                     Directory basics such as your name, website, and core profile remain discoverable even when operational data is restricted.
@@ -947,52 +892,6 @@ export const OrganizationDetailView = ({
                 </div>
               )}
 
-              {activeTab === 'metrics' && (
-                  <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            {metricReport.results.map((res, i) => (
-                                <div key={i} className="bg-white p-4 rounded border border-gray-200 text-center relative overflow-hidden group">
-                                    <div className="text-xs text-gray-500 uppercase font-bold truncate mb-1">{res.metric.name}</div>
-                                    <div className={`text-2xl font-bold ${res.status === 'auto' ? 'text-purple-600' : res.status === 'confirmed' ? 'text-green-700' : 'text-gray-900'}`}>
-                                        {res.metric.unit === 'currency' ? '$' : ''}{Number(res.value).toLocaleString()}
-                                    </div>
-                                    
-                                    {res.status === 'auto' && (
-                                        <div className="absolute top-0 right-0 bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-bl font-bold">Auto</div>
-                                    )}
-                                    {res.status === 'confirmed' && (
-                                        <div className="absolute top-0 right-0 bg-green-100 text-green-700 text-[10px] px-1.5 py-0.5 rounded-bl font-bold">Confirmed</div>
-                                    )}
-                                    {res.status === 'reported' && (
-                                        <div className="absolute top-0 right-0 bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-bl">Reported</div>
-                                    )}
-                                </div>
-                            ))}
-                            
-                            {canRequestUpdate && (
-                                <>
-                                    <button
-                                        onClick={handleAssignUpdate}
-                                        className="bg-gray-50 p-4 rounded border border-dashed border-gray-300 flex flex-col items-center justify-center text-indigo-600 hover:bg-gray-100 transition-colors"
-                                    >
-                                        <span className="text-lg font-bold">Request Update</span>
-                                        <span className="text-[10px]">Send Task to Client</span>
-                                    </button>
-                                    {dataRequestMsg && <p className="text-sm text-green-600 mt-2">{dataRequestMsg}</p>}
-                                </>
-                            )}
-                        </div>
-
-                        <InfoBanner title="Data Confidence Legend">
-                            <ul className="flex gap-4 text-xs">
-                                <li className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500"></span> <strong>Auto:</strong> Calculated live from system events.</li>
-                                <li className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> <strong>Confirmed:</strong> Auto-calc verified by user.</li>
-                                <li className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500"></span> <strong>Reported:</strong> Manually entered by user.</li>
-                            </ul>
-                        </InfoBanner>
-                  </div>
-              )}
-
               {activeTab === 'people' && (
                   <div className="space-y-4">
                       {isManageable && !isRestricted && (
@@ -1109,7 +1008,7 @@ export const OrganizationDetailView = ({
                           orgParticipations.map((service) => {
                               const provider = organizations.find((candidate) => candidate.id === service.provider_org_id);
                               return (
-                                  <Card key={service.id} title={service.name}>
+                                  <Card key={service.id} title={service.name || `${ENUMS.ServiceParticipationType?.find(o => o.id === service.participation_type)?.label ?? 'Program'} with ${provider?.name || 'a partner'}`}>
                                       <div className="flex items-start justify-between gap-3">
                                           <div>
                                               <div className="text-sm text-gray-600">
@@ -1124,64 +1023,29 @@ export const OrganizationDetailView = ({
                                       {service.description && (
                                           <div className="mt-3 text-sm text-gray-700">{service.description}</div>
                                       )}
+                                      {detailsHidden(service) && (
+                                          <div className="mt-3 text-xs text-gray-500">Program details are shared only with the entrepreneur's consent.</div>
+                                      )}
                                   </Card>
                               );
                           })
                       )}
                   </div>
               )}
-              {activeTab === 'initiatives' && (
-                  <div className="space-y-4">
-                      {canViewDetails && (
-                          <div className="flex justify-end">
-                              <button
-                                  onClick={() => { setShowCreateInitiative(true); setInitiativeJustCreated(false); }}
-                                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
-                              >
-                                  + New Initiative
-                              </button>
-                          </div>
-                      )}
-                      {initiativeJustCreated && (
-                          <div className="flex items-center justify-between gap-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900">
-                              <span>Initiative created for {org.name}.</span>
-                              <button onClick={() => setInitiativeJustCreated(false)} className="text-green-600 hover:text-green-800 text-xs">
-                                  Dismiss
-                              </button>
-                          </div>
-                      )}
-                      {orgInitiatives.map(init => {
-                          if (init.name === RESTRICTED_INITIATIVE_NAME) {
-                              return (
-                                <div key={init.id} className="bg-gray-50 border border-gray-200 border-dashed rounded-lg p-4 flex items-center gap-3 opacity-75">
-                                    <span className="text-xl">🔒</span>
-                                    <div>
-                                        <div className="font-bold text-gray-500 text-sm italic">Restricted Project</div>
-                                        <div className="text-xs text-gray-400">Details hidden due to privacy settings.</div>
-                                    </div>
-                                </div>
-                              );
-                          }
-                          return (
-                              <Card key={init.id} title={init.name}>
-                                  <p>Status: <Badge color={init.status === 'active' ? 'green' : 'gray'}>{init.status}</Badge></p>
-                              </Card>
-                          );
-                      })}
-                      {orgInitiatives.length === 0 && <p className="text-gray-500">No initiatives active.</p>}
-                  </div>
-              )}
               {activeTab === 'interactions' && (
                    <div className="space-y-4">
+                       {orgInteractions.length === 0 && (
+                           <p className="text-sm text-gray-500">No activity you can see yet.</p>
+                       )}
                        {orgInteractions.map(int => {
-                           if (int.notes === REDACTED_TEXT) {
+                           const author = organizations.find(o => o.id === int.author_org_id);
+                           if (notesHidden(int)) {
                                return (
-                                   <div key={int.id} className="bg-gray-50 border border-gray-200 border-dashed rounded-lg p-4 flex items-center gap-3 opacity-75">
-                                       <span className="text-xl">🔒</span>
-                                       <div>
-                                           <div className="font-bold text-gray-500 text-sm italic">Restricted Interaction</div>
-                                           <div className="text-xs text-gray-400">{int.type.toUpperCase()} • {int.date}</div>
+                                   <div key={int.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                       <div className="text-sm font-medium text-gray-800">
+                                           {author?.name || 'A partner organization'} logged a {int.type}
                                        </div>
+                                       <div className="text-xs text-gray-500">{int.date} · notes stay with the recording organization</div>
                                    </div>
                                );
                            }
@@ -1226,7 +1090,7 @@ export const OrganizationDetailView = ({
                           const referrer = organizations.find(o => o.id === ref.referring_org_id);
                           const receiver = organizations.find(o => o.id === ref.receiving_org_id);
                           const subjectPerson = people.find(p => p.id === ref.subject_person_id);
-                          const isRedacted = ref.notes === REDACTED_TEXT;
+                          const isRedacted = notesHidden(ref);
 
                           return (
                               <Card key={ref.id} title={
@@ -1276,7 +1140,7 @@ export const OrganizationDetailView = ({
                                   
                                   {isRedacted ? (
                                       <div className="bg-gray-50 border border-gray-100 rounded p-2 text-xs text-gray-400 italic flex items-center gap-2">
-                                          <span>🔒</span> Content Hidden
+                                          Notes are shared only between the referring and receiving organizations.
                                       </div>
                                   ) : (
                                       <p className="text-sm text-gray-600 mb-2">{ref.notes}</p>
@@ -1305,7 +1169,7 @@ export const OrganizationDetailView = ({
                                       </div>
                                   )}
                                   
-                                  {ref.status === 'completed' && ref.outcome && !isRedacted && (
+                                  {ref.status === 'completed' && ref.outcome && !detailsHidden(ref) && (
                                       <div className="mt-3 pt-2 border-t border-gray-100 flex items-center gap-2">
                                           <span className="text-xs font-bold text-gray-500 uppercase">Outcome:</span>
                                           <span className="text-sm font-medium text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
@@ -1351,17 +1215,25 @@ export const OrganizationDetailView = ({
                                           <tbody className="bg-white divide-y divide-gray-200 text-sm">
                                               {[
                                                   { type: 'Directory Profile', public: 'Visible', private: 'Visible' },
-                                                  { type: 'Activity Metadata', public: 'Visible', private: 'Visible' },
-                                                  { type: 'Interaction Notes', public: 'Visible', private: 'Restricted' },
-                                                  { type: 'Metrics & Financials', public: 'Visible', private: 'Restricted' },
-                                                  { type: 'Initiative Details', public: 'Visible', private: 'Restricted' },
-                                                  { type: 'Team Directory', public: 'Visible', private: 'Limited' }
+                                                  { type: 'Activity facts (who, what kind, when)', public: 'Visible', private: 'Visible' },
+                                                  { type: 'Participation & referral details', public: 'Visible', private: 'Restricted' },
+                                                  { type: 'Team Directory', public: 'Visible', private: 'Limited' },
+                                                  { type: 'Interaction notes', public: 'Never shared', private: 'Never shared' },
+                                                  { type: "Partners' internal record IDs", public: 'Never shared', private: 'Never shared' }
                                               ].map((row, idx) => (
                                                   <tr key={idx} className="hover:bg-gray-50">
                                                       <td className="px-4 py-2 font-medium text-gray-900">{row.type}</td>
-                                                      <td className="px-4 py-2 text-center text-green-600 font-bold">✓ {row.public}</td>
                                                       <td className="px-4 py-2 text-center">
-                                                          {row.private === 'Visible' ? (
+                                                          {row.public === 'Never shared' ? (
+                                                              <span className="text-gray-500 font-bold">✕ Never shared</span>
+                                                          ) : (
+                                                              <span className="text-green-600 font-bold">✓ {row.public}</span>
+                                                          )}
+                                                      </td>
+                                                      <td className="px-4 py-2 text-center">
+                                                          {row.private === 'Never shared' ? (
+                                                              <span className="text-gray-500 font-bold">✕ Never shared</span>
+                                                          ) : row.private === 'Visible' ? (
                                                               <span className="text-green-600 font-bold">✓ Visible</span>
                                                           ) : (
                                                               <span className="text-amber-600 font-bold flex items-center justify-center gap-1">
@@ -1376,10 +1248,10 @@ export const OrganizationDetailView = ({
                                   </div>
                                   
                                   <p className="text-sm text-gray-600 leading-relaxed">
-                                      Even with privacy enabled, your organization remains discoverable
-                                      in the ecosystem directory. Partners can see that you exist and
-                                      who has supported you, but cannot access operational details
-                                      without your consent.
+                                      Notes a partner writes stay with that partner, always. With Restricted
+                                      (the default), partners who work with you see that activity happened —
+                                      who, what kind, when — but not the details another partner recorded,
+                                      unless you approve it partner by partner.
                                   </p>
                               </div>
                           )}
@@ -1419,7 +1291,7 @@ export const OrganizationDetailView = ({
                                   <div className={`rounded-lg border px-4 py-3 ${org.operational_visibility === 'open' ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
                                       <div className="text-sm font-semibold text-gray-900">Open</div>
                                       <div className="mt-1 text-sm text-gray-600">
-                                          Your company remains discoverable in the directory, and trusted partners can also see operational details like initiatives, metrics, interactions, and the broader team directory.
+                                          Your company remains discoverable in the directory, and partners who work with you can also see the participation and referral details other partners recorded, and the broader team directory. Interaction notes are never shared.
                                       </div>
                                   </div>
                               </div>
@@ -1839,18 +1711,6 @@ export const OrganizationDetailView = ({
                subjectOrg={org}
                organizations={organizations}
                currentOrgId={viewer.orgId}
-           />
-
-           <ManageInitiativeModal
-               isOpen={showCreateInitiative}
-               onClose={() => setShowCreateInitiative(false)}
-               onSave={(initiative) => { void handleCreateInitiative(initiative); }}
-               orgId={org.id}
-               organizations={organizations}
-               pipelines={ecosystemPipelines}
-               checklists={ecosystemChecklists}
-               onSavePipeline={handleSavePipeline}
-               onSaveChecklist={handleSaveChecklist}
            />
 
            <ManagePersonModal

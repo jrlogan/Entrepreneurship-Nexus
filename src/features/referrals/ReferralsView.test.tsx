@@ -70,7 +70,8 @@ const buildOrganization = (overrides: Partial<Organization>): Organization => ({
   name: 'Default Org',
   description: '',
   tax_status: 'for_profit',
-  roles: ['startup'],
+  roles: [],
+  org_type: 'startup',
   owner_characteristics: [],
   classification: {
     industry_tags: [],
@@ -101,7 +102,8 @@ const organizations: Organization[] = [
     id: 'org_darkstar',
     name: 'DarkStar Marine',
     email: 'team@darkstar.example',
-    roles: ['startup'],
+    roles: [],
+    org_type: 'startup',
   }),
 ];
 

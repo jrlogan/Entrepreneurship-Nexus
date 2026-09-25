@@ -3,7 +3,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { ViewMode } from '../../app/types';
 import { SystemRole } from '../../domain/types';
 import { DARKSTAR_MARINE, STEALTH_STARTUP } from '../../data/mockData';
-import { CONFIG } from '../../app/config';
 
 interface DemoStep {
   title: string;
@@ -58,7 +57,7 @@ const COMMITTEE_TOUR: DemoStep[] = [
     },
     {
         title: "Step 6: Impact Reporting",
-        description: "Because all data is standardized (HSDS), we can aggregate impact instantly. View Jobs Created, Capital Raised, and Network Velocity across the entire region in real-time.",
+        description: "Because every partner records referrals and participation against the same standard, network statistics fall out automatically: entrepreneurs served (counted once, however many partners help them), referrals that close, and who is working with whom — aggregate and anonymous.",
         targetView: 'reports',
         targetUserRole: 'platform_admin',
         highlight: '.grid.grid-cols-1.md\\:grid-cols-4' // Highlight metrics grid
@@ -74,22 +73,10 @@ const ENTREPRENEUR_TOUR: DemoStep[] = [
     },
     {
         title: "My Business Profile",
-        description: "Your central record. Update your pitch, industry tags, and team here. You also control Data Privacy—deciding which ESOs can see your detailed metrics.",
+        description: "Your central record. Update your pitch, industry tags, and team here. You also control your privacy — deciding which partners can see your records.",
         targetView: 'my_org',
         targetUserRole: 'entrepreneur',
         position: 'top-right'
-    },
-    {
-        title: "Project Tracking",
-        description: "Manage specific initiatives like 'Series A Fundraising' or 'Product Launch'. Moving a project to the next stage automatically updates your support network.",
-        targetView: 'my_projects',
-        targetUserRole: 'entrepreneur'
-    },
-    {
-        title: "AI Advisor & Actions",
-        description: "Need help? The AI Advisor suggests personalized next steps, grants, and connections based on your current stage and ecosystem resources.",
-        targetView: 'todos',
-        targetUserRole: 'entrepreneur'
     }
 ];
 
@@ -108,7 +95,7 @@ const ESO_TOUR: DemoStep[] = [
     },
     {
         title: "Client 360 View",
-        description: "Viewing 'DarkStar Marine'. Here you can see their active Initiatives, Metrics, and Team. Because they granted consent, you can see deep operational details.",
+        description: "Viewing 'DarkStar Marine'. Here you can see their team, program participation, and the activity other partners have logged. Because they granted consent, you can see their records in more depth.",
         targetView: 'detail',
         targetEntityId: DARKSTAR_MARINE.id,
         targetUserRole: 'eso_staff'
@@ -126,27 +113,6 @@ const ESO_TOUR: DemoStep[] = [
         description: "Need to hand off the client? Use the Referral tool to send a warm intro to a Funder or another ESO. You can then track if that referral was Accepted or Rejected.",
         targetView: 'referrals',
         targetUserRole: 'eso_staff'
-    }
-];
-
-const COACH_TOUR: DemoStep[] = [
-    {
-        title: "Welcome Coach/Mentor!",
-        description: "We've switched you to 'Dave Dual' (Fabrication Coach). As a mentor, you care about specific people, not the whole database.",
-        targetView: 'contacts',
-        targetUserRole: 'eso_coach'
-    },
-    {
-        title: "My Connections",
-        description: "Notice the filter 'My Interactions'. This view cuts through the noise, showing only the entrepreneurs you have personally met with or advised.",
-        targetView: 'contacts',
-        targetUserRole: 'eso_coach'
-    },
-    {
-        title: "Action Plan",
-        description: "Check your Task list. The system (or ESO Staff) might assign you follow-ups, like 'Review Pitch Deck for Sarah'.",
-        targetView: 'todos',
-        targetUserRole: 'eso_coach'
     }
 ];
 
@@ -201,26 +167,6 @@ const ADMIN_TOUR: DemoStep[] = [
         targetUserRole: 'platform_admin'
     }
 ];
-
-// --- Demo profile filtering ---
-//
-// The compact build ships only the interoperability core (see
-// CONFIG.DEMO_PROFILE and the feature_flags block in app/App.tsx). Two things
-// follow for the tours: the coach/mentor seat does not exist there at all —
-// a mentor works in their own ESO's system and reaches the network through
-// the API — and steps that land on a switched-off module would dead-end on
-// the "not available" fallback screen.
-const IS_COMPACT_PROFILE = CONFIG.DEMO_PROFILE === 'compact';
-
-const COMPACT_HIDDEN_VIEWS: ViewMode[] = [
-  'reports', 'todos', 'my_projects', 'initiatives', 'scout',
-  'metrics_manager', 'grants', 'community_calendar', 'pipelines',
-];
-
-const forProfile = (steps: DemoStep[]): DemoStep[] =>
-  IS_COMPACT_PROFILE
-    ? steps.filter((step) => !COMPACT_HIDDEN_VIEWS.includes(step.targetView))
-    : steps;
 
 // --- Component ---
 
@@ -327,7 +273,7 @@ export const DemoWalkthrough = ({
   }, [isOpen, isAutoPlay, showSummary, currentStepIndex, activeScenario]);
 
   const startScenario = (scenario: DemoStep[], autoPlay: boolean = false) => {
-      setActiveScenario(forProfile(scenario));
+      setActiveScenario(scenario);
       setCurrentStepIndex(0);
       setIsAutoPlay(autoPlay);
       setShowSummary(false);
@@ -485,7 +431,7 @@ export const DemoWalkthrough = ({
                     </div>
                 </div>
 
-                <div className={`p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 ${IS_COMPACT_PROFILE ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+                <div className={`p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-3`}>
                     <button 
                         onClick={() => startScenario(ENTREPRENEUR_TOUR)}
                         className="group p-6 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col"
@@ -506,17 +452,6 @@ export const DemoWalkthrough = ({
                         <span className="text-xs font-bold text-indigo-600 mt-4 uppercase">Daily Workflow</span>
                     </button>
 
-                    {!IS_COMPACT_PROFILE && (
-                    <button 
-                        onClick={() => startScenario(COACH_TOUR)}
-                        className="group p-6 border-2 border-gray-100 hover:border-indigo-500 rounded-xl text-left transition-all hover:shadow-lg flex flex-col"
-                    >
-                        <div className="text-3xl mb-4 group-hover:scale-110 transition-transform">🧭</div>
-                        <h3 className="font-bold text-gray-900 text-lg mb-2">Coach/Mentor</h3>
-                        <p className="text-sm text-gray-500 leading-relaxed flex-1">Manage specific mentees, track follow-up tasks, and log advice.</p>
-                        <span className="text-xs font-bold text-indigo-600 mt-4 uppercase">My Network</span>
-                    </button>
-                    )}
 
                     <button 
                         onClick={() => startScenario(ADMIN_TOUR)}
@@ -579,23 +514,18 @@ export const DemoWalkthrough = ({
                         </div>
                         <div className="p-4 bg-gray-50 rounded border border-gray-200">
                             <div className="font-bold text-indigo-600 mb-1">Real-Time Impact</div>
-                            <p className="text-sm text-gray-600">Live aggregation of jobs, revenue, and capital across the network.</p>
+                            <p className="text-sm text-gray-600">Anonymous network statistics: entrepreneurs served, referral follow-through, and program reach.</p>
                         </div>
                     </div>
 
                     <h3 className="font-bold text-gray-800 mb-4 uppercase text-xs tracking-wide border-t border-gray-100 pt-6">Explore Specific Roles</h3>
-                    <div className={`grid grid-cols-2 gap-3 mb-6 ${IS_COMPACT_PROFILE ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
+                    <div className={`grid grid-cols-2 gap-3 mb-6 md:grid-cols-3`}>
                         <button onClick={() => startScenario(ENTREPRENEUR_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">🚀</span> Founder
                         </button>
                         <button onClick={() => startScenario(ESO_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">🤝</span> ESO Staff
                         </button>
-                        {!IS_COMPACT_PROFILE && (
-                        <button onClick={() => startScenario(COACH_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
-                            <span className="text-xl">🧭</span> Coach
-                        </button>
-                        )}
                         <button onClick={() => startScenario(ADMIN_TOUR)} className="p-3 bg-white border border-gray-200 rounded hover:border-indigo-500 hover:shadow-sm text-sm font-medium text-gray-700 flex flex-col items-center gap-1 transition-all">
                             <span className="text-xl">⚙️</span> Admin
                         </button>

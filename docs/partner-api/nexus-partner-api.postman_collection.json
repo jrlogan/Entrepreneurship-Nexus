@@ -39,6 +39,16 @@
       "key": "demo_email",
       "value": "ada.demo@example.com",
       "description": "Change to test the link-by-email flow across two orgs"
+    },
+    {
+      "key": "referral_id",
+      "value": "PASTE_FROM_STEP_8",
+      "description": "referral_id returned by 8 \u00b7 Send a referral"
+    },
+    {
+      "key": "receiving_org_id",
+      "value": "PASTE_SECOND_ORG_ID",
+      "description": "Another sandbox org (provision a second one, or ask a colleague for theirs)"
     }
   ],
   "item": [
@@ -77,9 +87,9 @@
         "url": "{{base_url}}/partnerUpsertPerson",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Ada\",\n  \"last_name\": \"Founder\",\n  \"email\": \"{{demo_email}}\",\n  \"tags\": [\"entrepreneur\"],\n  \"send_consent_email\": false\n}"
+          "raw": "{\n  \"external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"contact-1\"\n  },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Ada\",\n  \"last_name\": \"Founder\",\n  \"email\": \"{{demo_email}}\",\n  \"tags\": [\n    \"entrepreneur\"\n  ]\n}"
         },
-        "description": "First run returns action: \"created\" and a nexus_id. Run it again: action becomes \"updated\", same nexus_id \u2014 idempotent. Set send_consent_email true to send the real opt-in email (use a test inbox)."
+        "description": "First run returns action: \"created\" and a nexus_id. Run it again: action becomes \"updated\", same nexus_id \u2014 idempotent. With no consent object attached, the network emails the person the consent notice (use a test inbox); consent_notice_sent in the response says whether it did."
       }
     },
     {
@@ -240,6 +250,126 @@
           "raw": "{\n  \"external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"org_somebody_else\",\n  \"first_name\": \"Ada\", \"last_name\": \"Founder\", \"email\": \"{{demo_email}}\"\n}"
         },
         "description": "Your key can only write as your org. Every write in the network is attributable."
+      }
+    },
+    {
+      "name": "7c \u00b7 The consent terms entrepreneurs are shown",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{base_url}}/getConsentTerms",
+        "description": "Public. The plain-language summary, the two choices (both default off), the full Network Compact and Privacy Notice, and terms_hash. Show these words in your own signup form (or use the embed block) and send terms_hash back as consent.terms_hash."
+      }
+    },
+    {
+      "name": "7d \u00b7 Register with consent from your own form",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Nexus-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": "{{base_url}}/partnerUpsertPerson",
+        "description": "Only send consent when the entrepreneur ticked the agreement. A stale terms_hash returns 409 terms_outdated \u2014 refetch 7c. Response carries consent state and consent_notice_sent: false (no email needed \u2014 they agreed in your form).",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"contact-2\"\n  },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Bo\",\n  \"last_name\": \"Founder\",\n  \"email\": \"bo.demo@example.com\",\n  \"consent\": {\n    \"agreed\": true,\n    \"terms_hash\": \"PASTE_terms_hash_FROM_7c\",\n    \"directory_listing\": false,\n    \"share_details\": false\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "8 \u00b7 Send a referral",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Nexus-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": "{{base_url}}/partnerCreateReferral",
+        "description": "entrepreneur_agreed must be true \u2014 only refer people who asked or agreed. Returns referral_id; copy it into the referral_id variable. Re-sending with the same referral_external_ref returns action: existing.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"person_external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"contact-1\"\n  },\n  \"receiving_org_id\": \"{{receiving_org_id}}\",\n  \"notes\": \"Ada is building a marine sensor and asked for help with patents.\",\n  \"entrepreneur_agreed\": true,\n  \"referral_external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"ref-1\"\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "9 \u00b7 Incoming referrals (as the receiver)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Nexus-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": "{{base_url}}/partnerListReferrals?ecosystem_id={{ecosystem_id}}&direction=incoming&status=pending",
+        "description": "Run this with the RECEIVING org's key. Shows the entrepreneur's name/email and the intro notes; your_external_ref is null because you don't know them yet."
+      }
+    },
+    {
+      "name": "10 \u00b7 Answer a referral (as the receiver)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Nexus-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": "{{base_url}}/partnerUpdateReferral",
+        "description": "Receiver only \u2014 the referring org gets 404. Lifecycle: pending \u2192 accepted | rejected, accepted \u2192 completed (with outcome). Skipping a step returns 409 invalid_transition.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"referral_id\": \"{{referral_id}}\",\n  \"status\": \"accepted\",\n  \"response_notes\": \"Intro meeting booked for Tuesday.\"\n}"
+        }
+      }
+    },
+    {
+      "name": "11 \u00b7 Log activity",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Nexus-API-Key",
+            "value": "{{api_key}}"
+          }
+        ],
+        "url": "{{base_url}}/partnerLogActivity",
+        "description": "Partners who also work with this person see only: your org, 'meeting', the date. Same activity_external_ref updates instead of duplicating.",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"person_external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"contact-1\"\n  },\n  \"activity_external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"meeting-1\"\n  },\n  \"type\": \"meeting\",\n  \"date\": \"2026-09-24\",\n  \"share_fact\": true,\n  \"notes\": \"Private to your organization \\u2014 never shared.\"\n}"
+        }
       }
     }
   ]

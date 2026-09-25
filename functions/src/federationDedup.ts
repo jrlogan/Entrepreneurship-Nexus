@@ -30,9 +30,10 @@
  * reverse lookups (see partnerApi.ts).
  */
 
+import { externalRefIndexId, readExternalRefIndex } from './externalRefIndex';
 import * as admin from 'firebase-admin';
 
-export type ExternalRef = { source: string; id: string };
+export type ExternalRef = { source: string; id: string; owner_org_id?: string };
 
 export type MatchTier =
   | 'external_ref'
@@ -121,9 +122,8 @@ const lookupByExternalRef = async (
   ref: ExternalRef,
   entityType: 'person' | 'organization'
 ): Promise<string | null> => {
-  const indexDocId = `${entityType}:${ref.source}:${ref.id}`;
-  const indexDoc = await db.collection('external_ref_index').doc(indexDocId).get();
-  if (!indexDoc.exists) return null;
+  const indexDoc = await readExternalRefIndex(db, entityType, ref);
+  if (!indexDoc) return null;
   const entityId = indexDoc.get('entity_id') as string | undefined;
   if (!entityId) return null;
   const collection = entityType === 'person' ? 'people' : 'organizations';
@@ -295,12 +295,13 @@ export const attachExternalRef = async (
   }
 
   // Index write is idempotent (deterministic doc id).
-  await db.collection('external_ref_index').doc(`${entityType}:${ref.source}:${ref.id}`).set({
+  await db.collection('external_ref_index').doc(externalRefIndexId(entityType, ref)).set({
     ref_key: `${ref.source}:${ref.id}`,
     source: ref.source,
     external_id: ref.id,
     entity_type: entityType,
     entity_id: entityId,
+    ...(ref.owner_org_id ? { owner_org_id: ref.owner_org_id } : {}),
     indexed_at: new Date().toISOString(),
   });
 

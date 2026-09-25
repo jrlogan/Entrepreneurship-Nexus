@@ -2,10 +2,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Organization, 
-  Initiative, 
-  PipelineDefinition, 
-  MetricLog,
-  PipelineStage,
   Person,
   Interaction,
   InteractionType,
@@ -21,10 +17,6 @@ import { getCapabilitiesForRole } from '../domain/access/policy'; // Imported he
 import { computeNavAccess } from '../domain/access/navAccess';
 import { 
   ALL_ORGANIZATIONS,
-  INITIATIVE_A, 
-  INITIATIVE_B, 
-  INITIATIVE_C,
-  METRIC_LOGS,
   MOCK_PEOPLE,
   MOCK_INTERACTIONS,
   MOCK_REFERRALS,
@@ -35,7 +27,6 @@ import {
   MOCK_SERVICES,
   DARKSTAR_MARINE 
 } from '../data/mockData';
-import { calculatePipelineProgress, calculateDaysBetween, detectDuplicates } from '../domain/logic';
 
 // Repos & Context
 import { AppRepos } from '../data/repos';
@@ -53,8 +44,6 @@ import { OrganizationDetailView } from '../features/directory/OrganizationDetail
 import { AddOrgForm } from '../features/directory/AddOrgForm';
 import { ContactsView } from '../features/people/ContactsView';
 import { PersonDetailView } from '../features/people/PersonDetailView';
-import { InitiativesView } from '../features/pipelines/InitiativesView';
-import { PipelinesView } from '../features/pipelines/PipelinesView';
 import { InteractionsView } from '../features/interactions/InteractionsView';
 import { ReferralsView } from '../features/referrals/ReferralsView';
 import { ReferralFormView } from '../features/referrals/ReferralFormView';
@@ -64,7 +53,6 @@ import { DataStandardsView } from '../features/admin/DataStandardsView';
 import { APIConsoleView } from '../features/admin/APIConsoleView';
 import { EcosystemConfigView } from '../features/admin/EcosystemConfigView';
 import { UserManagementView } from '../features/admin/UserManagementView';
-import { MetricsManagerView } from '../features/admin/MetricsManagerView';
 import { InboundIntakeView } from '../features/admin/InboundIntakeView';
 import { PlatformAdminView } from '../features/admin/PlatformAdminView';
 import { AdminAccessLogView } from '../features/admin/AdminAccessLogView';
@@ -73,10 +61,10 @@ import { AgreementGate } from '../shared/ui/AgreementGate';
 import { LinkedAccountBanner } from '../features/sso/LinkedAccountBanner';
 import { MyVenturesView } from '../features/portal/MyVenturesView';
 import { DemoWalkthrough } from '../features/onboarding/DemoWalkthrough';
-import { VentureScoutView } from '../features/scout/VentureScoutView';
-import { TodosView } from '../features/todos/TodosView';
-import { GrantsView } from '../features/grants/GrantsView';
-import { CalendarView } from '../features/calendar/CalendarView';
+import { IntegrationGuideView } from '../features/integration/IntegrationGuideView';
+import { PartnerOnboardingView } from '../features/onboarding/PartnerOnboardingView';
+import { PartnersView } from '../features/admin/PartnersView';
+import { getViewerSignatureStatus } from '../domain/agreements/orgEnforcement';
 
 // App Shell
 import { AppShell } from './AppShell';
@@ -93,11 +81,10 @@ import { signOutUser } from '../services/authService';
 import { NEW_HAVEN_ECOSYSTEM as DEFAULT_ECO } from '../data/mockData';
 
 const APP_VIEWS = new Set<ViewMode>([
-  'dashboard', 'directory', 'detail', 'pipelines', 'initiatives', 'reports', 'contacts', 'person_detail',
-  'my_clients', 'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
-  'journey', 'ecosystem_config', 'scout', 'todos', 'my_org', 'my_projects', 'data_standards',
-  'metrics_manager', 'my_metrics_tasks', 'inbound_intake', 'grants',
-  'community_calendar', 'platform_admin', 'admin_access_log',
+  'dashboard', 'directory', 'detail', 'reports', 'contacts', 'person_detail',
+  'interactions', 'referrals', 'referral_form', 'my_ventures', 'user_management', 'api_console', 'data_quality',
+  'ecosystem_config', 'my_org', 'data_standards', 'inbound_intake', 'platform_admin', 'admin_access_log', 'integration',
+  'join_network', 'partners',
 ]);
 
 type RouteState = {
@@ -162,15 +149,12 @@ const App = () => {
 
   // Which personas the demo offers.
   //
-  // The compact build is the interoperability core, where the coach/mentor
-  // seat is deliberately out of scope: in this model a mentor works in their
-  // own ESO's system and their activity reaches the network through the API,
-  // rather than holding an account in the shared node. Offering the persona
-  // would imply a central seat the compact does not ask for.
+  // The coach/mentor seat is deliberately out of scope: a mentor works in
+  // their own ESO's system and their activity reaches the network through
+  // the API, rather than holding an account in the shared node. Offering the
+  // persona would imply a central seat the compact does not ask for.
   const demoPersonas = useMemo(
-    () => (CONFIG.DEMO_PROFILE === 'compact'
-      ? MOCK_PEOPLE.filter((p) => p.system_role !== 'eso_coach')
-      : MOCK_PEOPLE),
+    () => MOCK_PEOPLE.filter((p) => p.system_role !== 'eso_coach'),
     []
   );
   const [resolvedAuthPerson, setResolvedAuthPerson] = useState<Person | null>(null);
@@ -273,7 +257,12 @@ const App = () => {
   const [availableEcosystemList, setAvailableEcosystemList] = useState<Ecosystem[]>(
     () => repos.ecosystems.getAll()
   );
+  // Ecosystem config is readable only by signed-in users, so load it once the
+  // session is authenticated (and again if the account changes). Loading at
+  // boot ran before sign-in, failed on permissions, and left the app on the
+  // hardcoded mock network list for every real user.
   useEffect(() => {
+    if (shouldRequireAuth && !session.authUser) return;
     let active = true;
     repos.ecosystems.hydrate()
       .then((list) => { if (active) setAvailableEcosystemList([...list]); })
@@ -283,7 +272,7 @@ const App = () => {
         console.error('Failed to load ecosystem config', error);
       });
     return () => { active = false; };
-  }, [repos]);
+  }, [repos, shouldRequireAuth, session.authUser]);
 
   const baseEcosystem = availableEcosystemList.find(e => e.id === currentEcosystemId)
     || ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId)
@@ -296,52 +285,14 @@ const App = () => {
       ...baseEcosystem.settings,
       ...(override.settings || {}),
       // Deep-merge feature_flags so a partial override doesn't wipe base flags.
-      // Demo builds force flags on so visitors can explore without an admin.
-      // The 'full' profile opens everything; 'compact' opens only the
-      // interoperability core (see CONFIG.DEMO_PROFILE) so the consortium
-      // demo isn't cluttered with modules that aren't part of the compact.
+      // Demo builds open the operator views too so visitors can explore
+      // without an admin configuring the ecosystem first.
       feature_flags: CONFIG.IS_DEMO_MODE
-        ? (CONFIG.DEMO_PROFILE === 'compact'
-          ? {
-              // Core: the shared record, referrals, and the entrepreneur experience.
-              dashboard: true,
-              interactions: true,
-              api_console: true,
-              data_standards: true,
-              notify_entrepreneurs: true,
-              inbound_intake: true,
-              // Duplicate review IS part of the compact: matching happens in
-              // the API, but resolving a flagged pair needs a human screen.
-              data_quality: true,
-              // Deliberately off — valuable, but not part of the compact.
-              advanced_workflows: false,
-              tasks_advice: false,
-              initiatives: false,
-              processes: false,
-              reports: false,
-              venture_scout: false,
-              metrics_manager: false,
-              grant_lab: false,
-              community_calendar: false,
-            }
-          : {
-            advanced_workflows: true,
-            dashboard: true,
-            tasks_advice: true,
-            initiatives: true,
-            processes: true,
-            interactions: true,
-            reports: true,
-            venture_scout: true,
-            api_console: true,
+        ? {
             data_quality: true,
-            data_standards: true,
-            metrics_manager: true,
             inbound_intake: true,
             notify_entrepreneurs: true,
-            grant_lab: true,
-            community_calendar: true,
-          })
+          }
         : {
             ...(baseEcosystem.settings.feature_flags || {}),
             ...(override.settings?.feature_flags || {}),
@@ -352,19 +303,14 @@ const App = () => {
   const isPlatformAdmin = currentRole === 'platform_admin';
   const {
     canAccessDashboard,
-    canAccessTasksAdvice,
-    canAccessInitiatives,
-    canAccessProcesses,
     canAccessInteractions,
     canAccessReports,
-    canAccessVentureScout,
+    canAccessIntegrationGuide,
+    canAccessPartners,
     canAccessApiConsole,
     canAccessDataQuality,
     canAccessDataStandards,
-    canAccessMetricsManager,
     canAccessInboundIntake,
-    canAccessGrantLab,
-    canAccessCommunityCalendar,
   } = computeNavAccess(currentRole, featureFlags);
   const canAccessPlatformAdmin = isPlatformAdmin;
 
@@ -471,6 +417,26 @@ const App = () => {
     };
   }, [activeUser, currentOrgId, currentRole, currentEcosystemId]);
 
+  // Has the acting organization signed the network's agreements here? Until
+  // it has, the server shows it only its own records and issues no API key;
+  // its staff see a banner and its admin is taken to the joining steps.
+  const [orgSignature, setOrgSignature] = useState<'unknown' | 'signed' | 'unsigned'>('unknown');
+  const [signatureVersion, setSignatureVersion] = useState(0);
+  const isEsoRole = ['eso_admin', 'eso_staff', 'eso_coach'].includes(currentRole);
+  useEffect(() => {
+    if (!isEsoRole || !currentOrgId) {
+      setOrgSignature('unknown');
+      return;
+    }
+    let cancelled = false;
+    getViewerSignatureStatus({ viewerOrgId: currentOrgId, ecosystemId: currentEcosystemId })
+      .then((status) => { if (!cancelled) setOrgSignature(status.signed ? 'signed' : 'unsigned'); })
+      .catch(() => { if (!cancelled) setOrgSignature('unknown'); });
+    return () => { cancelled = true; };
+  }, [isEsoRole, currentOrgId, currentEcosystemId, signatureVersion]);
+
+  const sentAdminToOnboarding = React.useRef(false);
+
   useEffect(() => {
     if (!session.authUser) {
       setIsResolvingAuthPerson(false);
@@ -496,7 +462,7 @@ const App = () => {
         // every entrepreneur stuck on the "Complete Your Profile" screen.
         let matchedUser = resolvedFirebasePerson;
         if (!matchedUser && (CONFIG.IS_DEMO_MODE || !isFirebaseEnabled()) && session.authUser?.email) {
-          const fallbackMockPeople = await repos.people.getAll();
+          const fallbackMockPeople = await repos.people.getAllDemoPersonas();
           const target = session.authUser.email.toLowerCase();
           matchedUser = fallbackMockPeople.find(person => person.email.toLowerCase() === target) || null;
         }
@@ -570,11 +536,9 @@ const App = () => {
   const [organizations, setOrganizations] = useState<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]>([]);
   const [archivedOrganizations, setArchivedOrganizations] = useState<Organization[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
-  const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
-  const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
-  const [services, setServices] = useState<Service[]>(MOCK_SERVICES);
+  const [services, setServices] = useState<Service[]>([]);
 
   useEffect(() => {
     setOrganizations([]);
@@ -584,7 +548,8 @@ const App = () => {
       )
         .then(setOrganizations)
         .catch(() => setOrganizations([]));
-      const canSeeArchived = ['platform_admin', 'ecosystem_manager', 'eso_admin'].includes(currentRole);
+      // Archived records are an operator tool (restoring after a bad merge).
+      const canSeeArchived = ['platform_admin', 'ecosystem_manager'].includes(currentRole);
       if (canSeeArchived && repos.organizations.getArchived) {
         repos.organizations.getArchived(currentEcosystemId)
           .then(setArchivedOrganizations)
@@ -595,19 +560,13 @@ const App = () => {
 
   useEffect(() => {
     if (viewerContext) {
-      repos.people.getAll(currentEcosystemId).then(setPeople).catch((error) => {
+      fetchAcrossViewerNetworks((ecosystemId) =>
+        repos.people.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
+      ).then(setPeople).catch((error) => {
         console.error('Failed to load people', error);
       });
     }
-  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
-
-  useEffect(() => {
-    if (viewerContext) {
-      repos.pipelines.getInitiativesForViewer(viewerContext, currentEcosystemId).then(setInitiatives).catch((error) => {
-        console.error('Failed to load initiatives', error);
-      });
-    }
-  }, [repos, viewerContext, currentEcosystemId, dataVersion]);
+  }, [repos, viewerContext, currentEcosystemId, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
     if (viewerContext) {
@@ -620,16 +579,6 @@ const App = () => {
   }, [repos, viewerContext, currentEcosystemId, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
-    if (shouldRequireAuth && !viewerContext) {
-      return;
-    }
-
-    repos.pipelines.getPipelines(currentEcosystemId).then(setPipelines).catch((error) => {
-      console.error('Failed to load pipelines', error);
-    });
-  }, [repos, currentEcosystemId, dataVersion, shouldRequireAuth, viewerContext]);
-
-  useEffect(() => {
     if (viewerContext) {
       fetchAcrossViewerNetworks((ecosystemId) =>
         repos.referrals.getAll({ ...viewerContext, ecosystemId })
@@ -640,14 +589,16 @@ const App = () => {
   }, [repos, viewerContext, dataVersion, fetchAcrossViewerNetworks]);
 
   useEffect(() => {
-    if (shouldRequireAuth && !viewerContext) {
+    if (!viewerContext) {
       return;
     }
 
-    repos.services.getAll(currentEcosystemId).then(setServices).catch((error) => {
-      console.error('Failed to load services', error);
+    fetchAcrossViewerNetworks((ecosystemId) =>
+      repos.services.getAll({ ...viewerContext, ecosystemId }, ecosystemId)
+    ).then(setServices).catch((error) => {
+      console.error('Failed to load participation', error);
     });
-  }, [repos, currentEcosystemId, dataVersion, shouldRequireAuth, viewerContext]);
+  }, [repos, dataVersion, viewerContext, fetchAcrossViewerNetworks]);
   
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(initialRoute.orgId || null);
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(initialRoute.personId || null);
@@ -729,21 +680,20 @@ const App = () => {
   }, [view, selectedOrgId, selectedPersonId, selectedTab, currentEcosystemId, pendingInviteToken]);
 
   useEffect(() => {
+    // Until the signed-in person has resolved, the role is unknown — don't
+    // bounce a deep link (an invite landing on Joining, a bookmarked
+    // Partners page) to Referrals on the way in.
+    if (shouldRequireAuth && !activeUser) return;
     const viewFeatureBlocked =
       (view === 'dashboard' && !canAccessDashboard) ||
-      (view === 'todos' && !canAccessTasksAdvice) ||
-      (view === 'initiatives' && !canAccessInitiatives) ||
-      (view === 'pipelines' && !canAccessProcesses) ||
       (view === 'interactions' && !canAccessInteractions) ||
       (view === 'reports' && !canAccessReports) ||
-      (view === 'scout' && !canAccessVentureScout) ||
+      (view === 'integration' && !canAccessIntegrationGuide) ||
+      (view === 'partners' && !canAccessPartners) ||
       (view === 'api_console' && !canAccessApiConsole) ||
       (view === 'data_quality' && !canAccessDataQuality) ||
       (view === 'data_standards' && !canAccessDataStandards) ||
-      (view === 'metrics_manager' && !canAccessMetricsManager) ||
       (view === 'inbound_intake' && !canAccessInboundIntake) ||
-      (view === 'grants' && !canAccessGrantLab) ||
-      (view === 'community_calendar' && !canAccessCommunityCalendar) ||
       (view === 'platform_admin' && !canAccessPlatformAdmin);
 
     if (viewFeatureBlocked) {
@@ -754,19 +704,25 @@ const App = () => {
     canAccessDashboard,
     canAccessDataQuality,
     canAccessDataStandards,
-    canAccessGrantLab,
     canAccessInboundIntake,
+    canAccessIntegrationGuide,
     canAccessInteractions,
-    canAccessInitiatives,
-    canAccessMetricsManager,
+    canAccessPartners,
     canAccessPlatformAdmin,
-    canAccessProcesses,
     canAccessReports,
-    canAccessTasksAdvice,
-    canAccessVentureScout,
     currentRole,
     view,
+    shouldRequireAuth,
+    activeUser,
   ]);
+
+  useEffect(() => {
+    if (sentAdminToOnboarding.current) return;
+    if (currentRole === 'eso_admin' && orgSignature === 'unsigned') {
+      sentAdminToOnboarding.current = true;
+      if (view !== 'join_network') setView('join_network');
+    }
+  }, [currentRole, orgSignature, view]);
 
   const shouldShowAuthLoading = shouldRequireAuth && (
     session.status === 'loading' ||
@@ -885,9 +841,43 @@ const App = () => {
                />
              </div>
            )}
+           {orgSignature === 'unsigned' && view !== 'join_network' && (
+             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#8b1919]/30 bg-[#8b1919]/5 px-4 py-3 text-sm text-gray-800">
+               <span>
+                 <strong>{myOrganization?.name || 'Your organization'}</strong> has not signed the network agreements for {currentEcosystem.name} yet.
+                 Until it does, you see only your own organization's records and cannot connect your system.
+               </span>
+               <button
+                 type="button"
+                 onClick={() => handleNavigate('join_network')}
+                 className="rounded bg-[#8b1919] px-3 py-1.5 font-semibold text-white hover:bg-[#710a0a]"
+               >
+                 {currentRole === 'eso_admin' ? 'Review and sign' : 'Read the agreements'}
+               </button>
+             </div>
+           )}
+           {view === 'partners' && canAccessPartners && (
+               <PartnersView
+                 organizations={organizations}
+                 ecosystem={currentEcosystem}
+                 viewerRole={currentRole}
+                 onSelectOrganization={(orgId) => navigateToOrg(orgId)}
+                 onRefresh={refreshData}
+               />
+           )}
+           {view === 'join_network' && isEsoRole && (
+               <PartnerOnboardingView
+                 organization={myOrganization}
+                 ecosystem={currentEcosystem}
+                 person={activeUser}
+                 role={currentRole}
+                 onSigned={() => { setSignatureVersion((v) => v + 1); repos.networkView.invalidate(); refreshData(); }}
+                 onOpenIntegrationGuide={() => handleNavigate('integration')}
+               />
+           )}
            {view === 'dashboard' && (
                canAccessDashboard ? (
-               <DashboardView ecosystem={currentEcosystem} />
+               <DashboardView ecosystem={currentEcosystem} onOpenReferrals={() => handleNavigate('referrals')} />
                ) : null
            )}
            {view === 'directory' && (
@@ -907,39 +897,9 @@ const App = () => {
                    onSelectPerson={navigateToPerson} 
                />
            )}
-           {view === 'initiatives' && (
-               canAccessInitiatives ? (
-               <InitiativesView initiatives={initiatives} organizations={organizations} pipelines={pipelines} currentEcosystem={currentEcosystem} onRefresh={refreshData} />
-               ) : null
-           )}
-           {view === 'pipelines' && (
-               canAccessProcesses ? (
-               <PipelinesView pipelines={pipelines} />
-               ) : null
-           )}
-           {view === 'scout' && (
-               canAccessVentureScout ? (
-               <VentureScoutView />
-               ) : null
-           )}
            {view === 'interactions' && (
                canAccessInteractions ? (
                <InteractionsView />
-               ) : null
-           )}
-           {view === 'todos' && (
-               canAccessTasksAdvice ? (
-               <TodosView />
-               ) : null
-           )}
-           {view === 'grants' && (
-               canAccessGrantLab ? (
-               <GrantsView onLinkToInitiative={(organizationId) => navigateToOrg(organizationId, 'initiatives')} />
-               ) : null
-           )}
-           {view === 'community_calendar' && (
-               canAccessCommunityCalendar ? (
-               <CalendarView />
                ) : null
            )}
            {view === 'referrals' && (
@@ -976,6 +936,16 @@ const App = () => {
                <DataStandardsView />
                ) : null
            )}
+           {view === 'integration' && canAccessIntegrationGuide && (
+               <IntegrationGuideView
+                 organization={myOrganization}
+                 ecosystem={currentEcosystem}
+                 viewerRole={currentRole}
+                 orgSignature={orgSignature}
+                 onOpenApiConsole={() => handleNavigate('api_console')}
+                 onOpenJoinNetwork={() => handleNavigate('join_network')}
+               />
+           )}
            {view === 'api_console' && (
                canAccessApiConsole ? (
                <APIConsoleView />
@@ -992,11 +962,6 @@ const App = () => {
                  viewerRole={currentRole}
                />
            )}
-           {view === 'metrics_manager' && (
-               canAccessMetricsManager ? (
-               <MetricsManagerView />
-               ) : null
-           )}
            {view === 'inbound_intake' && (
                canAccessInboundIntake ? (
                <InboundIntakeView />
@@ -1011,14 +976,12 @@ const App = () => {
            {view === 'my_ventures' && (
                <MyVenturesView 
                   person={activeUser} 
-                  initiatives={initiatives} 
                   organizations={organizations} 
                   people={people}
                   interactions={interactions}
                   referrals={referrals}
                   services={services}
                   actingOrgId={currentOrgId}
-                  onAdvance={() => {}} 
                   onRefresh={refreshData}
                   onSelectOrganization={navigateToOrg}
                   onCreateOrganization={() => setIsAddOrgOpen(true)}
@@ -1041,7 +1004,6 @@ const App = () => {
                 org={selectedOrganization}
                 organizations={organizations}
                 people={people}
-                initiatives={initiatives}
                 interactions={interactions}
                 referrals={referrals}
                 services={services}
@@ -1083,7 +1045,6 @@ const App = () => {
                 org={myOrganization} 
                 organizations={organizations}
                 people={people}
-                initiatives={initiatives}
                 interactions={interactions}
                 referrals={referrals}
                 services={services}
@@ -1101,21 +1062,9 @@ const App = () => {
                 Your account does not currently have a primary organization linked in this ecosystem yet.
               </div>
            )}
-           {view === 'my_projects' && (
-               <InitiativesView 
-                  initiatives={initiatives.filter(i => i.organization_id === currentOrgId)} 
-                  organizations={organizations.filter(o => 
-                      o.id === currentOrgId || 
-                      (activeUser.secondary_profile && o.id === activeUser.secondary_profile.organization_id)
-                  )} 
-                  pipelines={pipelines}
-                  currentEcosystem={currentEcosystem}
-                  onRefresh={refreshData}
-               />
-           )}
            
            {/* Fallback for other views */}
-           {!['dashboard', 'directory', 'detail', 'person_detail', 'contacts', 'pipelines', 'interactions', 'referrals', 'reports', 'data_quality', 'data_standards', 'ecosystem_config', 'my_ventures', 'user_management', 'api_console', 'initiatives', 'scout', 'todos', 'my_org', 'my_projects', 'metrics_manager', 'inbound_intake', 'platform_admin', 'admin_access_log', 'grants', 'community_calendar', 'referral_form'].includes(view) && (
+           {!APP_VIEWS.has(view) && (
               <div className="flex items-center justify-center h-full text-gray-400">
                 View "{view}" is under construction.
               </div>

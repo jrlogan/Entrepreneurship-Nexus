@@ -27,10 +27,10 @@
     "simulate:full-invite-flow": "node scripts/simulate-full-invite-flow.mjs",
     "staging:seed-mail-test": "node scripts/seed-staging-mail-test.mjs",
     "staging:cleanup-mail-test": "node scripts/cleanup-staging-mail-test.mjs",
-    "build:demo:compact": "VITE_DEMO_MODE=true VITE_DEMO_PROFILE=compact VITE_BUILD_OUT_DIR=dist-demo-compact vite build"
+    "docs:integration-brief": "functions/node_modules/.bin/tsx scripts/generate-integration-brief.ts",
+    "build:demo:compact": "VITE_DEMO_MODE=true VITE_BUILD_OUT_DIR=dist-demo-compact vite build"
   },
   "dependencies": {
-    "@google/genai": "latest",
     "firebase": "^12.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

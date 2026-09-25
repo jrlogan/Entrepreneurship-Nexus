@@ -23,11 +23,26 @@ info:
     **Idempotency** — All upsert calls are safe to replay. Repeating the same
     call updates the existing record rather than creating a duplicate.
 
-    **Consent model** — People created by a partner start with
-    `network_directory_consent: false`. They are visible to ESO staff immediately
-    but do not appear in the shared network directory until they opt in.
-    Pass `send_consent_email: true` on staff-initiated referrals to trigger the
-    opt-in email automatically.
+    **Privacy model** — the compact every partner signs:
+    - *Always shared*, with partners who work with the same entrepreneur: name and
+      email, and the fact of each other's activity (who, what kind, when).
+    - *Only with the entrepreneur's consent* (off by default, per network): being
+      listed in the network directory, and partners seeing the details of each
+      other's records (program names, referral outcomes).
+    - *Never shared*: notes, financials, and each partner's own record IDs.
+
+    **Consent** — Collect it where the entrepreneur signs up: embed the consent
+    block (`/embed/nexus-consent.js`) or render `getConsentTerms` yourself, and
+    pass the answers as `consent` on `partnerUpsertPerson`; or send the
+    entrepreneur to the hosted page (`partnerCreateConsentLink`). Anyone added
+    without `consent` is emailed the consent notice automatically — a partner
+    cannot switch that off.
+
+    **Prerequisite** — An organization gets an API key only after its admin has
+    signed the network agreements (membership, compact, data usage).
+
+    The step-by-step guide is `INTEGRATION_BRIEF.md` next to this file; partners
+    get it with their identifiers filled in from the app's "Connect Your System" page.
 
     **OIDC / SSO** — Any ESO can register their own OAuth2/OIDC server via
     `partnerRegisterOidcProvider`. MakeHaven's Drupal OAuth is just one instance
@@ -46,6 +61,73 @@ security:
   - ApiKeyAuth: []
 
 components:
+  # ─── Webhook delivery shape (not an endpoint — documented for receivers) ────
+  x-webhook-events:
+    interaction.logged:
+      description: A new interaction was logged for a person by an ESO.
+      payload:
+        type: object
+        properties:
+          interaction_id: { type: string }
+          ecosystem_id: { type: string }
+          organization_id: { type: string }
+          person_id: { type: string }
+          date: { type: string, format: date }
+          type: { type: string }
+          recorded_by: { type: string }
+          source: { type: string }
+    referral.received:
+      description: A new referral was created where your ESO is the receiving org.
+      payload:
+        type: object
+        properties:
+          referral_id: { type: string }
+          ecosystem_id: { type: string }
+          status: { type: string }
+          referring_org_id: { type: string }
+          receiving_org_id: { type: string }
+          subject_person_id: { type: string }
+          date: { type: string, format: date }
+          intake_type: { type: string }
+    referral.updated:
+      description: Status changed on a referral to your ESO, or on one your ESO sent.
+      payload:
+        type: object
+        properties:
+          referral_id: { type: string }
+          status: { type: string }
+          referring_org_id: { type: string }
+          receiving_org_id: { type: string }
+          subject_person_id: { type: string }
+
+  responses:
+    BadRequest:
+      description: Missing or invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: X-Nexus-API-Key header required for partner API
+    Forbidden:
+      description: API key org does not match eso_org_id in request body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Record not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
@@ -53,7 +135,8 @@ components:
       name: X-Nexus-API-Key
       description: |
         Issued per ESO via the Nexus admin console.
-        Format: `nxk_live_...` (production) or `nxk_test_...` (sandbox).
+        Format: `sk_live_...` (issued in the app once agreements are signed) or
+        `nxk_demo_...` (sandbox, minted by provisionDemoAgency).
 
   schemas:
 
@@ -102,13 +185,39 @@ components:
             type: string
           description: Nexus tags to attach on creation or merge in on update.
           example: [entrepreneur, maker]
-        send_consent_email:
+        consent:
+          $ref: '#/components/schemas/ConsentAttestation'
+
+    ConsentAttestation:
+      type: object
+      description: |
+        The entrepreneur's answers from the consent terms shown in your signup form.
+        Send only when they ticked the agreement — never pre-ticked, never defaulted.
+      required: [agreed, terms_hash]
+      properties:
+        agreed:
+          type: boolean
+          const: true
+        terms_hash:
+          type: string
+          description: The `terms_hash` of the terms the entrepreneur was shown (getConsentTerms). A stale hash returns 409 `terms_outdated`.
+        directory_listing:
           type: boolean
           default: false
-          description: |
-            When true, Nexus immediately sends the network directory opt-in email
-            to the person. Use on staff-initiated referrals. Omit for self-service
-            or update calls.
+        share_details:
+          type: boolean
+          default: false
+        accepted_at:
+          type: string
+          format: date-time
+
+    ConsentState:
+      type: object
+      description: The entrepreneur's consent choices in this network.
+      properties:
+        terms_accepted: { type: boolean }
+        directory_listed: { type: boolean }
+        shares_details: { type: boolean }
 
     UpsertPersonResponse:
       type: object
@@ -128,6 +237,11 @@ components:
             - `created`: new person record was made
             - `updated`: existing record (found by external_ref) was updated
             - `linked`: existing person found by email; external_ref was added to their record
+        consent:
+          $ref: '#/components/schemas/ConsentState'
+        consent_notice_sent:
+          type: boolean
+          description: True when this call emailed the person the consent notice (no `consent` was attached and they had not yet answered).
 
     UpsertOrganizationRequest:
       type: object
@@ -202,6 +316,9 @@ components:
               description: Only refs owned by the calling ESO are returned.
               items:
                 $ref: '#/components/schemas/ExternalRef'
+            consent:
+              $ref: '#/components/schemas/ConsentState'
+              description: Present when ecosystem_id was given.
             created_at:
               type: string
               format: date-time
@@ -463,7 +580,6 @@ paths:
               last_name: Lovelace
               email: ada@example.com
               tags: [entrepreneur]
-              send_consent_email: false
       responses:
         "200":
           description: Person updated or linked to existing record
@@ -505,6 +621,12 @@ paths:
           schema:
             type: string
           example: "12345"
+        - name: ecosystem_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Include the person's consent state in this network (`person.consent`).
       responses:
         "200":
           description: Person found
@@ -770,106 +892,259 @@ paths:
         "401":
           $ref: '#/components/responses/Unauthorized'
 
-  /consentAccept:
+  /getConsentTerms:
     get:
-      operationId: consentAccept
-      summary: Accept network directory consent (one-click link)
+      operationId: getConsentTerms
+      summary: The current consent terms to show entrepreneurs
       description: |
-        Validates the token from the opt-in email and marks the person's
-        `network_directory_consent` as accepted. Renders an HTML confirmation
-        page with a link to set up their Nexus account.
-
-        No auth required — the token is the credential. Token expires after 30 days.
+        Plain-language summary, the choice labels and defaults (both optional
+        choices start off), the full Network Compact and Privacy Notice, and
+        `terms_hash`. Show the summary and labels verbatim; send `terms_hash`
+        back in `consent`. Public — no key needed. The embeddable consent block
+        (`/embed/nexus-consent.js`) renders these for you.
       tags: [Consent]
       security: []
-      parameters:
-        - name: token
-          in: query
-          required: true
-          schema:
-            type: string
-            pattern: "^[0-9a-f]{64}$"
-          description: Raw 64-hex-character token from the opt-in email link.
       responses:
         "200":
-          description: HTML confirmation page (text/html)
+          description: Current terms
           content:
-            text/html:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  terms_hash: { type: string }
+                  versions:
+                    type: object
+                    properties:
+                      federation_compact: { type: string }
+                      privacy_policy: { type: string }
+                  summary:
+                    type: object
+                    properties:
+                      heading: { type: string }
+                      intro: { type: string }
+                      always: { type: string }
+                      choice: { type: string }
+                      never: { type: string }
+                  choices:
+                    type: object
+                    description: agree (required), directory_listing and share_details (default false)
+                  documents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type: { type: string }
+                        version: { type: string }
+                        title: { type: string }
+                        text_hash: { type: string }
+                        sections:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              heading: { type: string }
+                              body: { type: string }
+
+  /partnerCreateConsentLink:
+    post:
+      operationId: partnerCreateConsentLink
+      summary: A one-time link to the hosted consent page
+      description: |
+        For signup flows that send the entrepreneur to the network's own consent
+        page instead of rendering the terms. The link works once and expires after
+        7 days. The entrepreneur returns to `return_url` with
+        `?nexus_consent=accepted|declined` appended.
+      tags: [Consent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ecosystem_id]
+              properties:
+                ecosystem_id: { type: string }
+                external_ref:
+                  $ref: '#/components/schemas/ExternalRef'
+                nexus_id:
+                  type: string
+                  description: Alternative to external_ref — a person your organization pushed.
+                return_url:
+                  type: string
+                  format: uri
+                  description: https, on your organization's website (or an origin registered with the network administrator).
+      responses:
+        "201":
+          description: Link created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  nexus_id: { type: string }
+                  consent_url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
         "400":
-          description: Invalid or expired token (HTML error page)
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /consentAccept:
+    post:
+      operationId: consentAccept
+      summary: Record the entrepreneur's answers from the hosted consent page
+      description: |
+        Called by the hosted consent page, not by partner systems. GET requests
+        (links in older emails) redirect to the page: consent is never recorded
+        by a GET, so an email security scanner following the link cannot consent
+        on someone's behalf.
+      tags: [Consent]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, pattern: "^[0-9a-f]{64}$" }
+                consent:
+                  $ref: '#/components/schemas/ConsentAttestation'
+                declined: { type: boolean }
+      responses:
+        "200":
+          description: Recorded
+        "409":
+          description: Link already used, or terms outdated
+        "410":
+          description: Link expired
+
+  /partnerCreateReferral:
+    post:
+      operationId: partnerCreateReferral
+      summary: Refer an entrepreneur to another partner
+      description: |
+        Only for an entrepreneur who asked for or agreed to the introduction
+        (`entrepreneur_agreed: true` is required). The notes are the introduction;
+        only your organization and the receiving partner see them.
+      tags: [Referrals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ecosystem_id, person_external_ref, receiving_org_id, notes, entrepreneur_agreed]
+              properties:
+                ecosystem_id: { type: string }
+                person_external_ref:
+                  $ref: '#/components/schemas/ExternalRef'
+                receiving_org_id: { type: string }
+                notes: { type: string }
+                entrepreneur_agreed: { type: boolean, const: true }
+                referral_external_ref:
+                  $ref: '#/components/schemas/ExternalRef'
+      responses:
+        "201":
+          description: Referral created
           content:
-            text/html:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  referral_id: { type: string }
+                  status: { type: string, enum: [pending] }
+                  action: { type: string, enum: [created, existing] }
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
 
-  # ─── Webhook delivery shape (not an endpoint — documented for receivers) ────
-  x-webhook-events:
-    interaction.logged:
-      description: A new interaction was logged for a person by an ESO.
-      payload:
-        type: object
-        properties:
-          interaction_id: { type: string }
-          ecosystem_id: { type: string }
-          organization_id: { type: string }
-          person_id: { type: string }
-          date: { type: string, format: date }
-          type: { type: string }
-          recorded_by: { type: string }
-          source: { type: string }
-    referral.received:
-      description: A new referral was created where your ESO is the receiving org.
-      payload:
-        type: object
-        properties:
-          referral_id: { type: string }
-          ecosystem_id: { type: string }
-          status: { type: string }
-          referring_org_id: { type: string }
-          receiving_org_id: { type: string }
-          subject_person_id: { type: string }
-          date: { type: string, format: date }
-          intake_type: { type: string }
-    referral.updated:
-      description: Status or notes changed on an existing referral to your ESO.
-      payload:
-        type: object
-        properties:
-          referral_id: { type: string }
-          status: { type: string }
-          referring_org_id: { type: string }
-          receiving_org_id: { type: string }
-          subject_person_id: { type: string }
+  /partnerUpdateReferral:
+    post:
+      operationId: partnerUpdateReferral
+      summary: Answer a referral sent to your organization
+      description: |
+        Lifecycle: pending → accepted | rejected, accepted → completed.
+        `response_notes` are shared only with the referring organization.
+      tags: [Referrals]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [referral_id, status]
+              properties:
+                referral_id: { type: string }
+                status: { type: string, enum: [accepted, rejected, completed] }
+                response_notes: { type: string }
+                outcome: { type: string, description: "For completed referrals, e.g. service_delivered" }
+      responses:
+        "200":
+          description: Updated (or unchanged)
+        "404":
+          description: No referral to your organization with that id
+        "409":
+          description: Invalid transition (reason `invalid_transition`)
 
-  responses:
-    BadRequest:
-      description: Missing or invalid request parameters
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    Unauthorized:
-      description: Missing or invalid API key
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error: X-Nexus-API-Key header required for partner API
-    Forbidden:
-      description: API key org does not match eso_org_id in request body
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    NotFound:
-      description: Record not found
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+  /partnerListReferrals:
+    get:
+      operationId: partnerListReferrals
+      summary: Referrals your organization is a party to
+      description: For partners that poll instead of receiving webhooks. Includes the entrepreneur's name, email and your own record ID for them.
+      tags: [Referrals]
+      parameters:
+        - { name: ecosystem_id, in: query, required: true, schema: { type: string } }
+        - { name: direction, in: query, required: true, schema: { type: string, enum: [incoming, outgoing] } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [pending, accepted, rejected, completed] } }
+        - { name: updated_since, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: Referrals, newest first (max 500)
+
+  /partnerLogActivity:
+    post:
+      operationId: partnerLogActivity
+      summary: Record that you worked with an entrepreneur
+      description: |
+        With `share_fact: true` (default), partners who also work with this
+        entrepreneur see your organization, the type and the date — nothing else.
+        Notes are stored for your organization only.
+      tags: [Activity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ecosystem_id, person_external_ref, type, date]
+              properties:
+                ecosystem_id: { type: string }
+                person_external_ref:
+                  $ref: '#/components/schemas/ExternalRef'
+                activity_external_ref:
+                  $ref: '#/components/schemas/ExternalRef'
+                type: { type: string, enum: [meeting, call, email, event, note] }
+                date: { type: string, format: date }
+                share_fact: { type: boolean, default: true }
+                notes: { type: string, description: "Private to your organization" }
+      responses:
+        "201":
+          description: Created
+        "200":
+          description: Updated (same activity_external_ref)
+        "404":
+          $ref: '#/components/responses/NotFound'
 
 tags:
   - name: People
@@ -883,4 +1158,8 @@ tags:
   - name: SSO / OIDC
     description: "Single sign-on: register your OAuth server and exchange codes for Firebase sessions"
   - name: Consent
-    description: Network directory opt-in flow
+    description: The entrepreneur's consent — terms, hosted page, partner-collected answers
+  - name: Referrals
+    description: Send, receive and answer referrals from your own system
+  - name: Activity
+    description: Record that you worked with an entrepreneur (the fact is shared; notes are not)

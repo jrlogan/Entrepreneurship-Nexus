@@ -1,6 +1,8 @@
 import type { Person, SystemRole } from '../../../domain/people/types';
 import type { EcosystemMembership } from '../../../domain/people/types';
 import { getDocument, setDocument, queryCollection, updateDocument, deleteDocument, whereEquals, whereIn } from '../../../services/firestoreClient';
+import type { ViewerContext } from '../../../domain/access/policy';
+import type { NetworkViewSource } from '../../networkView';
 
 interface FirestorePersonRecord {
   id: string;
@@ -66,6 +68,8 @@ const toPerson = (
 };
 
 export class FirebasePeopleRepo {
+  constructor(private networkView: NetworkViewSource) {}
+
   async getById(id: string): Promise<Person | null> {
     const record = await getDocument<FirestorePersonRecord>('people', id);
     if (!record) {
@@ -103,16 +107,17 @@ export class FirebasePeopleRepo {
     return queryCollection<FirestorePersonMembershipRecord>('person_memberships', [whereEquals('person_id', personId)]);
   }
 
-  async getAll(ecosystemId?: string): Promise<Person[]> {
-    const constraints = ecosystemId ? [whereEquals('ecosystem_id', ecosystemId)] : [];
-    const records = await queryCollection<FirestorePersonRecord>('people', constraints);
-    
-    const results: Person[] = [];
-    for (const record of records) {
-        const memberships = await this.getMembershipsForPerson(record.id);
-        results.push(toPerson(record, memberships));
-    }
-    return results;
+  /**
+   * People visible to the viewer, via the network view. Firestore rules only
+   * allow reading your own person record directly; everyone else comes back
+   * from getNetworkView with the compact's privacy rules applied.
+   */
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<Person[]> {
+    return (await this.networkView.get(viewer, ecosystemId)).people;
+  }
+
+  async getAllDemoPersonas(): Promise<Person[]> {
+    return [];
   }
 
   async add(person: Person): Promise<void> {
@@ -133,6 +138,7 @@ export class FirebasePeopleRepo {
         secondary_profile: person.secondary_profile,
     };
     await setDocument('people', person.id, record);
+    this.networkView.invalidate();
   }
 
   async archive(id: string): Promise<void> {
@@ -174,5 +180,6 @@ export class FirebasePeopleRepo {
       }
     }
     await updateDocument('people', id, mapped as any);
+    this.networkView.invalidate();
   }
 }

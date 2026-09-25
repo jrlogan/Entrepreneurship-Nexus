@@ -159,11 +159,11 @@ describe('isDraftPhaseForVersions', () => {
 });
 
 describe('isHardEnforcementActive (live constants)', () => {
-  it('returns false today (compact is "0.1-draft")', () => {
-    // Regression guard: when the federation_compact version is bumped to
-    // 1.0, this assertion will need to flip — and that's the moment to
-    // also wire the actual signature check into canViewOperationalDetails.
-    expect(isHardEnforcementActive()).toBe(false);
+  it('is on for the pilot — partners sign before they connect', () => {
+    // Pilot versions ('-pilot') are real commitments, unlike '-draft' text.
+    // Server-side, generatePartnerApiKey refuses a key until the org has
+    // signed (functions/src/agreements/orgSignatures.ts).
+    expect(isHardEnforcementActive()).toBe(true);
   });
 });
 

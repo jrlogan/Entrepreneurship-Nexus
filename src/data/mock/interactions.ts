@@ -124,7 +124,7 @@ export const MOCK_INTERACTIONS: Interaction[] = [
     recorded_by: 'J.R. Logan',
     attendees: ['Alex Mystery', 'Felix Phantom']
   },
-  // AI Advisor Example
+  // Quarterly check-in example
   {
     id: 'int_advisor_001',
     organization_id: 'org_darkstar_001',
@@ -135,37 +135,7 @@ export const MOCK_INTERACTIONS: Interaction[] = [
     visibility: 'network_shared',
     note_confidential: false,
     notes: 'Quarterly Check-in. Discussed manufacturing scale-up challenges.',
-    recorded_by: 'J.R. Logan (AI Assisted)',
+    recorded_by: 'J.R. Logan',
     attendees: ['Sarah Connor'],
-    advisor_run_id: 'run_genai_12345',
-    advisor_suggestions: [
-        {
-            id: 'sugg_001',
-            title: 'Manufacturing Grant Opportunity',
-            reason: 'Company is entering low-rate production and matches the CT MFG Voucher profile.',
-            type: 'resource',
-            confidence_score: 92,
-            target_id: 'link_grant_01',
-            priority: 'high'
-        },
-        {
-            id: 'sugg_002',
-            title: 'Intro to MassChallenge',
-            reason: 'Based on current stage and industry (Maritime/DefTech), they are a strong candidate for the next cohort.',
-            type: 'action',
-            confidence_score: 75,
-            priority: 'medium'
-        }
-    ],
-    advisor_acceptances: [
-        {
-            audit_event: {
-                event: 'suggestion_accepted',
-                suggestion_id: 'sugg_001',
-                actor_id: 'person_001',
-                timestamp: '2023-11-28T14:05:00Z'
-            }
-        }
-    ]
   }
 ];

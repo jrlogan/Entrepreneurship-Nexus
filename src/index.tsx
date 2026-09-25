@@ -5,6 +5,7 @@ import App from './app/App';
 import { AuthProvider } from './app/AuthProvider';
 import { SsoStartRoute } from './features/sso/SsoStartRoute';
 import { SsoCallbackRoute } from './features/sso/SsoCallbackRoute';
+import { ConsentRoute } from './features/consent/ConsentRoute';
 
 const pickRoute = () => {
   const { pathname } = window.location;
@@ -29,6 +30,12 @@ const pickRoute = () => {
   // to "/" where AuthProvider + App run normally.
   if (pathname === '/oauth/callback' || pathname === '/oauth/callback/') {
     return <SsoCallbackRoute />;
+  }
+
+  // /consent?token=… — the hosted consent page. No account needed: the
+  // one-time token from the email or partner link is the credential.
+  if (pathname === '/consent' || pathname === '/consent/') {
+    return <ConsentRoute />;
   }
 
   return (

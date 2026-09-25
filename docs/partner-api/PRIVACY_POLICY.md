@@ -1,5 +1,11 @@
 # Nexus Partner API — Privacy & Consent Policy
 
+> The network-wide privacy model — what partners see about each other's
+> entrepreneurs, and how the platform enforces it — is
+> [../PRIVACY_MODEL.md](../PRIVACY_MODEL.md). This document is a partner-side
+> policy for deciding *when* to push someone, written for the MakeHaven bridge
+> and usable as a template by other partners.
+
 Reference document for how consent governs what a partner system (CiviCRM,
 Salesforce, etc.) is allowed to push to the Nexus. All partner integrations must
 follow this policy. The MakeHaven CiviCRM bridge is the first implementation.
@@ -40,9 +46,10 @@ A staff member uses a CiviCRM contact action ("Invite to Nexus") to initiate a
 push. Staff cannot grant consent on the member's behalf — they initiate an
 invitation; the member grants consent by clicking the opt-in email.
 
-- Push: `partnerUpsertPerson` with `send_consent_email: true`
-- Record lands in Nexus with `network_directory_consent: false` — invisible in
-  the directory until the member confirms
+- Push: `partnerUpsertPerson` without a `consent` object — the network emails
+  the member the consent notice automatically
+- Record lands in Nexus not listed in the directory and sharing no details
+  until the member chooses
 - Participation / interactions: held until consent is confirmed
 
 ### Path 3 — Lookup match to existing Nexus person

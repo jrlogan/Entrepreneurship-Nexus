@@ -75,13 +75,13 @@ the consent email goes out at the same moment. No bulk import, ever.
 
 ```bash
 node scripts/nexus-call.mjs --as ef partnerUpsertPerson \
-  '{"external_ref":{"source":"ef_tracker","id":"live-demo-1"},"first_name":"Grace","last_name":"Hopper","email":"grace.demo@example.com","tags":["entrepreneur"],"send_consent_email":true}'
+  '{"external_ref":{"source":"ef_tracker","id":"live-demo-1"},"first_name":"Grace","last_name":"Hopper","email":"grace.demo@example.com","tags":["entrepreneur"]}'
 # → HTTP 201  { "action": "created" }
 ```
 
-Point at `send_consent_email: true`: the entrepreneur gets the shared
-agreement right then; until they click it, `network_directory_consent`
-stays false and they are invisible in the cross-org directory.
+Point out that no consent was attached, so the network emails Grace the
+consent notice itself, right then — nobody is added without being told. Until
+she answers she is not in the cross-org directory and shares no details.
 
 ### The same person walks into IP Factory
 

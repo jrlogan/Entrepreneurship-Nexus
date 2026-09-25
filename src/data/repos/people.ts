@@ -1,13 +1,20 @@
 
 import type { Person } from '../../domain/people/types';
+import type { ViewerContext } from '../../domain/access/policy';
+import type { NetworkViewSource } from '../networkView';
 import { MOCK_PEOPLE } from '../mockData';
 
 export class PeopleRepo {
-  async getAll(ecosystemId?: string): Promise<Person[]> {
-    if (ecosystemId) {
-      return Promise.resolve(MOCK_PEOPLE.filter(p => p.memberships?.some(m => m.ecosystem_id === ecosystemId)));
-    }
-    return Promise.resolve(MOCK_PEOPLE);
+  constructor(private networkView: NetworkViewSource) {}
+
+  /** People visible to the viewer: colleagues, people their org works with, and directory listings. */
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<Person[]> {
+    return (await this.networkView.get(viewer, ecosystemId)).people;
+  }
+
+  /** Demo only: the persona list used by the "switch user" menu and demo sign-in. */
+  async getAllDemoPersonas(): Promise<Person[]> {
+    return MOCK_PEOPLE;
   }
 
   async getById(id: string): Promise<Person | undefined> {

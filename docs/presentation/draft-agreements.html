@@ -52,6 +52,7 @@
     <h1>The draft agreements</h1>
     <p class="standfirst">Two for organizations, two for entrepreneurs — the four documents that make the federated network an agreement rather than a platform — reproduced in full, exactly as they appear in the running software.</p>
     <div class="note"><strong>These are drafts, and that is the point.</strong> Every word here is a starting position for the consortium to argue with. It is easier to respond to real language than to a blank page — so mark them up, strike what you disagree with, and bring it to the group. Nothing becomes v1.0 until the group says so.</div>
+    <div class="note"><strong>Pilot versions, revised 24 September 2026.</strong> The two entrepreneur-facing documents were revised so their wording matches the privacy model in the deck — <em>always shared</em> with organizations the entrepreneur works with, <em>only with consent</em> for directory listing and record details, <em>never shared</em> for notes, financials and internal record IDs. Earlier drafts said directory information was visible to every organization in the network; it is now opt-in. These are the versions pilot partners sign and present to entrepreneurs.</div>
     <nav class="toc">Jump to: <a href="#membership">Network Membership</a> · <a href="#compact">Network Compact</a> · <a href="#privacy">Privacy Notice</a> · <a href="#dua">Data Usage Agreement</a></nav>
   </header>
 
@@ -104,7 +105,7 @@
   </article>
 
   <article class="doc" id="compact">
-    <p class="eyebrow">Document 2 of 4 · draft · entrepreneur-facing</p>
+    <p class="eyebrow">Document 2 of 4 · pilot 0.2 · entrepreneur-facing</p>
     <h2>Joining a shared entrepreneurship network</h2>
     <p class="who"><strong>Who signs:</strong> Every entrepreneur, once, when their record first enters the shared network.</p>
     <p class="intro">The plain-language explanation of what a federated network is and what joining it means. This is the document that has to be understandable, not just correct.</p>
@@ -114,11 +115,11 @@
       </section>
       <section class="clause">
         <h3>What becomes visible across organizations</h3>
-        <p>Your core directory information — name, contact, venture name, and a short description — becomes visible to organizations in this ecosystem so they can find and support you. Deeper data (interaction notes, program details, financials) stays with the organization that recorded it unless you explicitly approve cross-organization sharing.</p>
+        <p>Always shared, with organizations you actually work with: your name and email, their own records with you, and the fact that other partners are helping you (who, what kind of support, when). Only with your consent: being listed in the network directory, where partners you have not worked with can find you, and the details of one organization's records being seen by another. Never shared: interaction notes, financials, and each organization's internal record numbers.</p>
       </section>
       <section class="clause">
         <h3>You stay in control of what moves</h3>
-        <p>Data sharing between specific organizations requires your consent each time a new organization asks for access. You can revoke access at any time from your privacy settings. Revoking your participation here does not affect your membership or relationship with any individual organization.</p>
+        <p>Directory listing and record sharing are off until you turn them on, and each choice applies to one network. A new organization asking to see another's records needs your approval. You can change any choice at any time from your privacy settings, and doing so does not affect your relationship with any individual organization.</p>
       </section>
       <section class="clause">
         <h3>Why this is better than a central database</h3>
@@ -132,7 +133,7 @@
   </article>
 
   <article class="doc" id="privacy">
-    <p class="eyebrow">Document 3 of 4 · draft · entrepreneur-facing</p>
+    <p class="eyebrow">Document 3 of 4 · pilot 0.2 · entrepreneur-facing</p>
     <h2>Entrepreneur Data &amp; Privacy Notice</h2>
     <p class="who"><strong>Who signs:</strong> Every entrepreneur, alongside the compact.</p>
     <p class="intro">The specifics: what is stored, who can see it, how cross-organization sharing is approved, and what rights the entrepreneur keeps.</p>
@@ -142,19 +143,19 @@
       </section>
       <section class="clause">
         <h3>Who can see your data</h3>
-        <p>Each ESO only sees records they have created or that you have explicitly shared with them. Your information is not visible to organizations you have not worked with. Basic directory information (name, venture, contact) is visible to all ESOs in this ecosystem.</p>
+        <p>Organizations you work with see your name and email, the records they keep themselves, and the fact that other partners are also supporting you — which organization, what kind of support, and when — so they can coordinate rather than duplicate. Organizations you have not worked with do not see you at all, unless you choose to be listed in the network directory.</p>
       </section>
       <section class="clause">
         <h3>Cross-organization sharing</h3>
-        <p>If you work with multiple ESOs and want them to coordinate, you must explicitly approve any cross-organization data sharing. You will always be asked before a second organization can access another organization&#x27;s notes or records about you.</p>
+        <p>The details of one organization&#x27;s records — such as the name of a program you are in, or the outcome of a referral — are shared with another organization only if you approve it, either partner by partner or for every partner you work with in this network. Notes that staff write about their meetings with you are never shared with other organizations, even with your approval.</p>
       </section>
       <section class="clause">
         <h3>Your rights</h3>
-        <p>You can view which organizations have access to your data from your Privacy Settings at any time. You can restrict or revoke access to your data, and you can request a copy or deletion of your records by contacting your ecosystem administrator.</p>
+        <p>You can see which organizations have access to your records, turn your directory listing on or off, and approve or revoke sharing at any time from your privacy settings. Each choice applies to one network. You can request a copy or deletion of your records by contacting your network administrator.</p>
       </section>
       <section class="clause">
         <h3>What we do not do</h3>
-        <p>We do not sell your data to third parties. We do not share your information outside this ecosystem without your consent. Individual interaction notes are confidential between you and the recording organization.</p>
+        <p>We do not sell your data to third parties. We do not share your information outside this network without your consent. Notes stay with the organization that wrote them, and each organization's internal record numbers stay private to that organization. Statistics the network publishes are anonymous and aggregate.</p>
       </section>
     <p class="signature">☐ I have read and agree to this Privacy Notice</p>
   </article>
@@ -192,6 +193,6 @@
   </article>
 
   <footer>
-    Signatures are versioned: when the group revises a document, members re-sign the new version, and the software records which version each organization accepted. Source: <span style="font-family:'IBM Plex Mono',monospace">src/domain/agreements/content.ts</span> in the open-source repository.
+    Signatures are versioned: when the group revises a document, members re-sign the new version, and the software records which version each organization accepted. Source: <span style="font-family:'IBM Plex Mono',monospace">functions/src/agreements/content.ts</span> in the open-source repository (the app and the server both read it, so what is shown is what is recorded).
   </footer>
 </div>

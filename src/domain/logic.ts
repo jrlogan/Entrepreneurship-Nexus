@@ -1,20 +1,5 @@
 
-import { Initiative, PipelineDefinition, Organization, DuplicateMatch } from './types';
-
-// Part 3: Helper Function
-export function calculatePipelineProgress(initiative: Initiative, pipelineDef: PipelineDefinition): number {
-  if (!pipelineDef || !pipelineDef.stages || pipelineDef.stages.length === 0) {
-    return 0;
-  }
-  
-  // Ensure index is within bounds
-  const stageIndex = Math.max(0, Math.min(initiative.current_stage_index, pipelineDef.stages.length - 1));
-  
-  // Calculate percentage (0 to 100)
-  if (pipelineDef.stages.length === 1) return 100;
-  
-  return Math.round((stageIndex / (pipelineDef.stages.length - 1)) * 100);
-}
+import { Organization, DuplicateMatch } from './types';
 
 // Helper to calculate days between two dates
 export function calculateDaysBetween(start: string, end?: string): number {

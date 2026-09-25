@@ -17,13 +17,17 @@ export const getDocument = async <T>(collectionName: string, id: string): Promis
   }
 
   const snapshot = await getDoc(doc(db, collectionName, id));
-  return snapshot.exists() ? (snapshot.data() as T) : null;
+  // Merge the document ID so callers always get a usable `id`, even for
+  // collections whose bodies don't duplicate it (e.g. consent_policies).
+  return snapshot.exists() ? ({ ...snapshot.data(), id: snapshot.id } as T) : null;
 };
 
 export const queryCollection = async <T>(collectionName: string, constraints: QueryConstraint[] = []): Promise<T[]> => {
   const ref = getCollection(collectionName);
   const snapshot = await getDocs(constraints.length > 0 ? query(ref, ...constraints) : ref);
-  return snapshot.docs.map((item) => item.data() as T);
+  // Merge the document ID so callers always get a usable `id`, even for
+  // collections whose bodies don't duplicate it (e.g. consent_policies).
+  return snapshot.docs.map((item) => ({ ...item.data(), id: item.id } as T));
 };
 
 export const whereEquals = (field: string, value: unknown) => where(field, '==', value);

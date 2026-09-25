@@ -194,13 +194,26 @@ service cloud.firestore {
         request.resource.data.managed_by_ids == resource.data.managed_by_ids;
     }
 
-    match /organizations/{organizationId} {
-      // Basic read is open to all authenticated users (directory view).
-      // Detailed fields like private notes or operational visibility
-      // should be filtered by the application or moved to subcollections.
-      allow read: if isAuthenticated();
+    // Support organizations (ESOs, funders, resource providers) are public
+    // within the network by nature. A venture is readable directly only by
+    // its own people and the ESOs that manage it; everyone else sees ventures
+    // through getNetworkView, which applies the compact's privacy policy
+    // (functions/src/privacy/policy.ts) — including directory consent.
+    function isSupportOrganizationDoc(data) {
+      return data.get('roles', []).hasAny(['eso', 'funder', 'resource']);
+    }
 
-      allow create: if isPlatformAdmin() || isEsoOperator();
+    match /organizations/{organizationId} {
+      allow read: if isNetworkAdmin() || (
+        hasPersonDoc() && (
+          isSupportOrganizationDoc(resource.data) ||
+          currentOrgId() == organizationId ||
+          currentOrgId() in resource.data.get('managed_by_ids', [])
+        )
+      );
+
+      // Network operators create partner organizations when inviting them.
+      allow create: if isNetworkAdmin() || isEsoOperator();
       allow update: if isPlatformAdmin() || canEsoOperatorUpdateOrg();
       allow delete: if isPlatformAdmin();
 
@@ -220,31 +233,39 @@ service cloud.firestore {
       }
     }
 
+    // Directory listing is consent-gated: other members see listed profiles
+    // only through getNetworkView. The entrepreneur edits their own choice.
     match /network_profiles/{profileId} {
-      allow read: if isAuthenticated();
+      allow read: if isNetworkAdmin() || isSelf(profileId);
       allow create, update: if isPlatformAdmin() || isSelf(profileId);
       allow delete: if isPlatformAdmin();
     }
 
+    // --- Record reads ---------------------------------------------------------
+    // Interactions, referrals and participations are readable directly only by
+    // the organization that owns them. Everyone else — partners who work with
+    // the entrepreneur, the entrepreneur themselves, network operators — reads
+    // them through getNetworkView, which returns the fact or the consented
+    // detail and never another organization's notes
+    // (functions/src/privacy/policy.ts). Platform admins get no exception:
+    // "notes stay with the organization that wrote them" holds for operators too.
+
     match /referrals/{referralId} {
-      // Tenancy-scoped: clients always query with
-      // where('ecosystem_id','==',scope), so this matches the real read path.
-      // Party-level narrowing (referring/receiving/subject org) is still
-      // applied client-side in FirebaseReferralsRepo.getAll — enforcing it
-      // here too would require the client to issue per-party queries.
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      // Parties: the referring and receiving organizations. The intro note is
+      // written for the receiver, so both parties see it.
+      allow read: if hasPersonDoc() && currentOrgId() != null && (
+        resource.data.referring_org_id == currentOrgId() ||
+        resource.data.receiving_org_id == currentOrgId()
+      );
       allow create: if canCreateReferral() && inCallerEcosystem(request.resource.data.ecosystem_id);
       allow update, delete: if canManageReferral(resource.data) && inCallerEcosystem(resource.data.ecosystem_id);
     }
 
     match /interactions/{interactionId} {
-      // Tenancy-scoped: a signed-in user can no longer read case notes from
-      // ecosystems they are not a member of.
-      // NOTE: within an ecosystem, eso_private / note_confidential content
-      // filtering is still applied client-side (domain/access/policy.ts).
-      // Closing that gap needs either per-author queries or a redacting
-      // Cloud Function read path — tracked as remaining work.
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
+      // Only the authoring organization reads an interaction (and its notes).
+      allow read: if isEsoOperator() &&
+        currentOrgId() != null &&
+        resource.data.author_org_id == currentOrgId();
       // Writers may only author interactions attributed to their own org —
       // previously any ESO operator could forge another org's case notes.
       allow create: if isPlatformAdmin() || (
@@ -259,49 +280,26 @@ service cloud.firestore {
       allow delete: if isPlatformAdmin();
     }
 
-    match /pipelines/{pipelineId} {
-      allow read: if isAuthenticated();
-      allow write: if isPlatformAdmin();
-    }
-
-    // The collections below are always queried with an ecosystem_id filter by
-    // the Firebase repos, so tenancy scoping here matches the real read path.
-    match /initiatives/{initiativeId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isPlatformAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update, delete: if (isPlatformAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-    }
-
-    match /grants/{grantId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /monitored_grant_sources/{sourceId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /grant_drafts/{draftId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(request.resource.data.ecosystem_id);
-      allow update: if (isNetworkAdmin() || isEsoOperator()) && inCallerEcosystem(resource.data.ecosystem_id);
-      allow delete: if isPlatformAdmin();
-    }
-
-    // Participation records are service-utilization data — who is enrolled in
-    // which program at which agency. Reads are scoped to the caller's own
-    // ecosystems; writes additionally require the caller to be an operator in
-    // that ecosystem, so an ESO in one network cannot author or rewrite
-    // another network's participation history.
+    // Participation records — who is enrolled in which program at which
+    // agency. The providing organization reads its own; the program name is a
+    // detail other partners see only with the entrepreneur's consent, via
+    // getNetworkView. Writes require the caller to provide the program, in a
+    // network they belong to.
     match /participations/{participationId} {
-      allow read: if isAuthenticated() && inCallerEcosystem(resource.data.ecosystem_id);
-      allow create: if isPlatformAdmin() || (isEsoOperator() && inCallerEcosystem(request.resource.data.ecosystem_id));
-      allow update: if isPlatformAdmin() || (isEsoOperator() && inCallerEcosystem(resource.data.ecosystem_id));
+      allow read: if isEsoOperator() &&
+        currentOrgId() != null &&
+        resource.data.provider_org_id == currentOrgId();
+      allow create: if isPlatformAdmin() || (
+        isEsoOperator() &&
+        request.resource.data.provider_org_id == currentOrgId() &&
+        inCallerEcosystem(request.resource.data.ecosystem_id)
+      );
+      allow update: if isPlatformAdmin() || (
+        isEsoOperator() &&
+        resource.data.provider_org_id == currentOrgId() &&
+        request.resource.data.provider_org_id == resource.data.provider_org_id &&
+        inCallerEcosystem(resource.data.ecosystem_id)
+      );
       allow delete: if isPlatformAdmin();
     }
 
@@ -315,34 +313,44 @@ service cloud.firestore {
       allow write: if isNetworkAdmin() || isEsoOperator();
     }
 
-    match /consent_policies/{policyId} {
-      allow read: if isAuthenticated();
-      allow create: if isNetworkAdmin() || (
-        hasPersonDoc() &&
-        currentOrgId() != null &&
-        request.resource.data.resource_id == currentOrgId()
+    // --- Consent ---------------------------------------------------------------
+    // A consent record is readable by its two parties — the entrepreneur (the
+    // resource: their person record or their venture) and the partner it
+    // names — and by network operators. Who shares with whom is itself
+    // private. Only the entrepreneur side writes grants.
+    function ownsConsentResource(resourceId) {
+      return isAuthenticated() && (
+        resourceId == request.auth.uid ||
+        (hasPersonDoc() && currentOrgId() != null && resourceId == currentOrgId())
       );
+    }
+
+    function isConsentParty(data) {
+      return ownsConsentResource(data.resource_id) || (
+        hasPersonDoc() && currentOrgId() != null && data.viewer_id == currentOrgId()
+      );
+    }
+
+    match /consent_policies/{policyId} {
+      allow read: if isNetworkAdmin() || isConsentParty(resource.data);
+      allow create: if isNetworkAdmin() || ownsConsentResource(request.resource.data.resource_id);
       allow update: if isNetworkAdmin() || (
-        hasPersonDoc() &&
-        currentOrgId() != null &&
-        resource.data.resource_id == currentOrgId() &&
+        ownsConsentResource(resource.data.resource_id) &&
         request.resource.data.resource_id == resource.data.resource_id
       );
       allow delete: if false;
     }
 
     match /consent_events/{eventId} {
-      allow read: if isAuthenticated();
-      allow create: if isNetworkAdmin() || (
-        hasPersonDoc() &&
-        currentOrgId() != null &&
-        request.resource.data.resource_id == currentOrgId()
-      );
+      allow read: if isNetworkAdmin() || isConsentParty(resource.data);
+      allow create: if isNetworkAdmin() || ownsConsentResource(request.resource.data.resource_id);
       allow update, delete: if false;
     }
 
     match /consent_requests/{requestId} {
-      allow read: if isAuthenticated();
+      allow read: if isNetworkAdmin() ||
+        ownsConsentResource(resource.data.resource_id) ||
+        (hasPersonDoc() && currentOrgId() != null && resource.data.requesting_eso_id == currentOrgId());
       allow write: if false;
     }
 
@@ -403,9 +411,11 @@ service cloud.firestore {
     // Signed by an ESO admin on behalf of the org for a specific ecosystem.
     // Re-signing is permitted (overwrite) but only by an authorized signer of
     // the SAME org+ecosystem+type; the scope keys are immutable on update.
+    // Only an organization's admin commits it to the network's agreements —
+    // the membership terms say they are signed by someone authorized to.
     function isAuthorizedSignerForOrg(orgIdInDoc) {
       return isPlatformAdmin() || (
-        isEsoOperator() &&
+        currentSystemRole() == 'eso_admin' &&
         currentOrgId() != null &&
         currentOrgId() == orgIdInDoc &&
         request.resource.data.signed_by_uid == request.auth.uid
@@ -479,37 +489,6 @@ service cloud.firestore {
     match /security_events/{eventId} {
       allow read: if isPlatformAdmin();
       allow write: if false;
-    }
-
-    // Community Calendar
-    // Events: public read for approved/auto-approved + public visibility; admins see everything.
-    match /events/{eventId} {
-      allow read: if (
-        resource.data.visibility == 'public' &&
-        (resource.data.status == 'approved' || resource.data.status == 'auto_approved')
-      ) || isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /event_sources/{sourceId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isNetworkAdmin() || isEsoOperator();
-      allow delete: if isPlatformAdmin();
-    }
-
-    match /event_source_runs/{runId} {
-      allow read: if isNetworkAdmin() || isEsoOperator();
-      allow write: if false;
-    }
-
-    match /event_flags/{flagId} {
-      // Flags can be filed by anyone — including unauthenticated visitors —
-      // because public-facing event listings need a way to surface bad data.
-      allow read: if isNetworkAdmin() || isEsoOperator();
-      allow create: if true;
-      allow update: if isNetworkAdmin() || isEsoOperator();
-      allow delete: if isPlatformAdmin();
     }
 
     match /ecosystems/{ecosystemId} {

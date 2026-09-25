@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { isOwnRecord } from '../../domain/access/recordAccess';
 import { Badge, Modal, FORM_LABEL_CLASS, FORM_INPUT_CLASS, FORM_TEXTAREA_CLASS, FORM_SELECT_CLASS } from '../../shared/ui/Components';
 import { loadEnums } from '../../domain/standards/loadStandards';
 import { EnumSelect } from '../../shared/EnumSelect';
@@ -140,7 +141,10 @@ export const ReferralsView = ({
         // Tab Filter
         if (activeTab === 'incoming' && r.receiving_org_id !== currentOrgId) return false;
         if (activeTab === 'outgoing' && r.referring_org_id !== currentOrgId) return false;
-        // 'all' shows everything (admin only feature usually, or debugging)
+        // The referral inbox is for referrals you are a party to. Partners'
+        // referrals about people you work with appear, as facts, on the person
+        // and organization pages instead.
+        if (!isOwnRecord(r)) return false;
         
         // Status Filter
         if (filterStatus !== 'all' && r.status !== filterStatus) return false;
@@ -666,7 +670,7 @@ ${receiverOrg}
     // Generic intro email template for the page-level template block
     const bccRoute = inboundRoutes.find(r =>
         r.ecosystem_id === viewer.ecosystemId &&
-        r.activity_type === 'introduction' &&
+        r.activity_type === 'referral' &&
         r.is_active
     );
     const genericTemplate = {

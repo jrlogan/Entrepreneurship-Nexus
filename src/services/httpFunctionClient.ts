@@ -17,7 +17,8 @@ const normalizeFunctionsRegion = (value?: string) => {
   return raw;
 };
 
-const getBaseUrl = () => {
+/** Base URL of the Cloud Functions — also the partner API base URL. */
+export const getFunctionsBaseUrl = () => {
   const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || 'entrepreneurship-nexus-local';
   const region = normalizeFunctionsRegion(import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION);
 
@@ -35,7 +36,7 @@ export const callHttpFunction = async <TRequest, TResponse>(name: string, payloa
   const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
   let response: Response;
   try {
-    response = await fetch(`${getBaseUrl()}/${name}`, {
+    response = await fetch(`${getFunctionsBaseUrl()}/${name}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

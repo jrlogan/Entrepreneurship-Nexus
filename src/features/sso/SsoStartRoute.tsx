@@ -6,9 +6,10 @@ import { challengeFor, createVerifier, randomState, stashFlow, type FlowIntent }
 /**
  * Handles /sso/:providerId (intent: 'login') and /sso/:providerId/link
  * (intent: 'link'). Starts a PKCE authorization request against the named
- * OIDC provider. These routes are reached by partner-site buttons (login)
- * or in-app "Connect [Provider]" actions (link); they are NOT linked from
- * the default Nexus login screen.
+ * OIDC provider. These routes are reached from the "Sign in with [ESO]"
+ * buttons on the Nexus login screen (AuthGateView renders one per provider
+ * returned by oidcGetProviders), from partner-site buttons, or from in-app
+ * "Connect [Provider]" actions (link intent).
  *
  * Flow:
  *   1. Fetch the provider's public config by id (no ecosystem needed).

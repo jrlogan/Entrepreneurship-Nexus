@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { notesHidden, detailsHidden } from '../../domain/access/recordAccess';
 import ReactCrop, { centerCrop, makeAspectCrop, type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Person, Organization, Interaction, Referral, Service } from '../../domain/types';
@@ -8,6 +9,7 @@ import { LogInteractionModal } from '../interactions/LogInteractionModal';
 import { CreateReferralModal } from '../referrals/CreateReferralModal';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import { getAllOrganizationAffiliations } from '../../domain/people/affiliations';
+import type { PersonOrganizationAffiliation } from '../../domain/people/types';
 import { ENUMS } from '../../domain/standards/enums';
 import { uploadImageFile } from '../../services/storageUploads';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -45,7 +47,15 @@ export const PersonDetailView = ({
 }: PersonDetailViewProps) => {
   const repos = useRepos();
   const viewer = useViewer();
-  const buildAffiliationDrafts = React.useCallback(() => {
+  type AffiliationDraft = {
+    organization_id: string;
+    role_title: string;
+    relationship_type: NonNullable<PersonOrganizationAffiliation['relationship_type']>;
+    status: NonNullable<PersonOrganizationAffiliation['status']>;
+    can_self_manage: boolean;
+    is_primary: boolean;
+  };
+  const buildAffiliationDrafts = React.useCallback((): AffiliationDraft[] => {
     const existing = getAllOrganizationAffiliations(person);
     if (existing.length > 0) {
       return existing.map((affiliation) => ({
@@ -146,8 +156,7 @@ export const PersonDetailView = ({
   const visibleAffiliations = allAffiliations.filter((affiliation) => affiliation.organization_id);
   const ecosystem = ALL_ECOSYSTEMS.find(e => e.id === viewer.ecosystemId);
   const featureFlags = ecosystem?.settings?.feature_flags || {};
-  const canAccessAdvancedWorkflows = featureFlags.advanced_workflows === true;
-  const canAccessInteractions = canAccessAdvancedWorkflows || featureFlags.interactions === true;
+  const canAccessInteractions = featureFlags.interactions !== false;
   const isOwnProfile = viewer.personId === person.id;
   const canEditProfile = isOwnProfile
     || viewer.role === 'platform_admin'
@@ -280,7 +289,7 @@ export const PersonDetailView = ({
       .map((affiliation) => ({
         organization_id: affiliation.organization_id,
         role_title: affiliation.role_title || null,
-        relationship_type: affiliation.relationship_type || 'other',
+        relationship_type: (affiliation.relationship_type || 'other') as NonNullable<PersonOrganizationAffiliation['relationship_type']>,
         status: affiliation.status || 'active',
         // Entrepreneurs cannot self-grant management rights — preserve existing value only
         can_self_manage: isSelfEntrepreneur
@@ -559,10 +568,17 @@ export const PersonDetailView = ({
           <div className="space-y-4">
             {personInteractions.map((interaction) => (
               <Card key={interaction.id} title={`${interaction.type.toUpperCase()} - ${interaction.date}`}>
-                <p className="text-gray-800">{interaction.notes}</p>
+                {notesHidden(interaction) ? (
+                  <p className="text-sm text-gray-600">
+                    Logged by {organizations.find((organization) => organization.id === interaction.author_org_id)?.name || 'a partner organization'}
+                    <span className="text-gray-400"> · notes stay with the recording organization</span>
+                  </p>
+                ) : (
+                  <p className="text-gray-800">{interaction.notes}</p>
+                )}
                 <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
                   <span>Org: {organizations.find((organization) => organization.id === interaction.organization_id)?.name}</span>
-                  <span>By: {interaction.recorded_by}</span>
+                  {interaction.recorded_by && <span>By: {interaction.recorded_by}</span>}
                 </div>
               </Card>
             ))}
@@ -573,7 +589,11 @@ export const PersonDetailView = ({
           <div className="space-y-4">
             {personReferrals.map((referral) => (
               <Card key={referral.id} title={`Referral: ${organizations.find((organization) => organization.id === referral.referring_org_id)?.name} → ${organizations.find((organization) => organization.id === referral.receiving_org_id)?.name}`}>
-                <p className="text-gray-800 mb-2">{referral.notes}</p>
+                {notesHidden(referral) ? (
+                  <p className="text-sm text-gray-500 mb-2">Notes are shared only between the referring and receiving organizations.</p>
+                ) : (
+                  <p className="text-gray-800 mb-2">{referral.notes}</p>
+                )}
                 <Badge color={referral.status === 'pending' ? 'yellow' : 'green'}>{referral.status}</Badge>
               </Card>
             ))}
@@ -833,7 +853,7 @@ export const PersonDetailView = ({
               personParticipations.map((service) => {
                 const provider = organizations.find((organization) => organization.id === service.provider_org_id);
                 return (
-                  <Card key={service.id} title={service.name}>
+                  <Card key={service.id} title={service.name || `${ENUMS.ServiceParticipationType?.find(o => o.id === service.participation_type)?.label ?? 'Program'} with ${provider?.name || 'a partner'}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm text-gray-600">
@@ -847,6 +867,9 @@ export const PersonDetailView = ({
                     </div>
                     {service.description && (
                       <div className="mt-3 text-sm text-gray-700">{service.description}</div>
+                    )}
+                    {detailsHidden(service) && (
+                      <div className="mt-3 text-xs text-gray-500">Program details are shared only with the entrepreneur's consent.</div>
                     )}
                   </Card>
                 );

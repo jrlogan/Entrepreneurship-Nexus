@@ -4,8 +4,7 @@ import { getFirestoreDb } from '../../../services/firebaseApp';
 import { callFunction } from '../../../services/functionsClient';
 import type { Organization, ApiKey, Webhook, OwnerCharacteristic } from '../../../domain/organizations/types';
 import type { ViewerContext } from '../../../domain/access/policy';
-import { explainOrgAccess, canViewOperationalDetails } from '../../../domain/access/policy';
-import { redactOrganization } from '../../../domain/access/redaction';
+import type { NetworkViewSource, OrgAccess } from '../../networkView';
 import { ConsentRepo } from '../consent';
 import type { IngestionResult } from '../organizations';
 
@@ -46,45 +45,19 @@ const normalizeOrganization = (org: Organization & { demographics?: { minority_o
 };
 
 export class FirebaseOrganizationsRepo {
-  constructor(private consentRepo: ConsentRepo) {}
+  constructor(private consentRepo: ConsentRepo, private networkView: NetworkViewSource) {}
 
-  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<(Organization & { _access: { level: 'basic' | 'detailed', reason: string } })[]> {
-    const scope = ecosystemId || viewer.ecosystemId;
-    if (!scope) return [];
-
-    // Note: Firestore does not support combining array-contains-any with != in a single query.
-    // Filter archived orgs in memory instead.
-    const constraints = [whereIn('ecosystem_ids', [scope])];
-    const orgs = (await queryCollection<Organization>('organizations', constraints))
-      .filter(org => org.status !== 'archived')
-      .map(normalizeOrganization);
-
-    return Promise.all(orgs.map(async org => {
-      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
-      const access = explainOrgAccess(viewer, org, hasConsent);
-      let safeOrg = org;
-      
-      if (access.level === 'basic') {
-          safeOrg = redactOrganization(org);
-      } else {
-          // Sensitive keys are now in a subcollection, no longer on the org doc.
-      }
-
-      return { ...safeOrg, _access: access };
-    }));
+  // Other organizations are read through the network view: Firestore rules
+  // only allow direct reads of your own org, orgs you manage, and support
+  // organizations (see firestore.rules and functions/src/privacy/policy.ts).
+  async getAll(viewer: ViewerContext, ecosystemId?: string): Promise<(Organization & { _access: OrgAccess })[]> {
+    const view = await this.networkView.get(viewer, ecosystemId);
+    return view.organizations.map((org) => ({ ...normalizeOrganization(org), _access: org._access }));
   }
 
   async getByIdForViewer(viewer: ViewerContext, id: string): Promise<Organization | undefined> {
-      const org = await this.getById(id);
-      if (!org) return undefined;
-
-      const hasConsent = await this.consentRepo.hasOperationalAccessAsync(viewer.orgId, org.id, viewer.ecosystemId);
-
-      if (canViewOperationalDetails(viewer, org, hasConsent)) {
-          return org;
-      }
-
-      return redactOrganization(org);
+    const org = (await this.networkView.get(viewer)).organizations.find((candidate) => candidate.id === id);
+    return org ? normalizeOrganization(org) : undefined;
   }
 
   async getById(id: string): Promise<Organization | undefined> {
@@ -157,6 +130,7 @@ export class FirebaseOrganizationsRepo {
         updated_at: org.updated_at || now,
     };
     await setDocument('organizations', org.id, doc);
+    this.networkView.invalidate();
   }
 
   async getArchived(ecosystemId: string): Promise<Organization[]> {
@@ -173,11 +147,13 @@ export class FirebaseOrganizationsRepo {
 
   async delete(id: string): Promise<void> {
     await deleteDocument('organizations', id);
+    this.networkView.invalidate();
   }
 
   async update(id: string, updates: Partial<Organization>): Promise<void> {
     const updateDoc = { ...updates, updated_at: new Date().toISOString() };
     await updateDocument('organizations', id, updateDoc);
+    this.networkView.invalidate();
   }
 
   // API keys are stored in /organizations/{orgId}/api_keys subcollection
