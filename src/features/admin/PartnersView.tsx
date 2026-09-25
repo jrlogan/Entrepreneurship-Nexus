@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Ecosystem, Organization, SystemRole } from '../../domain/types';
-import { AGREEMENT_VERSIONS, ORG_REQUIRED_AGREEMENTS, type OrgAgreementAcceptance } from '../../domain/agreements/types';
+import { AGREEMENT_VERSIONS, MEMBERSHIP_TIER_LABELS, membershipTierOf, requiredAgreementsFor, type MembershipTier, type OrgAgreementAcceptance } from '../../domain/agreements/types';
 import { classifySignature } from '../../domain/agreements/orgEnforcement';
 import { FirebaseOrgAgreementsRepo } from '../../data/repos/firebase/orgAgreements';
 import { useRepos } from '../../data/AppDataContext';
@@ -21,7 +21,7 @@ const orgAgreementsRepo = new FirebaseOrgAgreementsRepo();
 
 type PartnerStatus = { signedCount: number; signedAt: string | null };
 
-const emptyForm = { name: '', website: '', contactName: '', contactEmail: '' };
+const emptyForm = { name: '', website: '', contactName: '', contactEmail: '', tier: 'member' as MembershipTier };
 
 export const PartnersView = ({
   organizations,
@@ -54,10 +54,11 @@ export const PartnersView = ({
     if (isDemo) return;
     const entries = await Promise.all(partners.map(async (org) => {
       const sigs: OrgAgreementAcceptance[] = await orgAgreementsRepo.getForOrg(org.id, ecosystem.id).catch(() => []);
-      const current = ORG_REQUIRED_AGREEMENTS
+      const required = requiredAgreementsFor(membershipTierOf(org));
+      const current = required
         .map((type) => sigs.find((s) => s.agreement_type === type))
-        .filter((s, i) => classifySignature(s, AGREEMENT_VERSIONS[ORG_REQUIRED_AGREEMENTS[i]]) === 'signed');
-      const signedAt = current.length === ORG_REQUIRED_AGREEMENTS.length
+        .filter((s, i) => classifySignature(s, AGREEMENT_VERSIONS[required[i]]) === 'signed');
+      const signedAt = current.length === required.length
         ? current.map((s) => s!.signed_at).sort().pop() || null
         : null;
       return [org.id, { signedCount: current.length, signedAt }] as const;
@@ -84,7 +85,8 @@ export const PartnersView = ({
         description: '',
         url: website ? (website.startsWith('http') ? website : `https://${website}`) : undefined,
         email: form.contactEmail.trim().toLowerCase(),
-        tax_status: 'non_profit',
+        tax_status: form.tier === 'referral_partner' ? 'for_profit' : 'non_profit',
+        membership_tier: form.tier,
         roles: ['eso'],
         classification: { industry_tags: [] },
         external_refs: [],
@@ -100,7 +102,9 @@ export const PartnersView = ({
           invited_role: 'eso_admin',
           organization_id: orgId,
           ecosystem_id: ecosystem.id,
-          note: `${form.contactName.trim() ? `${form.contactName.trim()}, you` : 'You'} are invited to connect ${form.name.trim()} to ${ecosystem.name}. After signing in you will review and sign the network agreements, then get the integration guide for your system.`,
+          note: form.tier === 'referral_partner'
+            ? `${form.contactName.trim() ? `${form.contactName.trim()}, you` : 'You'} are invited to receive referrals from ${ecosystem.name} as a referral partner. After signing in you will review and sign the referral partner terms, then see how referrals reach you.`
+            : `${form.contactName.trim() ? `${form.contactName.trim()}, you` : 'You'} are invited to connect ${form.name.trim()} to ${ecosystem.name}. After signing in you will review and sign the network agreements, then get the integration guide for your system.`,
         });
         setInviteUrl(result.invite_url);
       } else {
@@ -119,8 +123,9 @@ export const PartnersView = ({
     if (isDemo) return { text: 'Demo', tone: 'bg-gray-100 text-gray-700' };
     const s = statuses[org.id];
     if (!s) return { text: 'Checking…', tone: 'bg-gray-100 text-gray-600' };
-    if (s.signedCount === ORG_REQUIRED_AGREEMENTS.length) return { text: `Signed ${s.signedAt ? new Date(s.signedAt).toLocaleDateString() : ''}`, tone: 'bg-emerald-100 text-emerald-800' };
-    if (s.signedCount > 0) return { text: `${s.signedCount} of ${ORG_REQUIRED_AGREEMENTS.length} signed`, tone: 'bg-amber-100 text-amber-800' };
+    const total = requiredAgreementsFor(membershipTierOf(org)).length;
+    if (s.signedCount === total) return { text: `Signed ${s.signedAt ? new Date(s.signedAt).toLocaleDateString() : ''}`, tone: 'bg-emerald-100 text-emerald-800' };
+    if (s.signedCount > 0) return { text: `${s.signedCount} of ${total} signed`, tone: 'bg-amber-100 text-amber-800' };
     return { text: 'Invited — not signed', tone: 'bg-rose-100 text-rose-800' };
   };
 
@@ -153,6 +158,24 @@ export const PartnersView = ({
             <label className={FORM_LABEL_CLASS}>Contact email — becomes the organization's admin</label>
             <input className={FORM_INPUT_CLASS} type="email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
           </div>
+          <div className="sm:col-span-2">
+            <label className={FORM_LABEL_CLASS}>How they take part</label>
+            <div className="mt-1 grid gap-2 sm:grid-cols-2">
+              {(['member', 'referral_partner'] as MembershipTier[]).map((tier) => (
+                <label key={tier} className={`flex cursor-pointer items-start gap-2 rounded border p-3 text-sm ${form.tier === tier ? 'border-[#8b1919] bg-red-50' : 'border-gray-200 bg-white'}`}>
+                  <input type="radio" name="tier" className="mt-0.5 accent-[#8b1919]" checked={form.tier === tier} onChange={() => setForm({ ...form, tier })} />
+                  <span>
+                    <span className="font-semibold text-gray-900">{MEMBERSHIP_TIER_LABELS[tier]}</span>
+                    <span className="block text-xs text-gray-600">
+                      {tier === 'member'
+                        ? 'Signs the membership terms, the compact and the data agreement. Sees the directory and the fact of partners\u2019 activity for the entrepreneurs it works with; can connect its system.'
+                        : 'Signs the referral partner terms and the data agreement. Receives referrals and sees only the people referred to it, once accepted \u2014 nothing else. For providers such as law firms, accountants or agencies.'}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
         {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
         {inviteUrl && (
@@ -184,7 +207,12 @@ export const PartnersView = ({
                     <div className="font-medium text-gray-900 hover:underline">{org.name}</div>
                     <div className="text-xs text-gray-500">{org.url || org.email || org.id}</div>
                   </button>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>{status.text}</span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    {membershipTierOf(org) === 'referral_partner' && (
+                      <span className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-800">Referral partner</span>
+                    )}
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status.tone}`}>{status.text}</span>
+                  </span>
                 </li>
               );
             })}

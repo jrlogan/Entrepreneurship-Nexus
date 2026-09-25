@@ -28,13 +28,13 @@ const sig = (overrides: Partial<OrgAgreementAcceptance>): OrgAgreementAcceptance
   ...overrides,
 });
 
-const VERSIONS_DRAFT: Record<OrgAgreementType, string> = {
+const VERSIONS_DRAFT: Partial<Record<OrgAgreementType, string>> = {
   data_usage_agreement: '1.0',
   federation_compact: '0.1-draft',
   network_membership: '0.1-draft',
 };
 
-const VERSIONS_FINAL: Record<OrgAgreementType, string> = {
+const VERSIONS_FINAL: Partial<Record<OrgAgreementType, string>> = {
   data_usage_agreement: '1.0',
   federation_compact: '1.0',
   network_membership: '1.0',

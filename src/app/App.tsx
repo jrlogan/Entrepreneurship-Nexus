@@ -417,25 +417,6 @@ const App = () => {
     };
   }, [activeUser, currentOrgId, currentRole, currentEcosystemId]);
 
-  // Has the acting organization signed the network's agreements here? Until
-  // it has, the server shows it only its own records and issues no API key;
-  // its staff see a banner and its admin is taken to the joining steps.
-  const [orgSignature, setOrgSignature] = useState<'unknown' | 'signed' | 'unsigned'>('unknown');
-  const [signatureVersion, setSignatureVersion] = useState(0);
-  const isEsoRole = ['eso_admin', 'eso_staff', 'eso_coach'].includes(currentRole);
-  useEffect(() => {
-    // Platform admins acting for a support organization get the same check,
-    // so the operator's own organization can join like any partner.
-    if (!(isEsoRole || isPlatformAdmin) || !currentOrgId) {
-      setOrgSignature('unknown');
-      return;
-    }
-    let cancelled = false;
-    getViewerSignatureStatus({ viewerOrgId: currentOrgId, ecosystemId: currentEcosystemId })
-      .then((status) => { if (!cancelled) setOrgSignature(status.signed ? 'signed' : 'unsigned'); })
-      .catch(() => { if (!cancelled) setOrgSignature('unknown'); });
-    return () => { cancelled = true; };
-  }, [isEsoRole, isPlatformAdmin, currentOrgId, currentEcosystemId, signatureVersion]);
 
   const sentAdminToOnboarding = React.useRef(false);
 
@@ -611,6 +592,28 @@ const App = () => {
   const [showDemo, setShowDemo] = useState(CONFIG.IS_DEMO_MODE);
   const selectedOrganization = selectedOrgId ? organizations.find((organization) => organization.id === selectedOrgId) || null : null;
   const myOrganization = currentOrgId ? organizations.find((organization) => organization.id === currentOrgId) || null : null;
+
+  // Signature check lives here, after myOrganization, because the tier decides which agreements count.
+  // Has the acting organization signed the network's agreements here? Until
+  // it has, the server shows it only its own records and issues no API key;
+  // its staff see a banner and its admin is taken to the joining steps.
+  const [orgSignature, setOrgSignature] = useState<'unknown' | 'signed' | 'unsigned'>('unknown');
+  const [signatureVersion, setSignatureVersion] = useState(0);
+  const isEsoRole = ['eso_admin', 'eso_staff', 'eso_coach'].includes(currentRole);
+  useEffect(() => {
+    // Platform admins acting for a support organization get the same check,
+    // so the operator's own organization can join like any partner.
+    if (!(isEsoRole || isPlatformAdmin) || !currentOrgId) {
+      setOrgSignature('unknown');
+      return;
+    }
+    let cancelled = false;
+    const tier = myOrganization?.membership_tier;
+    getViewerSignatureStatus({ viewerOrgId: currentOrgId, ecosystemId: currentEcosystemId, tier: tier === 'referral_partner' ? 'referral_partner' : 'member' })
+      .then((status) => { if (!cancelled) setOrgSignature(status.signed ? 'signed' : 'unsigned'); })
+      .catch(() => { if (!cancelled) setOrgSignature('unknown'); });
+    return () => { cancelled = true; };
+  }, [isEsoRole, isPlatformAdmin, currentOrgId, currentEcosystemId, signatureVersion, myOrganization]);
   const actingOrganizations = useMemo(
     () => activeOrganizationAffiliations.map((affiliation) => ({
       ...affiliation,

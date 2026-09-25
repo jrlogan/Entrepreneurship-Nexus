@@ -49,6 +49,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const policy_1 = require("./policy");
 const orgSignatures_1 = require("../agreements/orgSignatures");
+const content_1 = require("../agreements/content");
 const networkStats_1 = require("../metrics/networkStats");
 const VIEWER_ROLES = ['platform_admin', 'ecosystem_manager', 'eso_admin', 'eso_staff', 'eso_coach', 'entrepreneur'];
 const setCors = (res) => {
@@ -100,10 +101,9 @@ const resolveViewer = async (db, uid, ecosystemId, requestedOrgId) => {
     if (!VIEWER_ROLES.includes(role))
         return null;
     const isStaff = ['eso_admin', 'eso_staff', 'eso_coach'].includes(role);
-    const orgHasSigned = isStaff && orgId
-        ? (await (0, orgSignatures_1.getOrgSignatureStatus)(db, orgId, ecosystemId)).signed
-        : true;
-    return { personId: uid, orgId: orgId || null, role, ecosystemId, orgHasSigned };
+    const signature = isStaff && orgId ? await (0, orgSignatures_1.getOrgSignatureStatus)(db, orgId, ecosystemId) : null;
+    const orgHasSigned = signature ? signature.signed : true;
+    return { personId: uid, orgId: orgId || null, role, ecosystemId, orgHasSigned, ...(signature ? { orgTier: signature.tier } : {}) };
 };
 exports.resolveViewer = resolveViewer;
 /** Load everything the policy needs for one network. */
@@ -128,8 +128,9 @@ const loadNetworkData = async (db, ecosystemId) => {
             return;
         signaturesByOrg.set(orgId, [...(signaturesByOrg.get(orgId) || []), d.data()]);
     });
+    const tierByOrg = new Map(orgs.docs.map((d) => [d.id, (0, content_1.membershipTierOf)(d.data())]));
     const signedOrgIds = Array.from(signaturesByOrg.entries())
-        .filter(([, sigs]) => (0, orgSignatures_1.evaluateOrgSignatures)(sigs).signed)
+        .filter(([orgId, sigs]) => (0, orgSignatures_1.evaluateOrgSignatures)(sigs, tierByOrg.get(orgId) || 'member').signed)
         .map(([orgId]) => orgId);
     const consentGrants = grants.docs.map((d) => {
         const g = d.data();

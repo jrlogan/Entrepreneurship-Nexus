@@ -37,7 +37,14 @@ export const REQUIRED_AGREEMENTS: Partial<Record<SystemRole, AgreementType[]>> =
 // organization, per ecosystem it participates in. Acceptance carries legal
 // weight for the whole org, not just the signing user.
 
-export { ORG_REQUIRED_AGREEMENTS } from '../../../functions/src/agreements/content';
+export {
+  ORG_REQUIRED_AGREEMENTS,
+  REFERRAL_PARTNER_REQUIRED_AGREEMENTS,
+  MEMBERSHIP_TIER_LABELS,
+  membershipTierOf,
+  requiredAgreementsFor,
+} from '../../../functions/src/agreements/content';
+export type { MembershipTier } from '../../../functions/src/agreements/content';
 export type { OrgAgreementType } from '../../../functions/src/agreements/content';
 import type { OrgAgreementType } from '../../../functions/src/agreements/content';
 

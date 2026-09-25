@@ -19,6 +19,7 @@ import {
   type PolicyConsentGrant,
 } from './policy';
 import { evaluateOrgSignatures, getOrgSignatureStatus } from '../agreements/orgSignatures';
+import { membershipTierOf } from '../agreements/content';
 import { computeNetworkStats, type StatsInput } from '../metrics/networkStats';
 
 const VIEWER_ROLES: ViewerRole[] = ['platform_admin', 'ecosystem_manager', 'eso_admin', 'eso_staff', 'eso_coach', 'entrepreneur'];
@@ -85,11 +86,10 @@ export const resolveViewer = async (
   if (!VIEWER_ROLES.includes(role)) return null;
 
   const isStaff = ['eso_admin', 'eso_staff', 'eso_coach'].includes(role);
-  const orgHasSigned = isStaff && orgId
-    ? (await getOrgSignatureStatus(db, orgId, ecosystemId)).signed
-    : true;
+  const signature = isStaff && orgId ? await getOrgSignatureStatus(db, orgId, ecosystemId) : null;
+  const orgHasSigned = signature ? signature.signed : true;
 
-  return { personId: uid, orgId: orgId || null, role, ecosystemId, orgHasSigned };
+  return { personId: uid, orgId: orgId || null, role, ecosystemId, orgHasSigned, ...(signature ? { orgTier: signature.tier } : {}) };
 };
 
 /** Load everything the policy needs for one network. */
@@ -116,8 +116,9 @@ export const loadNetworkData = async (db: admin.firestore.Firestore, ecosystemId
     if (!orgId) return;
     signaturesByOrg.set(orgId, [...(signaturesByOrg.get(orgId) || []), d.data()]);
   });
+  const tierByOrg = new Map(orgs.docs.map((d) => [d.id, membershipTierOf(d.data())]));
   const signedOrgIds = Array.from(signaturesByOrg.entries())
-    .filter(([, sigs]) => evaluateOrgSignatures(sigs).signed)
+    .filter(([orgId, sigs]) => evaluateOrgSignatures(sigs, tierByOrg.get(orgId) || 'member').signed)
     .map(([orgId]) => orgId);
 
   const consentGrants: PolicyConsentGrant[] = grants.docs.map((d) => {

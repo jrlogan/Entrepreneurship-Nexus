@@ -76,6 +76,13 @@ export interface Webhook {
 
 // HSDS 3.0 Compliant Organization with Extensions
 export interface Organization {
+  /**
+   * How the organization takes part in networks: a member (signed the
+   * membership terms; default) or a referral partner (signed the referral
+   * partner terms; receives referrals and sees nothing else). See
+   * functions/src/agreements/content.ts.
+   */
+  membership_tier?: 'member' | 'referral_partner';
   // HSDS Core Fields
   id: string;
   name: string;

@@ -55,6 +55,7 @@ import { followMergePointer } from './recordMerge';
 import { enforceRateLimit } from './rateLimit';
 import { externalRefIndexId, readExternalRefIndex } from './externalRefIndex';
 import { CONSENT_SUMMARY, buildConsentTerms, parseFounderConsent, type FounderConsentChoices } from './consent/terms';
+import { membershipTierOf } from './agreements/content';
 import { canTransitionReferral, type ReferralStatus } from './referrals/transitions';
 import {
   appBaseUrl,
@@ -200,6 +201,22 @@ const validateApiKey = async (
     }
   }
   return null;
+};
+
+/**
+ * Members only. A referral partner's key can receive and answer referrals,
+ * log its activity and register webhooks, but may not add people, ventures or
+ * participation to the network: what it gets from the network is the
+ * referral, and pushing records would make people "its" to see.
+ */
+const requireMemberTier = async (db: FirebaseFirestore.Firestore, auth: ApiKeyAuthContext, res: any): Promise<boolean> => {
+  const org = (await db.collection('organizations').doc(auth.organization_id).get()).data();
+  if (membershipTierOf(org) === 'member') return true;
+  res.status(403).json({
+    error: 'This endpoint is for network members. A referral partner receives referrals (partnerListReferrals, webhooks), answers them (partnerUpdateReferral) and logs its activity (partnerLogActivity).',
+    reason: 'referral_partner_tier',
+  });
+  return false;
 };
 
 /**
@@ -715,6 +732,7 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await requireMemberTier(db, authContext, res))) return;
   if (!(await enforceRateLimit(db, authContext.key_id, 'write', res))) return;
 
   const externalRef = req.body?.external_ref as Partial<ExternalRef> | undefined;
@@ -932,6 +950,7 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await requireMemberTier(db, authContext, res))) return;
   if (!(await enforceRateLimit(db, authContext.key_id, 'write', res))) return;
 
   const externalRef = req.body?.external_ref as Partial<ExternalRef> | undefined;
@@ -1284,6 +1303,7 @@ export const partnerUpsertParticipation = onRequest({ invoker: 'public' }, async
   const db = admin.firestore();
   const authContext = await requireApiKey(req, res, db);
   if (!authContext) return;
+  if (!(await requireMemberTier(db, authContext, res))) return;
   if (!(await enforceRateLimit(db, authContext.key_id, 'write', res))) return;
 
   const personExtRef = req.body?.person_external_ref as Partial<ExternalRef> | undefined;

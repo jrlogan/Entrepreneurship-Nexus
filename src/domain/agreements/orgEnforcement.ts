@@ -2,6 +2,8 @@
 import {
   AGREEMENT_VERSIONS,
   ORG_REQUIRED_AGREEMENTS,
+  requiredAgreementsFor,
+  type MembershipTier,
   type OrgAgreementAcceptance,
   type OrgAgreementType,
 } from './types';
@@ -28,16 +30,16 @@ const isDraftVersion = (v: string): boolean => v.includes('-draft');
  * banner uses this to flip from advisory (amber) to blocking (rose), and the
  * future canViewOperationalDetails hard gate will read it too.
  */
-export function isHardEnforcementForVersions(versions: Record<OrgAgreementType, string>): boolean {
-  return ORG_REQUIRED_AGREEMENTS.every((t) => !isDraftVersion(versions[t]));
+export function isHardEnforcementForVersions(versions: Partial<Record<OrgAgreementType, string>>): boolean {
+  return ORG_REQUIRED_AGREEMENTS.every((t) => !isDraftVersion(versions[t] || ''));
 }
 
 export function isHardEnforcementActive(): boolean {
   return isHardEnforcementForVersions(AGREEMENT_VERSIONS);
 }
 
-export function isDraftPhaseForVersions(versions: Record<OrgAgreementType, string>): boolean {
-  return ORG_REQUIRED_AGREEMENTS.some((t) => isDraftVersion(versions[t]));
+export function isDraftPhaseForVersions(versions: Partial<Record<OrgAgreementType, string>>): boolean {
+  return ORG_REQUIRED_AGREEMENTS.some((t) => isDraftVersion(versions[t] || ''));
 }
 
 /**
@@ -70,14 +72,14 @@ export function classifySignature(
 export function computeSignatureStatus(
   signatures: OrgAgreementAcceptance[],
   required: readonly OrgAgreementType[],
-  requiredVersions: Record<OrgAgreementType, string>,
+  requiredVersions: Partial<Record<OrgAgreementType, string>>,
 ): Omit<ViewerSignatureStatus, 'isDraftPhase'> {
   const missingTypes: OrgAgreementType[] = [];
   const staleTypes: OrgAgreementType[] = [];
 
   for (const type of required) {
     const sig = signatures.find((s) => s.agreement_type === type);
-    const cls = classifySignature(sig, requiredVersions[type]);
+    const cls = classifySignature(sig, requiredVersions[type] || '');
     if (cls === 'missing') missingTypes.push(type);
     else if (cls === 'stale') staleTypes.push(type);
   }
@@ -151,8 +153,10 @@ export function selectBannerTone(args: {
 export async function getViewerSignatureStatus(args: {
   viewerOrgId: string;
   ecosystemId: string;
+  /** The organization's tier decides which agreements it must have signed. */
+  tier?: MembershipTier;
 }): Promise<ViewerSignatureStatus> {
-  const { viewerOrgId, ecosystemId } = args;
+  const { viewerOrgId, ecosystemId, tier = 'member' } = args;
   const isDraft = isDraftPhaseForVersions(AGREEMENT_VERSIONS);
 
   // In demo / non-Firebase contexts, signatures aren't persisted; treat as
@@ -163,6 +167,6 @@ export async function getViewerSignatureStatus(args: {
   }
 
   const all = await orgAgreementsRepo.getForOrg(viewerOrgId, ecosystemId);
-  const status = computeSignatureStatus(all, ORG_REQUIRED_AGREEMENTS, AGREEMENT_VERSIONS);
+  const status = computeSignatureStatus(all, requiredAgreementsFor(tier), AGREEMENT_VERSIONS);
   return { ...status, isDraftPhase: isDraft };
 }

@@ -4,6 +4,8 @@ import type { Organization } from '../../domain/types';
 import {
   AGREEMENT_VERSIONS,
   ORG_REQUIRED_AGREEMENTS,
+  membershipTierOf,
+  requiredAgreementsFor,
   type OrgAgreementAcceptance,
   type OrgAgreementType,
 } from '../../domain/agreements/types';
@@ -61,7 +63,7 @@ export const OrgCompactSignatures: React.FC<Props> = ({ org }) => {
       const all = await orgAgreementsRepo.getForOrg(org.id);
       const next: SignatureRow[] = [];
       for (const eco of ecosystemEntries) {
-        for (const type of ORG_REQUIRED_AGREEMENTS) {
+        for (const type of requiredAgreementsFor(membershipTierOf(org))) {
           const rawSig = all.find(
             (s) => s.ecosystem_id === eco.id && s.agreement_type === type,
           ) ?? null;
@@ -132,7 +134,7 @@ export const OrgCompactSignatures: React.FC<Props> = ({ org }) => {
                 {eco.name}
               </div>
               <div className="divide-y divide-gray-100">
-                {ORG_REQUIRED_AGREEMENTS.map((type) => {
+                {requiredAgreementsFor(membershipTierOf(org)).map((type) => {
                   const row = rows.find((r) => r.ecosystemId === eco.id && r.agreementType === type);
                   const content = getContent(type);
                   const sig = row?.signature ?? null;

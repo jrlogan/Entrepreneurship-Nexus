@@ -24,8 +24,11 @@ export const NetworkPartnersCard = ({
     (org) => org.ecosystem_ids.includes(ecosystemId) && (org.roles || []).some((r) => SUPPORT_ROLES.includes(r))
   );
   const signedOf = (org: Organization) => (org as Organization & { _compact_signed?: boolean })._compact_signed;
-  const members = supportOrgs.filter((org) => signedOf(org) === true).sort((a, b) => a.name.localeCompare(b.name));
-  const resources = supportOrgs.filter((org) => signedOf(org) !== true).sort((a, b) => a.name.localeCompare(b.name));
+  const isReferralPartner = (org: Organization) => org.membership_tier === 'referral_partner';
+  const byName = (a: Organization, b: Organization) => a.name.localeCompare(b.name);
+  const members = supportOrgs.filter((org) => signedOf(org) === true && !isReferralPartner(org)).sort(byName);
+  const referralPartners = supportOrgs.filter((org) => signedOf(org) === true && isReferralPartner(org)).sort(byName);
+  const resources = supportOrgs.filter((org) => signedOf(org) !== true).sort(byName);
 
   return (
     <Card title={`Who is in ${networkName || 'the network'}`}>
@@ -41,6 +44,18 @@ export const NetworkPartnersCard = ({
         <ul className="mt-2 space-y-2">
           {members.map((org) => <OrgRow key={org.id} org={org} badge={<Badge color="green">Member</Badge>} />)}
         </ul>
+      )}
+
+      {referralPartners.length > 0 && (
+        <>
+          <h4 className="mt-5 text-xs font-semibold uppercase tracking-wide text-gray-500">Referral partners ({referralPartners.length})</h4>
+          <p className="mt-1 text-xs text-gray-500">
+            Organizations members can refer you to — only with your agreement. They see nothing about you until then, and never anything else.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {referralPartners.map((org) => <OrgRow key={org.id} org={org} badge={<Badge color="purple">Referral partner</Badge>} />)}
+          </ul>
+        </>
       )}
 
       {resources.length > 0 && (

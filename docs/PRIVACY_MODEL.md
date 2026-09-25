@@ -14,6 +14,20 @@ network agreements; entrepreneurs agree to it on the consent terms.
 | | Details of another organization's records — program names, descriptions, referral outcomes — **off by default** | Partners who work with them, if the entrepreneur shares with all of them or with that partner |
 | **Never shared** | Interaction notes; referral notes outside the two parties; each organization's internal record IDs (`external_refs`). Financial information is not collected at all | Only the organization that wrote them |
 
+## Two ways to take part
+
+| Tier | Signs | Sees | Can |
+|---|---|---|---|
+| **Member** (`membership_tier: member`, the default) | Network Membership, Network Compact, Data Usage Agreement | Its own records; name + fact of partners' activity for the entrepreneurs it works with; the directory; details with consent | Push people/ventures/participation, refer, receive referrals, connect a system |
+| **Referral partner** (`membership_tier: referral_partner`) | Referral Partner Terms, Data Usage Agreement | Only the people referred to it, once it accepts (the referral itself before that); the list of support organizations. No directory, no fact of anyone else's activity, nothing it "pushed" or claimed | Receive and answer referrals, log its own activity, register webhooks. `partnerUpsert*` return 403 `referral_partner_tier` |
+
+Nonprofits are service providers too; the tier is named for what the
+organization gets from the network. Operators choose the tier when inviting
+(Partners → "How they take part"); the policy reads it as `Viewer.orgTier`
+(`computeWorksWith(…, { referralsOnly: true })`), founders see it on "Who is
+in the network" (`_membership_tier`), and signature checks use
+`requiredAgreementsFor(tier)` everywhere.
+
 **When the terms change.** A new version is not a re-prompt for founders:
 their acceptance and choices stand, partners' stored answers keep working
 (`consent_terms_outdated` in the API response), and the founder sees a note in

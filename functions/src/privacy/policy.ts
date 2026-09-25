@@ -56,6 +56,12 @@ export interface Viewer {
    * Defaults to signed when omitted (e.g. the demo).
    */
   orgHasSigned?: boolean;
+  /**
+   * The viewer organization's tier. A referral partner sees only the people
+   * referred to it, once it has accepted: no directory, no fact of other
+   * partners' activity, nothing it pushed itself. Defaults to member.
+   */
+  orgTier?: 'member' | 'referral_partner';
 }
 
 export interface PolicyExternalRef {
@@ -91,6 +97,7 @@ export interface PolicyOrganization {
   /** A founder's per-network choice to share record details with every partner they work with. */
   operational_visibility_by_ecosystem?: Record<string, string>;
   external_refs?: PolicyExternalRef[];
+  membership_tier?: string | null;
   [key: string]: unknown;
 }
 
@@ -184,7 +191,7 @@ export interface NetworkView {
    * `_detail_access` — whether the viewer may see other organizations' record
    * details about this venture (own org, a support org, or entrepreneur consent).
    */
-  organizations: Array<PolicyOrganization & { _visibility: OrgVisibility; _detail_access: boolean; _compact_signed?: boolean }>;
+  organizations: Array<PolicyOrganization & { _visibility: OrgVisibility; _detail_access: boolean; _compact_signed?: boolean; _membership_tier?: 'member' | 'referral_partner' }>;
   interactions: Array<PolicyInteraction & { _access: AccessTier }>;
   participations: Array<PolicyParticipation & { _access: AccessTier }>;
   referrals: Array<PolicyReferral & { _access: AccessTier }>;
@@ -248,37 +255,45 @@ const ventureOrgIdsFor = (person: PolicyPerson, orgsById: Map<string, PolicyOrga
  * With `acceptedOnly`, a referral the organization received but has not yet
  * answered does not count: that is the set of subjects it may CONTACT, and
  * the person's email is withheld until then.
+ *
+ * With `referralsOnly` (a referral partner), nothing but accepted referrals
+ * counts: not records it logged, not people it pushed, not client
+ * affiliations. What the network gives a referral partner is the referral.
  */
-export const computeWorksWith = (orgId: string, data: NetworkData, options: { acceptedOnly?: boolean } = {}): Set<string> => {
+export const computeWorksWith = (orgId: string, data: NetworkData, options: { acceptedOnly?: boolean; referralsOnly?: boolean } = {}): Set<string> => {
   const keys = new Set<string>();
   const orgsById = new Map(data.organizations.map((o) => [o.id, o]));
+  const acceptedOnly = options.acceptedOnly || options.referralsOnly;
 
   for (const p of data.participations) {
-    if (p.provider_org_id !== orgId) continue;
+    if (options.referralsOnly || p.provider_org_id !== orgId) continue;
     if (p.recipient_person_id) keys.add(personKey(p.recipient_person_id));
     if (p.recipient_org_id) keys.add(orgKey(p.recipient_org_id));
   }
 
   for (const r of data.referrals) {
-    const isReferrer = r.referring_org_id === orgId;
+    const isReferrer = !options.referralsOnly && r.referring_org_id === orgId;
     const isActiveReceiver = r.receiving_org_id === orgId && r.status !== 'rejected'
-      && !(options.acceptedOnly && r.status === 'pending');
+      && !(acceptedOnly && r.status === 'pending');
     if (!isReferrer && !isActiveReceiver) continue;
     if (r.subject_person_id) keys.add(personKey(r.subject_person_id));
     if (r.subject_org_id) keys.add(orgKey(r.subject_org_id));
   }
 
   for (const i of data.interactions) {
+    if (options.referralsOnly) break;
     if (i.author_org_id !== orgId) continue;
     keys.add(orgKey(i.organization_id));
     if (i.subject_person_id) keys.add(personKey(i.subject_person_id));
   }
 
   for (const org of data.organizations) {
+    if (options.referralsOnly) break;
     if ((org.managed_by_ids || []).includes(orgId) && !isSupportOrganization(org)) keys.add(orgKey(org.id));
   }
 
   for (const person of data.people) {
+    if (options.referralsOnly) break;
     const pushedByUs = person.created_by_org_id === orgId
       || (person.external_refs || []).some((ref) => ref.owner_org_id === orgId);
     const isOurClient = activeAffiliations(person).some(
@@ -436,13 +451,19 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
   const isOperator = isOperatorRole(viewer.role);
   const isStaff = isStaffRole(viewer.role) && !!viewer.orgId;
   const isEntrepreneur = viewer.role === 'entrepreneur';
+  // A referral partner gets referrals and nothing else (see Viewer.orgTier).
+  const isReferralPartner = isStaff && viewer.orgTier === 'referral_partner';
   // An organization that has not signed the network's agreements keeps full
   // access to its own records but sees nothing of its partners'.
   const hasSigned = viewer.orgHasSigned !== false;
-  const worksWith = isStaff && hasSigned ? computeWorksWith(viewer.orgId as string, data) : new Set<string>();
+  const worksWith = isStaff && hasSigned
+    ? computeWorksWith(viewer.orgId as string, data, { referralsOnly: isReferralPartner })
+    : new Set<string>();
   // Email is shared only once the organization needs it: a referral it has
   // not yet accepted shows the person, not how to reach them.
-  const mayContact = isStaff && hasSigned ? computeWorksWith(viewer.orgId as string, data, { acceptedOnly: true }) : new Set<string>();
+  const mayContact = isStaff && hasSigned
+    ? computeWorksWith(viewer.orgId as string, data, { acceptedOnly: true, referralsOnly: isReferralPartner })
+    : new Set<string>();
   const ownSubjects = isEntrepreneur ? subjectKeysForEntrepreneur(viewer.personId, data) : new Set<string>();
 
   const touches = (subjects: string[], set: Set<string>) => subjects.some((key) => set.has(key));
@@ -451,6 +472,9 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
   const tierForOthersRecord = (subjects: string[]): AccessTier | null => {
     if (isEntrepreneur) return touches(subjects, ownSubjects) ? 'detail' : null;
     if (isWithdrawnSubject(subjects)) return null;
+    // A referral partner never sees other organizations' records — not even
+    // the fact of them.
+    if (isReferralPartner) return null;
     if (isStaff && touches(subjects, worksWith)) {
       return hasDetailConsent(subjects, viewer.orgId as string, eco, data, expand) ? 'detail' : 'fact';
     }
@@ -512,7 +536,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
     else if (isStaff && person.organization_id === viewer.orgId && person.system_role !== 'entrepreneur') visibility = 'colleague';
     else if (isStaff && worksWith.has(personKey(person.id))) visibility = 'works_with';
     else if (isOperator) visibility = 'operator';
-    else if (listed.has(person.id) && ((isStaff && hasSigned) || isEntrepreneur)) visibility = 'directory';
+    else if (listed.has(person.id) && ((isStaff && hasSigned && !isReferralPartner) || isEntrepreneur)) visibility = 'directory';
     if (!visibility) continue;
 
     const base = visibility === 'directory'
@@ -539,7 +563,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
     else if (isSupportOrganization(org)) visibility = 'support_org';
     else if (isStaff && worksWith.has(orgKey(org.id))) visibility = 'works_with';
     else if (isOperator) visibility = 'operator';
-    else if (listedVentures.has(org.id) && (!isStaff || hasSigned)) visibility = 'directory';
+    else if (listedVentures.has(org.id) && (!isStaff || hasSigned) && !isReferralPartner) visibility = 'directory';
     if (!visibility) continue;
 
     const base = visibility === 'directory' ? (pick(org, ORG_DIRECTORY_FIELDS) as PolicyOrganization) : without(org, ['api_keys', 'webhooks']);
@@ -554,6 +578,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
       // Founders see this: a member can coordinate about them under the
       // compact; a mere resource sees nothing about them.
       ...(signedOrgs && isSupportOrganization(org) ? { _compact_signed: signedOrgs.has(org.id) } : {}),
+      ...(isSupportOrganization(org) ? { _membership_tier: org.membership_tier === 'referral_partner' ? 'referral_partner' as const : 'member' as const } : {}),
     });
   }
 

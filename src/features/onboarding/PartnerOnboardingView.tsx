@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { Ecosystem, Organization, Person, SystemRole } from '../../domain/types';
 import {
   AGREEMENT_VERSIONS,
-  ORG_REQUIRED_AGREEMENTS,
+  membershipTierOf,
+  requiredAgreementsFor,
   type OrgAgreementType,
 } from '../../domain/agreements/types';
 import { computeTextHash, getContent } from '../../domain/agreements/content';
@@ -28,6 +29,7 @@ const STEP_INTRO: Record<OrgAgreementType, string> = {
   network_membership: 'What your organization commits to by joining — and what it keeps. You keep your own systems, your own data and your own client relationships.',
   federation_compact: 'What your entrepreneurs are told when they join. Your organization agrees to present these terms, unchanged, when it adds someone to the network — the integration guide shows how.',
   data_usage_agreement: 'How your staff may use information about entrepreneurs they see through the network.',
+  referral_partner_terms: 'What your organization receives from the network — referrals, and nothing else — and what it may do with them.',
 };
 
 interface Props {
@@ -43,11 +45,11 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
   const { session } = useAuthContext();
   const isDemo = CONFIG.IS_DEMO_MODE || !isFirebaseEnabled();
   const canSign = role === 'eso_admin' || role === 'platform_admin';
-  const [signed, setSigned] = useState<Record<OrgAgreementType, boolean>>({
-    network_membership: false,
-    federation_compact: false,
-    data_usage_agreement: false,
-  });
+  // Which agreements this organization signs depends on its tier: members
+  // sign the membership terms, the compact and the DUA; referral partners
+  // sign the referral partner terms and the DUA.
+  const required = requiredAgreementsFor(membershipTierOf(organization));
+  const [signed, setSigned] = useState<Partial<Record<OrgAgreementType, boolean>>>({});
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(0); // 0 = intro, 1..3 = agreements, 4 = done
   const [checked, setChecked] = useState(false);
@@ -61,11 +63,11 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
     try {
       const all = await orgAgreementsRepo.getForOrg(organization.id, ecosystem.id);
       const next = { ...signed };
-      for (const type of ORG_REQUIRED_AGREEMENTS) {
+      for (const type of required) {
         next[type] = classifySignature(all.find((s) => s.agreement_type === type), AGREEMENT_VERSIONS[type]) === 'signed';
       }
       setSigned(next);
-      if (ORG_REQUIRED_AGREEMENTS.every((t) => next[t])) setStep(4);
+      if (required.every((t) => next[t])) setStep(4);
     } catch {
       setError('Could not load your organization\'s signatures.');
     } finally {
@@ -85,7 +87,7 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
     );
   }
 
-  const currentType = step >= 1 && step <= ORG_REQUIRED_AGREEMENTS.length ? ORG_REQUIRED_AGREEMENTS[step - 1] : null;
+  const currentType = step >= 1 && step <= required.length ? required[step - 1] : null;
 
   const signCurrent = async () => {
     if (!currentType) return;
@@ -108,7 +110,7 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
       }
       const next = { ...signed, [currentType]: true };
       setSigned(next);
-      const nextStep = ORG_REQUIRED_AGREEMENTS.findIndex((t) => !next[t]);
+      const nextStep = required.findIndex((t) => !next[t]);
       if (nextStep === -1) {
         setStep(4);
         onSigned();
@@ -131,8 +133,8 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
       </div>
 
       <ol className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-        {['Welcome', ...ORG_REQUIRED_AGREEMENTS.map((t) => getContent(t).badge)].map((label, index) => {
-          const type = index === 0 ? null : ORG_REQUIRED_AGREEMENTS[index - 1];
+        {['Welcome', ...required.map((t) => getContent(t).badge)].map((label, index) => {
+          const type = index === 0 ? null : required[index - 1];
           const done = type ? signed[type] : step > 0;
           const active = step === index;
           return (
@@ -162,7 +164,7 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
             and connects them so partners can make referrals, see who else is helping an entrepreneur, and report together.
           </p>
           <ul className="list-disc space-y-1 pl-5 text-gray-700">
-            <li><strong>Sign three agreements</strong> for this network (about 10 minutes of reading). They are pilot versions the consortium can still revise; if they change, you will be asked to re-sign.</li>
+            <li><strong>Sign {required.length} agreements</strong> for this network (about 10 minutes of reading). They are pilot versions the consortium can still revise; if they change, you will be asked to re-sign.</li>
             <li><strong>Get your API key</strong> — issued only after signing.</li>
             <li><strong>Connect your system</strong> using the integration guide. It is written so your developer, or an AI coding assistant, can follow it directly.</li>
           </ul>
@@ -228,7 +230,7 @@ export const PartnerOnboardingView = ({ organization, ecosystem, person, role, o
         <div className="space-y-4 rounded-lg bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold">{organization.name} has joined {ecosystem.name}</h2>
           <p className="text-gray-700">
-            All three agreements are signed. Next, connect your system: the integration guide walks your developer — or their AI coding
+            All agreements are signed. Next, connect your system: the integration guide walks your developer — or their AI coding
             assistant — through creating an API key, sending people and program participation, recording referrals, and adding the
             consent block to your signup form.
           </p>

@@ -373,6 +373,60 @@ describe('who is in the network', () => {
   });
 });
 
+describe('referral partners get referrals and nothing else', () => {
+  // IP Factory becomes a referral partner (say, a law firm) that MakeHaven
+  // refers Grace to. Sam is listed in the directory; Grace is not.
+  const partnerData = (status: string): NetworkData => {
+    const data = baseData();
+    data.organizations.find((o) => o.id === 'org_ipf')!.membership_tier = 'referral_partner';
+    data.referrals.push({
+      id: 'ref_mh_to_ipf', referring_org_id: 'org_mh', receiving_org_id: 'org_ipf', subject_person_id: 'person_grace',
+      subject_org_id: 'org_grace_co', status, date: '2026-09-10', ecosystem_id: ECO, notes: 'Needs a patent attorney',
+    });
+    return data;
+  };
+  const partner: Viewer = { personId: 'staff_ipf', orgId: 'org_ipf', role: 'eso_staff', ecosystemId: ECO, orgTier: 'referral_partner' };
+
+  it('sees the referral and the person once accepted — with email — but no other organization\'s records', () => {
+    const view = buildNetworkView(partner, partnerData('accepted'));
+    assert.equal(find(view.referrals, 'ref_mh_to_ipf')!._access, 'full');
+    const grace = find(view.people, 'person_grace')!;
+    assert.equal(grace._visibility, 'works_with');
+    assert.equal(grace.email, 'grace@example.com');
+    assert.equal(find(view.organizations, 'org_grace_co')!._visibility, 'works_with');
+    // MakeHaven's meeting and program with Grace: a member would see the fact; a referral partner sees nothing.
+    assert.equal(find(view.interactions, 'int_mh_shared'), undefined);
+    assert.equal(find(view.participations, 'part_mh'), undefined);
+    assert.equal(find(view.referrals, 'ref_mh_to_ef'), undefined);
+  });
+
+  it('before accepting, sees the referral but not the person\'s contact details', () => {
+    const view = buildNetworkView(partner, partnerData('pending'));
+    assert.ok(find(view.referrals, 'ref_mh_to_ipf'));
+    assert.equal(find(view.people, 'person_grace'), undefined);
+  });
+
+  it('never sees the directory', () => {
+    const view = buildNetworkView(partner, partnerData('accepted'));
+    assert.equal(find(view.people, 'person_sam'), undefined);
+    assert.equal(find(view.organizations, 'org_sam_co'), undefined);
+  });
+
+  it('pushing or claiming a person gains it nothing', () => {
+    const data = partnerData('accepted');
+    data.people[1].created_by_org_id = 'org_ipf'; // Sam, "pushed" by the partner
+    const view = buildNetworkView(partner, data);
+    assert.equal(find(view.people, 'person_sam'), undefined);
+  });
+
+  it('members and founders can tell a referral partner from a member', () => {
+    const data = { ...partnerData('accepted'), signedOrgIds: ['org_mh', 'org_ef', 'org_ipf'] };
+    const view = buildNetworkView({ personId: 'person_grace', orgId: null, role: 'entrepreneur', ecosystemId: ECO }, data);
+    assert.equal(find(view.organizations, 'org_ipf')!._membership_tier, 'referral_partner');
+    assert.equal(find(view.organizations, 'org_mh')!._membership_tier, 'member');
+  });
+});
+
 describe('founder <-> venture linkage', () => {
   it('working with the venture means working with its founder', () => {
     const data = baseData();

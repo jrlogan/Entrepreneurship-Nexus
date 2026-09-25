@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --require tsx/cjs --test src/emailParsing.test.ts src/payloadRedaction.test.ts src/privacy/policy.test.ts src/consent/consent.test.ts src/metrics/networkStats.test.ts",
+    "test": "node --require tsx/cjs --test src/emailParsing.test.ts src/payloadRedaction.test.ts src/privacy/policy.test.ts src/consent/consent.test.ts src/metrics/networkStats.test.ts src/agreements/orgSignatures.test.ts",
     "test:emulator": "node --require tsx/cjs --test src/invite.test.ts src/referralEmailAction.test.ts src/inboundFlow.test.ts src/partnerApi.test.ts src/partnerPilot.test.ts",
     "test:integration": "node --require tsx/cjs --test src/inboundFlow.test.ts",
     "test:partner": "node --require tsx/cjs --test src/partnerApi.test.ts src/partnerPilot.test.ts"

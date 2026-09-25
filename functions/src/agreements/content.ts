@@ -19,7 +19,31 @@ export type AgreementType =
   // data day to day; neither states the obligations of membership itself —
   // conformance to the standard, honouring consent, answering referrals,
   // protecting keys, and the terms of suspension and exit.
-  | 'network_membership';
+  | 'network_membership'
+  // What a REFERRAL PARTNER signs instead of the membership terms: an
+  // organization — typically for-profit (a law firm, an accountant, a
+  // marketing agency) — that provides services to entrepreneurs and receives
+  // referrals from the network without becoming a member. It sees only what
+  // is referred to it, and nothing else in the network.
+  | 'referral_partner_terms';
+
+/**
+ * How an organization takes part in a network.
+ *   member           — signed the membership terms and the compact; sees the
+ *                      directory and the fact of partners' activity for the
+ *                      entrepreneurs it works with; can push people.
+ *   referral_partner — signed the referral partner terms; receives referrals
+ *                      and sees only the people referred to it, once accepted.
+ * Nonprofits are service providers too, so the tier is named for what the
+ * organization gets from the network, not for what it is.
+ */
+export type MembershipTier = 'member' | 'referral_partner';
+export const MEMBERSHIP_TIER_LABELS: Record<MembershipTier, string> = {
+  member: 'Member',
+  referral_partner: 'Referral partner',
+};
+export const membershipTierOf = (org: { membership_tier?: string | null } | null | undefined): MembershipTier =>
+  org?.membership_tier === 'referral_partner' ? 'referral_partner' : 'member';
 
 export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
   // Pilot versions: the text the pilot partners and their entrepreneurs
@@ -44,6 +68,7 @@ export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
   // that does not exist yet; it states the intent (a member-benefit nonprofit)
   // and that no member is bound by a version it has not signed.
   network_membership: '0.3-pilot',
+  referral_partner_terms: '0.1-pilot',
 };
 
 /**
@@ -52,7 +77,13 @@ export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
  * data-handling rules its staff follow.
  */
 export const ORG_REQUIRED_AGREEMENTS = ['network_membership', 'federation_compact', 'data_usage_agreement'] as const;
-export type OrgAgreementType = typeof ORG_REQUIRED_AGREEMENTS[number];
+/** What a referral partner signs: its own terms, and the same data-handling rules as everyone else. */
+export const REFERRAL_PARTNER_REQUIRED_AGREEMENTS = ['referral_partner_terms', 'data_usage_agreement'] as const;
+export type OrgAgreementType = typeof ORG_REQUIRED_AGREEMENTS[number] | typeof REFERRAL_PARTNER_REQUIRED_AGREEMENTS[number];
+
+/** The agreements an organization must have signed, at current versions, for its tier. */
+export const requiredAgreementsFor = (tier: MembershipTier): readonly OrgAgreementType[] =>
+  tier === 'referral_partner' ? REFERRAL_PARTNER_REQUIRED_AGREEMENTS : ORG_REQUIRED_AGREEMENTS;
 
 /** Pre-release versions — text may still change before the consortium ratifies it. */
 export const isPreReleaseVersion = (version: string) => /-(draft|pilot)$/.test(version);
@@ -225,6 +256,47 @@ export const NETWORK_MEMBERSHIP_CONTENT: AgreementContent = {
   ],
 };
 
+// What a referral partner signs. Nonprofits provide services too; what sets a
+// referral partner apart is not what it is but what it gets: referrals, and
+// nothing else. The terms are written so a for-profit firm can be useful to
+// entrepreneurs without the network becoming a marketing channel.
+export const REFERRAL_PARTNER_TERMS_CONTENT: AgreementContent = {
+  title: 'Receiving referrals from the network: referral partner terms',
+  badge: 'Referral Partner Terms',
+  badgeColor: 'bg-violet-400/10 border-violet-400/30 text-violet-300',
+  checkLabel: 'I am authorized to commit my organization to these terms',
+  sections: [
+    {
+      heading: 'What a referral partner is',
+      body: 'A referral partner provides a service entrepreneurs need — legal, accounting, marketing, design, manufacturing, or similar — and receives referrals from the network\'s members. It is not a member: it does not take part in the network\'s shared view of who is helping whom, does not see the directory, and has no role in how the network is run. Organizations that want that take part as members under the membership terms instead.',
+    },
+    {
+      heading: 'What you receive, and when',
+      body: 'A referral tells you who is being referred, their venture, and why (the referring organization\'s introduction). Their contact details reach you only once you accept the referral. You see nothing else in the network: no other organization\'s records, no list of entrepreneurs, and no activity of other partners. Every referral is made with the entrepreneur\'s agreement.',
+    },
+    {
+      heading: 'What you may use it for',
+      body: 'Only to provide the service the referral was for. You may not add a referred entrepreneur to a marketing list, send them unsolicited offers, sell or share their information, or pass them on to anyone else without their agreement. When your work with them ends, your use of what the network gave you ends with it; records you keep as their provider are governed by your own professional obligations.',
+    },
+    {
+      heading: 'No fees for referrals',
+      body: 'Referrals are made on the entrepreneur\'s need, not on payment. No fee, commission, or other consideration passes to the network or to any member for a referral, and you may not offer one. You may charge the entrepreneur for your services on terms you agree with them directly.',
+    },
+    {
+      heading: 'What you commit to',
+      body: 'You agree to accept or decline each referral within a reasonable period, to name who is responsible when you accept, and to record the outcome — including that you were not the right fit. You agree to keep any credentials the network issues you as secrets, and to tell the network administrator promptly about a possible exposure or misuse.',
+    },
+    {
+      heading: 'Anonymous statistics',
+      body: 'Referral outcomes are counted in the anonymous, aggregate statistics the network publishes. Nothing published identifies an entrepreneur, and nothing about your individual clients is published.',
+    },
+    {
+      heading: 'Ending your participation',
+      body: 'You may stop receiving referrals at any time, and the network may stop sending them at any time and for any reason; referrals already accepted are completed under these terms. Misuse of an entrepreneur\'s information ends your participation immediately and may be reported to the entrepreneur and to your professional body.',
+    },
+  ],
+};
+
 // Short version of the use-of-data terms shown to ESO staff at point-of-access
 // (banner above another ESO's operational data). Distills the DUA + compact
 // into 3 bullets that mirror the entrepreneur-facing privacy notice, so what
@@ -239,6 +311,7 @@ export function getContent(type: AgreementType): AgreementContent {
   if (type === 'privacy_policy') return PRIVACY_POLICY_CONTENT;
   if (type === 'data_usage_agreement') return DUA_CONTENT;
   if (type === 'network_membership') return NETWORK_MEMBERSHIP_CONTENT;
+  if (type === 'referral_partner_terms') return REFERRAL_PARTNER_TERMS_CONTENT;
   return FEDERATION_COMPACT_CONTENT;
 }
 

@@ -80,12 +80,17 @@ const ventureOrgIdsFor = (person, orgsById) => {
  * With `acceptedOnly`, a referral the organization received but has not yet
  * answered does not count: that is the set of subjects it may CONTACT, and
  * the person's email is withheld until then.
+ *
+ * With `referralsOnly` (a referral partner), nothing but accepted referrals
+ * counts: not records it logged, not people it pushed, not client
+ * affiliations. What the network gives a referral partner is the referral.
  */
 const computeWorksWith = (orgId, data, options = {}) => {
     const keys = new Set();
     const orgsById = new Map(data.organizations.map((o) => [o.id, o]));
+    const acceptedOnly = options.acceptedOnly || options.referralsOnly;
     for (const p of data.participations) {
-        if (p.provider_org_id !== orgId)
+        if (options.referralsOnly || p.provider_org_id !== orgId)
             continue;
         if (p.recipient_person_id)
             keys.add(personKey(p.recipient_person_id));
@@ -93,9 +98,9 @@ const computeWorksWith = (orgId, data, options = {}) => {
             keys.add(orgKey(p.recipient_org_id));
     }
     for (const r of data.referrals) {
-        const isReferrer = r.referring_org_id === orgId;
+        const isReferrer = !options.referralsOnly && r.referring_org_id === orgId;
         const isActiveReceiver = r.receiving_org_id === orgId && r.status !== 'rejected'
-            && !(options.acceptedOnly && r.status === 'pending');
+            && !(acceptedOnly && r.status === 'pending');
         if (!isReferrer && !isActiveReceiver)
             continue;
         if (r.subject_person_id)
@@ -104,6 +109,8 @@ const computeWorksWith = (orgId, data, options = {}) => {
             keys.add(orgKey(r.subject_org_id));
     }
     for (const i of data.interactions) {
+        if (options.referralsOnly)
+            break;
         if (i.author_org_id !== orgId)
             continue;
         keys.add(orgKey(i.organization_id));
@@ -111,10 +118,14 @@ const computeWorksWith = (orgId, data, options = {}) => {
             keys.add(personKey(i.subject_person_id));
     }
     for (const org of data.organizations) {
+        if (options.referralsOnly)
+            break;
         if ((org.managed_by_ids || []).includes(orgId) && !(0, exports.isSupportOrganization)(org))
             keys.add(orgKey(org.id));
     }
     for (const person of data.people) {
+        if (options.referralsOnly)
+            break;
         const pushedByUs = person.created_by_org_id === orgId
             || (person.external_refs || []).some((ref) => ref.owner_org_id === orgId);
         const isOurClient = activeAffiliations(person).some((a) => a.organization_id === orgId && !STAFF_RELATIONSHIPS.includes(a.relationship_type || ''));
@@ -238,13 +249,19 @@ const buildNetworkView = (viewer, data) => {
     const isOperator = (0, exports.isOperatorRole)(viewer.role);
     const isStaff = (0, exports.isStaffRole)(viewer.role) && !!viewer.orgId;
     const isEntrepreneur = viewer.role === 'entrepreneur';
+    // A referral partner gets referrals and nothing else (see Viewer.orgTier).
+    const isReferralPartner = isStaff && viewer.orgTier === 'referral_partner';
     // An organization that has not signed the network's agreements keeps full
     // access to its own records but sees nothing of its partners'.
     const hasSigned = viewer.orgHasSigned !== false;
-    const worksWith = isStaff && hasSigned ? (0, exports.computeWorksWith)(viewer.orgId, data) : new Set();
+    const worksWith = isStaff && hasSigned
+        ? (0, exports.computeWorksWith)(viewer.orgId, data, { referralsOnly: isReferralPartner })
+        : new Set();
     // Email is shared only once the organization needs it: a referral it has
     // not yet accepted shows the person, not how to reach them.
-    const mayContact = isStaff && hasSigned ? (0, exports.computeWorksWith)(viewer.orgId, data, { acceptedOnly: true }) : new Set();
+    const mayContact = isStaff && hasSigned
+        ? (0, exports.computeWorksWith)(viewer.orgId, data, { acceptedOnly: true, referralsOnly: isReferralPartner })
+        : new Set();
     const ownSubjects = isEntrepreneur ? subjectKeysForEntrepreneur(viewer.personId, data) : new Set();
     const touches = (subjects, set) => subjects.some((key) => set.has(key));
     /** Tier for a record another organization wrote about `subjects`. */
@@ -252,6 +269,10 @@ const buildNetworkView = (viewer, data) => {
         if (isEntrepreneur)
             return touches(subjects, ownSubjects) ? 'detail' : null;
         if (isWithdrawnSubject(subjects))
+            return null;
+        // A referral partner never sees other organizations' records — not even
+        // the fact of them.
+        if (isReferralPartner)
             return null;
         if (isStaff && touches(subjects, worksWith)) {
             return hasDetailConsent(subjects, viewer.orgId, eco, data, expand) ? 'detail' : 'fact';
@@ -320,7 +341,7 @@ const buildNetworkView = (viewer, data) => {
             visibility = 'works_with';
         else if (isOperator)
             visibility = 'operator';
-        else if (listed.has(person.id) && ((isStaff && hasSigned) || isEntrepreneur))
+        else if (listed.has(person.id) && ((isStaff && hasSigned && !isReferralPartner) || isEntrepreneur))
             visibility = 'directory';
         if (!visibility)
             continue;
@@ -353,7 +374,7 @@ const buildNetworkView = (viewer, data) => {
             visibility = 'works_with';
         else if (isOperator)
             visibility = 'operator';
-        else if (listedVentures.has(org.id) && (!isStaff || hasSigned))
+        else if (listedVentures.has(org.id) && (!isStaff || hasSigned) && !isReferralPartner)
             visibility = 'directory';
         if (!visibility)
             continue;
@@ -369,6 +390,7 @@ const buildNetworkView = (viewer, data) => {
             // Founders see this: a member can coordinate about them under the
             // compact; a mere resource sees nothing about them.
             ...(signedOrgs && (0, exports.isSupportOrganization)(org) ? { _compact_signed: signedOrgs.has(org.id) } : {}),
+            ...((0, exports.isSupportOrganization)(org) ? { _membership_tier: org.membership_tier === 'referral_partner' ? 'referral_partner' : 'member' } : {}),
         });
     }
     return { people, organizations, interactions, participations, referrals };

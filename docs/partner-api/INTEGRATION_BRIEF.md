@@ -196,6 +196,11 @@ succeeds, with `consent_terms_outdated: true`).
 If the terms cannot be fetched, do not offer joining — nobody can agree to terms
 they have not seen.
 
+**Referral partners** (organizations invited to receive referrals rather than as
+members) do not use this step: `partnerUpsertPerson` and the other push endpoints
+return `403 referral_partner_tier`. Their integration is steps 4–6: receive
+referrals, answer them, log activity.
+
 **No system of your own yet?** Staff can add clients directly in Nexus (People →
 Add person). The network sends them the consent notice itself, the record is your
 organization's to work with, and you can connect a system later without re-entering

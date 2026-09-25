@@ -341,6 +341,54 @@ const find = (list, id) => list.find((x) => x.id === id);
         strict_1.default.equal(find(view.organizations, 'org_ef')._compact_signed, undefined);
     });
 });
+(0, node_test_1.describe)('referral partners get referrals and nothing else', () => {
+    // IP Factory becomes a referral partner (say, a law firm) that MakeHaven
+    // refers Grace to. Sam is listed in the directory; Grace is not.
+    const partnerData = (status) => {
+        const data = baseData();
+        data.organizations.find((o) => o.id === 'org_ipf').membership_tier = 'referral_partner';
+        data.referrals.push({
+            id: 'ref_mh_to_ipf', referring_org_id: 'org_mh', receiving_org_id: 'org_ipf', subject_person_id: 'person_grace',
+            subject_org_id: 'org_grace_co', status, date: '2026-09-10', ecosystem_id: ECO, notes: 'Needs a patent attorney',
+        });
+        return data;
+    };
+    const partner = { personId: 'staff_ipf', orgId: 'org_ipf', role: 'eso_staff', ecosystemId: ECO, orgTier: 'referral_partner' };
+    (0, node_test_1.it)('sees the referral and the person once accepted — with email — but no other organization\'s records', () => {
+        const view = (0, policy_1.buildNetworkView)(partner, partnerData('accepted'));
+        strict_1.default.equal(find(view.referrals, 'ref_mh_to_ipf')._access, 'full');
+        const grace = find(view.people, 'person_grace');
+        strict_1.default.equal(grace._visibility, 'works_with');
+        strict_1.default.equal(grace.email, 'grace@example.com');
+        strict_1.default.equal(find(view.organizations, 'org_grace_co')._visibility, 'works_with');
+        // MakeHaven's meeting and program with Grace: a member would see the fact; a referral partner sees nothing.
+        strict_1.default.equal(find(view.interactions, 'int_mh_shared'), undefined);
+        strict_1.default.equal(find(view.participations, 'part_mh'), undefined);
+        strict_1.default.equal(find(view.referrals, 'ref_mh_to_ef'), undefined);
+    });
+    (0, node_test_1.it)('before accepting, sees the referral but not the person\'s contact details', () => {
+        const view = (0, policy_1.buildNetworkView)(partner, partnerData('pending'));
+        strict_1.default.ok(find(view.referrals, 'ref_mh_to_ipf'));
+        strict_1.default.equal(find(view.people, 'person_grace'), undefined);
+    });
+    (0, node_test_1.it)('never sees the directory', () => {
+        const view = (0, policy_1.buildNetworkView)(partner, partnerData('accepted'));
+        strict_1.default.equal(find(view.people, 'person_sam'), undefined);
+        strict_1.default.equal(find(view.organizations, 'org_sam_co'), undefined);
+    });
+    (0, node_test_1.it)('pushing or claiming a person gains it nothing', () => {
+        const data = partnerData('accepted');
+        data.people[1].created_by_org_id = 'org_ipf'; // Sam, "pushed" by the partner
+        const view = (0, policy_1.buildNetworkView)(partner, data);
+        strict_1.default.equal(find(view.people, 'person_sam'), undefined);
+    });
+    (0, node_test_1.it)('members and founders can tell a referral partner from a member', () => {
+        const data = { ...partnerData('accepted'), signedOrgIds: ['org_mh', 'org_ef', 'org_ipf'] };
+        const view = (0, policy_1.buildNetworkView)({ personId: 'person_grace', orgId: null, role: 'entrepreneur', ecosystemId: ECO }, data);
+        strict_1.default.equal(find(view.organizations, 'org_ipf')._membership_tier, 'referral_partner');
+        strict_1.default.equal(find(view.organizations, 'org_mh')._membership_tier, 'member');
+    });
+});
 (0, node_test_1.describe)('founder <-> venture linkage', () => {
     (0, node_test_1.it)('working with the venture means working with its founder', () => {
         const data = baseData();

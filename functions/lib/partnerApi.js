@@ -80,6 +80,7 @@ const recordMerge_1 = require("./recordMerge");
 const rateLimit_1 = require("./rateLimit");
 const externalRefIndex_1 = require("./externalRefIndex");
 const terms_1 = require("./consent/terms");
+const content_1 = require("./agreements/content");
 const transitions_1 = require("./referrals/transitions");
 const recordConsent_1 = require("./consent/recordConsent");
 // ─── Helpers (mirrors of index.ts utilities; extract to shared.ts in cleanup) ──
@@ -140,6 +141,22 @@ const validateApiKey = async (db, apiKey) => {
         }
     }
     return null;
+};
+/**
+ * Members only. A referral partner's key can receive and answer referrals,
+ * log its activity and register webhooks, but may not add people, ventures or
+ * participation to the network: what it gets from the network is the
+ * referral, and pushing records would make people "its" to see.
+ */
+const requireMemberTier = async (db, auth, res) => {
+    const org = (await db.collection('organizations').doc(auth.organization_id).get()).data();
+    if ((0, content_1.membershipTierOf)(org) === 'member')
+        return true;
+    res.status(403).json({
+        error: 'This endpoint is for network members. A referral partner receives referrals (partnerListReferrals, webhooks), answers them (partnerUpdateReferral) and logs its activity (partnerLogActivity).',
+        reason: 'referral_partner_tier',
+    });
+    return false;
 };
 /**
  * Partner API requires API key auth. User JWTs are not accepted — this API is
@@ -563,6 +580,8 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
         return;
+    if (!(await requireMemberTier(db, authContext, res)))
+        return;
     if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
         return;
     const externalRef = req.body?.external_ref;
@@ -760,6 +779,8 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
     const db = admin.firestore();
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
+        return;
+    if (!(await requireMemberTier(db, authContext, res)))
         return;
     if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
         return;
@@ -1080,6 +1101,8 @@ exports.partnerUpsertParticipation = (0, https_1.onRequest)({ invoker: 'public' 
     const db = admin.firestore();
     const authContext = await requireApiKey(req, res, db);
     if (!authContext)
+        return;
+    if (!(await requireMemberTier(db, authContext, res)))
         return;
     if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'write', res)))
         return;
