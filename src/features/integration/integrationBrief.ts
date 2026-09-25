@@ -64,6 +64,7 @@ breach of those agreements, not a style issue.
 2. **Ask the entrepreneur.** When someone signs up for a program, show them the
    network's consent terms (step 3) in the network's exact words, and only send
    \`consent\` if they ticked the agreement. Never pre-tick, never default to yes.
+   If you cannot show the terms, the network emails them itself (step 1).
 3. **Notes stay private.** Notes you send on activity are stored for
    ${input.orgName} only. Still, do not send sensitive case notes, financials, health,
    immigration or similar information — the network does not need them.
@@ -123,9 +124,11 @@ see your IDs, and you never see theirs.
   that is the network working, not an error. Store \`nexus_id\` if convenient.
 - \`409\` with \`reason: "terms_outdated"\`: the terms changed since the form loaded.
   Reload the consent block and ask again. Do not resend with a guessed hash.
-- Alternatively send \`"send_consent_email": true\` (and no \`consent\`) to have the
-  network email the entrepreneur a link to make their choices. Use it for people you
-  add by hand, not for bulk syncs.
+- If you send no \`consent\`, the network emails the entrepreneur the consent notice
+  itself, with a link to make their choices — automatically, and you cannot switch
+  it off. Nobody is added to the network without being told. The response says
+  whether that happened (\`consent_notice_sent\`). Each partner that adds them
+  triggers one notice naming that partner; you never trigger a second one.
 
 To read a person back: \`GET ${B}/partnerGetPerson?source=SOURCE&id=12345&ecosystem_id=${input.ecosystemId}\`
 (returns your own refs and their consent state in this network).

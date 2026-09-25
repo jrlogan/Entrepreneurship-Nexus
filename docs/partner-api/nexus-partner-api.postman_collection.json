@@ -77,9 +77,9 @@
         "url": "{{base_url}}/partnerUpsertPerson",
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"external_ref\": { \"source\": \"{{source}}\", \"id\": \"contact-1\" },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Ada\",\n  \"last_name\": \"Founder\",\n  \"email\": \"{{demo_email}}\",\n  \"tags\": [\"entrepreneur\"],\n  \"send_consent_email\": false\n}"
+          "raw": "{\n  \"external_ref\": {\n    \"source\": \"{{source}}\",\n    \"id\": \"contact-1\"\n  },\n  \"ecosystem_id\": \"{{ecosystem_id}}\",\n  \"eso_org_id\": \"{{eso_org_id}}\",\n  \"first_name\": \"Ada\",\n  \"last_name\": \"Founder\",\n  \"email\": \"{{demo_email}}\",\n  \"tags\": [\n    \"entrepreneur\"\n  ]\n}"
         },
-        "description": "First run returns action: \"created\" and a nexus_id. Run it again: action becomes \"updated\", same nexus_id \u2014 idempotent. Set send_consent_email true to send the real opt-in email (use a test inbox)."
+        "description": "First run returns action: \"created\" and a nexus_id. Run it again: action becomes \"updated\", same nexus_id \u2014 idempotent. With no consent object attached, the network emails the person the consent notice (use a test inbox); consent_notice_sent in the response says whether it did."
       }
     },
     {

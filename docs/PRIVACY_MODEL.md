@@ -54,6 +54,11 @@ consortium (it is on the deck's discussion list).
 - **Recorded** by `functions/src/consent/recordConsent.ts`: agreement
   acceptances with version and hash, the directory and detail-sharing choices
   on `network_profiles/{personId}`, and an audit trail.
+- **Nobody is added without being told.** When a partner adds someone without
+  attaching consent, the network emails them the notice itself
+  (`ensureConsentNotice` in `partnerApi.ts`); the partner cannot switch it off.
+  Each partner that adds them triggers one notice naming that partner; the
+  same partner never triggers a second, and nothing is sent once they answer.
 - A GET never records consent (email scanners follow links). Signing in with a
   partner's account (SSO) is not consent.
 

@@ -33,9 +33,10 @@ info:
 
     **Consent** — Collect it where the entrepreneur signs up: embed the consent
     block (`/embed/nexus-consent.js`) or render `getConsentTerms` yourself, and
-    pass the answers as `consent` on `partnerUpsertPerson`. Alternatively send the
-    entrepreneur to the hosted page (`partnerCreateConsentLink`) or set
-    `send_consent_email: true`.
+    pass the answers as `consent` on `partnerUpsertPerson`; or send the
+    entrepreneur to the hosted page (`partnerCreateConsentLink`). Anyone added
+    without `consent` is emailed the consent notice automatically — a partner
+    cannot switch that off.
 
     **Prerequisite** — An organization gets an API key only after its admin has
     signed the network agreements (membership, compact, data usage).
@@ -184,12 +185,6 @@ components:
             type: string
           description: Nexus tags to attach on creation or merge in on update.
           example: [entrepreneur, maker]
-        send_consent_email:
-          type: boolean
-          default: false
-          description: |
-            When true (and no `consent` is sent), Nexus emails the person a link to
-            the hosted consent page. Use for people staff add by hand, not bulk syncs.
         consent:
           $ref: '#/components/schemas/ConsentAttestation'
 
@@ -244,6 +239,9 @@ components:
             - `linked`: existing person found by email; external_ref was added to their record
         consent:
           $ref: '#/components/schemas/ConsentState'
+        consent_notice_sent:
+          type: boolean
+          description: True when this call emailed the person the consent notice (no `consent` was attached and they had not yet answered).
 
     UpsertOrganizationRequest:
       type: object
@@ -582,7 +580,6 @@ paths:
               last_name: Lovelace
               email: ada@example.com
               tags: [entrepreneur]
-              send_consent_email: false
       responses:
         "200":
           description: Person updated or linked to existing record

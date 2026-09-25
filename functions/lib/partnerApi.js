@@ -23,9 +23,9 @@
  * The pushing organization works with the person immediately. Nothing beyond
  * the compact's "always shared" tier happens until the founder chooses:
  * directory listing and detail sharing both start off, per network. Consent is
- * collected either in the partner's own form (pass `consent` — see
- * getConsentTerms), on the hosted page (partnerCreateConsentLink), or by email
- * (send_consent_email: true).
+ * collected in the partner's own form (pass `consent` — see getConsentTerms) or
+ * on the hosted page (partnerCreateConsentLink). Anyone added without consent
+ * attached is emailed the notice automatically (ensureConsentNotice).
  *
  * OIDC / SSO:
  * Any ESO can register their own OAuth2/OIDC server via partnerRegisterOidcProvider.
@@ -403,7 +403,7 @@ const enqueueConsentEmail = async (db, personId, firstName, email, ecosystemId, 
     const fromEmail = process.env.POSTMARK_FROM_EMAIL?.trim();
     if (!postmarkToken || !fromEmail) {
         console.warn('Consent email not sent — POSTMARK_SERVER_TOKEN or POSTMARK_FROM_EMAIL not configured');
-        return;
+        return false;
     }
     const greeting = firstName || 'there';
     // Resolve the ESO's display name for the referral attribution line.
@@ -417,7 +417,7 @@ const enqueueConsentEmail = async (db, personId, firstName, email, ecosystemId, 
     catch {
         // Non-critical — fallback is fine
     }
-    await fetch('https://api.postmarkapp.com/email', {
+    return fetch('https://api.postmarkapp.com/email', {
         method: 'POST',
         headers: {
             'Accept': 'application/json',
@@ -468,9 +468,34 @@ p{margin:0 0 16px}
 </div></body></html>`,
             MessageStream: process.env.POSTMARK_MESSAGE_STREAM?.trim() || 'outbound',
         }),
-    }).catch(err => {
-        console.error('Consent email delivery failed:', err?.message);
-    });
+    }).then((r) => r.ok, (err) => { console.error('Consent email delivery failed:', err?.message); return false; });
+};
+/**
+ * The network's side of the compact's promise: nobody is added without being
+ * told. Whenever a partner adds someone without attaching consent it collected
+ * itself, the person is emailed the consent notice — and a partner cannot
+ * switch that off. Each partner that adds them triggers one notice, naming
+ * that partner; the same partner never triggers a second one, and nothing is
+ * sent once they have answered.
+ *
+ * Returns whether a notice went out on this call.
+ */
+const ensureConsentNotice = async (db, personId, firstName, email, ecosystemId, orgId) => {
+    const profileRef = db.collection('network_profiles').doc(personId);
+    const profile = (await profileRef.get()).data() || {};
+    const accepted = Array.isArray(profile.terms_accepted_ecosystems) && profile.terms_accepted_ecosystems.includes(ecosystemId);
+    if (accepted)
+        return false;
+    const notices = (profile.consent_notices || {});
+    const key = `${ecosystemId}__${orgId}`;
+    if (notices[key])
+        return false;
+    const sent = await enqueueConsentEmail(db, personId, firstName, email, ecosystemId, orgId);
+    await profileRef.set({
+        person_id: personId,
+        consent_notices: { ...notices, [key]: { sent_at: new Date().toISOString(), delivered: sent } },
+    }, { merge: true });
+    return sent;
 };
 /**
  * Record consent a partner collected in its own form (if any), and report the
@@ -535,7 +560,6 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     const lastName = (req.body?.last_name || '').toString().trim();
     const email = normalize(req.body?.email);
     const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
-    const sendConsentEmail = req.body?.send_consent_email === true;
     if (!externalRef?.source || !externalRef?.id) {
         res.status(400).json({ error: 'external_ref.source and external_ref.id are required' });
         return;
@@ -589,7 +613,8 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             external_ref: ref,
         });
         const consent = await applyPartnerConsent(db, byRef.id, ecosystemId, esoOrgId, consentChoices, terms);
-        res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent });
+        const noticeSent = consentChoices ? false : await ensureConsentNotice(db, byRef.id, firstName, email, ecosystemId, esoOrgId);
+        res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent, consent_notice_sent: noticeSent });
         return;
     }
     // 2. Try email match — add ExternalRef to existing person
@@ -621,7 +646,8 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             ecosystem_id: ecosystemId,
         });
         const consent = await applyPartnerConsent(db, existing.id, ecosystemId, esoOrgId, consentChoices, terms);
-        res.json({ ok: true, nexus_id: existing.id, action: 'linked', consent });
+        const noticeSent = consentChoices ? false : await ensureConsentNotice(db, existing.id, firstName, email, ecosystemId, esoOrgId);
+        res.json({ ok: true, nexus_id: existing.id, action: 'linked', consent, consent_notice_sent: noticeSent });
         return;
     }
     // 3. Create new person record (partner-managed; no Firebase Auth account yet).
@@ -667,14 +693,10 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     await logAudit(db, 'partner_person_created', authContext.organization_id, {
         nexus_id: personRef.id,
         external_ref: ref,
-        send_consent_email: sendConsentEmail,
     });
     const consent = await applyPartnerConsent(db, personRef.id, ecosystemId, esoOrgId, consentChoices, terms);
-    // No need to email someone who just agreed in the partner's own form.
-    if (sendConsentEmail && !consentChoices) {
-        await enqueueConsentEmail(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
-    }
-    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent });
+    const noticeSent = consentChoices ? false : await ensureConsentNotice(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
+    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent });
 });
 /**
  * POST /partnerUpsertOrganization

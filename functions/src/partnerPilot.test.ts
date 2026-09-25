@@ -113,9 +113,41 @@ describe('consent collected in a partner\'s own form', () => {
     assert.equal(people.size, 0);
   });
 
-  it('a person pushed without consent starts with everything off', async () => {
+  it('a person pushed without consent starts with everything off — and is told', async () => {
     const { body } = await pushPerson(KEY_A, ORG_A, 'consent-3', 'consent3@example.com');
     assert.deepEqual(body.consent, { terms_accepted: false, directory_listed: false, shares_details: false });
+    // The emulator has no Postmark, so delivery is false, but the notice was
+    // attempted: a consent link exists and the attempt is recorded.
+    assert.equal(body.consent_notice_sent, false);
+    const profile = (await db.collection('network_profiles').doc(body.nexus_id).get()).data()!;
+    assert.ok(profile.consent_notices[`${ECO_ID}__${ORG_A}`]);
+    const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+    assert.equal(tokens.size, 1);
+  });
+
+  it('does not nag: the same partner re-pushing sends nothing more', async () => {
+    const { body } = await pushPerson(KEY_A, ORG_A, 'consent-3', 'consent3@example.com');
+    const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+    assert.equal(tokens.size, 1);
+  });
+
+  it('a second partner linking them sends one more notice, naming that partner', async () => {
+    const { body } = await pushPerson(KEY_B, ORG_B, 'b-3', 'consent3@example.com');
+    assert.equal(body.action, 'linked');
+    const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+    assert.equal(tokens.size, 2);
+    assert.ok(tokens.docs.some((t) => t.get('referring_eso_id') === ORG_B));
+  });
+
+  it('once they have answered, no partner triggers another notice', async () => {
+    const terms = (await call('GET', 'getConsentTerms')).body;
+    const { body } = await pushPerson(KEY_A, ORG_A, 'consent-4', 'consent4@example.com', {
+      consent: { agreed: true, terms_hash: terms.terms_hash },
+    });
+    assert.equal(body.consent_notice_sent, false);
+    await pushPerson(KEY_B, ORG_B, 'b-4', 'consent4@example.com');
+    const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+    assert.equal(tokens.size, 0);
   });
 });
 

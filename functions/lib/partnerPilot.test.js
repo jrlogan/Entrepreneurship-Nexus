@@ -47,6 +47,7 @@ const assert = __importStar(require("node:assert/strict"));
 const crypto_1 = require("crypto");
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
+const content_1 = require("./agreements/content");
 const FUNCTIONS_BASE = 'http://127.0.0.1:55001/entrepreneurship-nexus-local/us-central1';
 const PROJECT_ID = 'entrepreneurship-nexus-local';
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:58080';
@@ -139,9 +140,38 @@ const pushPerson = (apiKey, orgId, id, email, extra = {}) => call('POST', 'partn
         const people = await db.collection('people').where('email', '==', 'consent2@example.com').get();
         assert.equal(people.size, 0);
     });
-    (0, node_test_1.it)('a person pushed without consent starts with everything off', async () => {
+    (0, node_test_1.it)('a person pushed without consent starts with everything off — and is told', async () => {
         const { body } = await pushPerson(KEY_A, ORG_A, 'consent-3', 'consent3@example.com');
         assert.deepEqual(body.consent, { terms_accepted: false, directory_listed: false, shares_details: false });
+        // The emulator has no Postmark, so delivery is false, but the notice was
+        // attempted: a consent link exists and the attempt is recorded.
+        assert.equal(body.consent_notice_sent, false);
+        const profile = (await db.collection('network_profiles').doc(body.nexus_id).get()).data();
+        assert.ok(profile.consent_notices[`${ECO_ID}__${ORG_A}`]);
+        const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+        assert.equal(tokens.size, 1);
+    });
+    (0, node_test_1.it)('does not nag: the same partner re-pushing sends nothing more', async () => {
+        const { body } = await pushPerson(KEY_A, ORG_A, 'consent-3', 'consent3@example.com');
+        const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+        assert.equal(tokens.size, 1);
+    });
+    (0, node_test_1.it)('a second partner linking them sends one more notice, naming that partner', async () => {
+        const { body } = await pushPerson(KEY_B, ORG_B, 'b-3', 'consent3@example.com');
+        assert.equal(body.action, 'linked');
+        const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+        assert.equal(tokens.size, 2);
+        assert.ok(tokens.docs.some((t) => t.get('referring_eso_id') === ORG_B));
+    });
+    (0, node_test_1.it)('once they have answered, no partner triggers another notice', async () => {
+        const terms = (await call('GET', 'getConsentTerms')).body;
+        const { body } = await pushPerson(KEY_A, ORG_A, 'consent-4', 'consent4@example.com', {
+            consent: { agreed: true, terms_hash: terms.terms_hash },
+        });
+        assert.equal(body.consent_notice_sent, false);
+        await pushPerson(KEY_B, ORG_B, 'b-4', 'consent4@example.com');
+        const tokens = await db.collection('consent_tokens').where('person_id', '==', body.nexus_id).get();
+        assert.equal(tokens.size, 0);
     });
 });
 (0, node_test_1.describe)('the hosted consent link', () => {
@@ -300,10 +330,9 @@ const viewAs = async (idToken, orgId) => {
     return { status: res.status, body: await res.json() };
 };
 const signOrg = async (orgId) => {
-    const { AGREEMENT_VERSIONS, ORG_REQUIRED_AGREEMENTS } = await Promise.resolve().then(() => __importStar(require('./agreements/content')));
-    for (const type of ORG_REQUIRED_AGREEMENTS) {
+    for (const type of content_1.ORG_REQUIRED_AGREEMENTS) {
         await db.collection('org_agreement_acceptances').doc(`${orgId}_${ECO_ID}_${type}`).set({
-            org_id: orgId, ecosystem_id: ECO_ID, agreement_type: type, version: AGREEMENT_VERSIONS[type], signed_at: new Date().toISOString(),
+            org_id: orgId, ecosystem_id: ECO_ID, agreement_type: type, version: content_1.AGREEMENT_VERSIONS[type], signed_at: new Date().toISOString(),
         });
     }
 };
@@ -337,8 +366,9 @@ const signOrg = async (orgId) => {
         const { status, body } = await viewAs(staffB.idToken, ORG_B);
         assert.equal(status, 200, JSON.stringify(body));
         assert.equal(body.viewer.org_has_signed, false);
-        assert.equal(body.interactions.length, 0);
-        assert.equal(body.participations.length, 0);
+        // Its own records only (it may have some from earlier suites) — nothing of A's.
+        assert.ok(body.interactions.every((i) => i.author_org_id === ORG_B), JSON.stringify(body.interactions));
+        assert.ok(body.participations.every((p) => p.provider_org_id === ORG_B), JSON.stringify(body.participations));
         // B is a party to the referral, so it still sees that — its own inbox.
         assert.ok(body.referrals.some((r) => r.notes === 'Intro for B'));
     });
