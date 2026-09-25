@@ -424,7 +424,9 @@ const App = () => {
   const [signatureVersion, setSignatureVersion] = useState(0);
   const isEsoRole = ['eso_admin', 'eso_staff', 'eso_coach'].includes(currentRole);
   useEffect(() => {
-    if (!isEsoRole || !currentOrgId) {
+    // Platform admins acting for a support organization get the same check,
+    // so the operator's own organization can join like any partner.
+    if (!(isEsoRole || isPlatformAdmin) || !currentOrgId) {
       setOrgSignature('unknown');
       return;
     }
@@ -433,7 +435,7 @@ const App = () => {
       .then((status) => { if (!cancelled) setOrgSignature(status.signed ? 'signed' : 'unsigned'); })
       .catch(() => { if (!cancelled) setOrgSignature('unknown'); });
     return () => { cancelled = true; };
-  }, [isEsoRole, currentOrgId, currentEcosystemId, signatureVersion]);
+  }, [isEsoRole, isPlatformAdmin, currentOrgId, currentEcosystemId, signatureVersion]);
 
   const sentAdminToOnboarding = React.useRef(false);
 
@@ -718,11 +720,13 @@ const App = () => {
 
   useEffect(() => {
     if (sentAdminToOnboarding.current) return;
-    if (currentRole === 'eso_admin' && orgSignature === 'unsigned') {
+    // Organization admins are taken to the joining steps; a platform admin
+    // acting for a support organization (the operator's own org) is too.
+    if ((currentRole === 'eso_admin' || (isPlatformAdmin && !!myOrganization?.roles.includes('eso'))) && orgSignature === 'unsigned') {
       sentAdminToOnboarding.current = true;
       if (view !== 'join_network') setView('join_network');
     }
-  }, [currentRole, orgSignature, view]);
+  }, [currentRole, orgSignature, view, isPlatformAdmin, myOrganization]);
 
   const shouldShowAuthLoading = shouldRequireAuth && (
     session.status === 'loading' ||
@@ -841,7 +845,7 @@ const App = () => {
                />
              </div>
            )}
-           {orgSignature === 'unsigned' && view !== 'join_network' && (
+           {orgSignature === 'unsigned' && view !== 'join_network' && (isEsoRole || !!myOrganization?.roles.includes('eso')) && (
              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#8b1919]/30 bg-[#8b1919]/5 px-4 py-3 text-sm text-gray-800">
                <span>
                  <strong>{myOrganization?.name || 'Your organization'}</strong> has not signed the network agreements for {currentEcosystem.name} yet.
@@ -852,7 +856,7 @@ const App = () => {
                  onClick={() => handleNavigate('join_network')}
                  className="rounded bg-[#8b1919] px-3 py-1.5 font-semibold text-white hover:bg-[#710a0a]"
                >
-                 {currentRole === 'eso_admin' ? 'Review and sign' : 'Read the agreements'}
+                 {currentRole === 'eso_admin' || isPlatformAdmin ? 'Review and sign' : 'Read the agreements'}
                </button>
              </div>
            )}
@@ -865,7 +869,7 @@ const App = () => {
                  onRefresh={refreshData}
                />
            )}
-           {view === 'join_network' && isEsoRole && (
+           {view === 'join_network' && (isEsoRole || isPlatformAdmin) && myOrganization?.roles.includes('eso') && (
                <PartnerOnboardingView
                  organization={myOrganization}
                  ecosystem={currentEcosystem}
