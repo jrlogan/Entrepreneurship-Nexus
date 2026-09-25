@@ -39,6 +39,9 @@ small enough to review.
    `partnerListReferrals` or webhooks, `partnerUpdateReferral`).
 5. Optionally, record activity (`partnerLogActivity`).
 
+A worked example of a partner integration, with the lessons from the first
+pilot partner, is [partner-api/EXAMPLE_MAKEHAVEN.md](partner-api/EXAMPLE_MAKEHAVEN.md).
+
 Staff at partners that have not integrated yet can still use the app directly
 (log activity, make and answer referrals) or refer by email (BCC intake).
 

@@ -22,6 +22,10 @@ handling, and a done-checklist.
 The brief never contains your API key. Keep the key in a secret store; the
 generated code should read it from an environment variable (`NEXUS_API_KEY`).
 
+For a worked example to give the assistant alongside the brief — the first
+pilot partner's open-source Drupal/CiviCRM integration and what it learned —
+see [EXAMPLE_MAKEHAVEN.md](EXAMPLE_MAKEHAVEN.md).
+
 To self-test an integration against the sandbox, see
 [AI_AGENT_ACCEPTANCE_TEST.md](AI_AGENT_ACCEPTANCE_TEST.md) and
 [TRY_IT.md](TRY_IT.md).

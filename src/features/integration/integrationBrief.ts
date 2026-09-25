@@ -160,7 +160,16 @@ To read a person back: \`GET ${B}/partnerGetPerson?source=SOURCE&id=12345&ecosys
 
 ## Step 3 — Put the consent terms in your signup form
 
-The entrepreneur must see the network's terms in the network's words. Pick one:
+The entrepreneur must see the network's terms in the network's words.
+
+**If your site already has an opt-in** ("share my profile with partner
+organizations", a "join the network" checkbox), it does not count as consent to
+the network: the network never learned the person said yes, and the words were
+yours, not the network's. Replace its wording with the terms below and record the
+\`terms_hash\` shown; keep any local flag you need alongside. This is the mistake the
+first pilot partner made — see the worked example at the end.
+
+Pick one of these to show the terms:
 
 **A. The consent block (recommended for web forms).** Paste inside your existing
 \`<form>\`:
@@ -179,15 +188,27 @@ network is optional for the entrepreneur.
 
 Preview what entrepreneurs see: ${input.appBaseUrl}/consent?demo=1
 
-**B. Render the terms yourself** (native apps, non-HTML forms): \`GET ${B}/getConsentTerms\`
-returns \`summary\`, \`choices\` (labels and defaults), the full \`documents\` and
-\`terms_hash\`. Show the summary and choice labels verbatim, link the full documents,
-and send back \`terms_hash\` with the answers.
+**B. Render the terms yourself** (server-rendered forms, native apps): \`GET ${B}/getConsentTerms\`
+returns \`summary\` (heading, intro, always, choice, never), \`choices\` (labels, help
+text and defaults for \`agree\`, \`directory_listing\`, \`share_details\`), the full
+\`documents\` and \`terms_hash\`. Show the summary and choice labels verbatim, offer
+the full documents, and send back \`terms_hash\` with the answers. Cache the response
+for a few minutes, not permanently: a stale hash is refused (\`409 terms_outdated\`).
+If the terms cannot be fetched, do not offer joining — nobody can agree to terms
+they have not seen.
 
 **C. Send them to the network's page.** \`POST ${B}/partnerCreateConsentLink\` with
 \`{ "ecosystem_id", "external_ref": { "source", "id" }, "return_url"? }\` returns a
 one-time \`consent_url\`. Redirect the entrepreneur there; they come back to
 \`return_url\` (https, on your own website) with \`?nexus_consent=accepted|declined\`.
+
+**Whichever you pick, store the answers on the person's account** — \`terms_hash\`,
+the two choices, and when they agreed — and attach them as \`consent\` on **every**
+push for that person, not only the first. A push triggered later from your CRM
+(a tag applied, a status change) must carry the same consent, or the network will
+treat it as a person who has not been asked. That means you need the mapping from
+your CRM record to the account the person signs in with; find it before writing
+the consent code.
 
 ## Step 4 — Referrals
 
@@ -278,6 +299,9 @@ All upserts are idempotent, so retrying the same payload is always safe.
       with \`partnerGetPerson\`.
 
 Full API reference: \`docs/partner-api/openapi.yaml\` in
-https://github.com/jrlogan/Entrepreneurship-Nexus. Questions go to the network administrator.
+https://github.com/jrlogan/Entrepreneurship-Nexus. A worked example — the first
+pilot partner's open-source Drupal/CiviCRM integration, and the three things it
+got wrong before it got them right — is \`docs/partner-api/EXAMPLE_MAKEHAVEN.md\`
+in the same repository. Questions go to the network administrator.
 `;
 };
