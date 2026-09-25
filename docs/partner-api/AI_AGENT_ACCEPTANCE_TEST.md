@@ -112,8 +112,10 @@ RUN THESE TWELVE CHECKS AND REPORT PASS/FAIL FOR EACH
                  share_details: false}
      EXPECT: 201, consent = {terms_accepted: true, directory_listed: true,
      shares_details: false}, consent_notice_sent = false.
-     THEN send T3 with consent.terms_hash = "0000…" (64 zeros).
-     EXPECT: 409 with reason "terms_outdated". Nothing is created.
+     THEN send a NEW person with consent.terms_hash = "0000…" (64 zeros).
+     EXPECT: 201 with consent_terms_outdated = true, current_terms_hash set,
+     consent = {terms_accepted: false, …}: the person exists, no choice was
+     recorded, and the network asks them directly.
      FAIL MEANS: my form is not showing the network's current terms, or I am
      sending consent the entrepreneur did not give.
 

@@ -59,9 +59,10 @@ Find yours before you write the consent code.
 `getConsentTerms` is fetched live and cached for five minutes. When the
 network is unreachable the page shows "joining is not available right now"
 instead of the checkboxes. Nobody can agree to terms they have not seen, and
-a hardcoded copy of the terms would go stale — the network refuses consent
-recorded against an old hash (`409 terms_outdated`), so a stale copy would
-silently break signups.
+a hardcoded copy of the terms would go stale — the network records no consent
+against an old hash (the push succeeds with `consent_terms_outdated: true`
+and the entrepreneur is asked directly), so a stale copy would quietly turn
+every signup into an email the entrepreneur has to answer.
 
 ## Smaller things worth copying
 

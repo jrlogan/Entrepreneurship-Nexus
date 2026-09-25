@@ -578,15 +578,28 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     // Optional: the founder's answers from the consent terms shown in the
     // partner's own signup form (see getConsentTerms and the embed widget).
     let consentChoices = null;
+    let consentTermsOutdated = false;
     const terms = req.body?.consent !== undefined ? await (0, terms_1.buildConsentTerms)() : null;
     if (terms) {
         const parsed = (0, terms_1.parseFounderConsent)(req.body.consent, terms);
-        if (parsed.ok === false) {
+        if (parsed.ok === false && parsed.reason !== 'terms_outdated') {
             res.status(parsed.status).json({ error: parsed.error, reason: parsed.reason, current_terms_hash: terms.terms_hash });
             return;
         }
-        consentChoices = parsed.value;
+        if (parsed.ok === false) {
+            // The founder agreed to an earlier version of the terms. Consent is
+            // only ever recorded against the current words, so nothing is recorded
+            // here — but the push itself goes through: a partner re-sending the
+            // answers it stored must not lose the ability to update its own record
+            // when the terms change. Consent already on file stands; a founder with
+            // none is asked directly (consent notice), and the response says so.
+            consentTermsOutdated = true;
+        }
+        else {
+            consentChoices = parsed.value;
+        }
     }
+    const outdated = consentTermsOutdated && terms ? { consent_terms_outdated: true, current_terms_hash: terms.terms_hash } : {};
     if (!ecosystemId || !firstName || !lastName || !email) {
         res.status(400).json({ error: 'ecosystem_id, first_name, last_name, and email are required' });
         return;
@@ -625,7 +638,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         });
         const consent = await applyPartnerConsent(db, byRef.id, ecosystemId, esoOrgId, consentChoices, terms);
         const noticeSent = consentChoices ? false : await ensureConsentNotice(db, byRef.id, firstName, email, ecosystemId, esoOrgId);
-        res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent, consent_notice_sent: noticeSent });
+        res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent, consent_notice_sent: noticeSent, ...outdated });
         return;
     }
     // 2. Try email match — add ExternalRef to existing person
@@ -658,7 +671,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         });
         const consent = await applyPartnerConsent(db, existing.id, ecosystemId, esoOrgId, consentChoices, terms);
         const noticeSent = consentChoices ? false : await ensureConsentNotice(db, existing.id, firstName, email, ecosystemId, esoOrgId);
-        res.json({ ok: true, nexus_id: existing.id, action: 'linked', consent, consent_notice_sent: noticeSent });
+        res.json({ ok: true, nexus_id: existing.id, action: 'linked', consent, consent_notice_sent: noticeSent, ...outdated });
         return;
     }
     // 3. Create new person record (partner-managed; no Firebase Auth account yet).
@@ -707,7 +720,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     });
     const consent = await applyPartnerConsent(db, personRef.id, ecosystemId, esoOrgId, consentChoices, terms);
     const noticeSent = consentChoices ? false : await ensureConsentNotice(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
-    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent });
+    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent, ...outdated });
 });
 /**
  * POST /partnerUpsertOrganization

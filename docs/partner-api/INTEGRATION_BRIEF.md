@@ -105,8 +105,11 @@ see your IDs, and you never see theirs.
   "consent": { "terms_accepted", "directory_listed", "shares_details" } }`.
   `linked` means another partner already works with this person (matched by email):
   that is the network working, not an error. Store `nexus_id` if convenient.
-- `409` with `reason: "terms_outdated"`: the terms changed since the form loaded.
-  Reload the consent block and ask again. Do not resend with a guessed hash.
+- `consent_terms_outdated: true` in the response (with `current_terms_hash`): the
+  terms changed since the entrepreneur agreed. The push itself succeeded and any
+  consent already on file stands, but nothing new was recorded — the network asks
+  the entrepreneur directly. Show them the current terms next time they are on your
+  site and resend; do not resend with a guessed hash.
 - If you send no `consent`, the network emails the entrepreneur the consent notice
   itself, with a link to make their choices — automatically, and you cannot switch
   it off. Nobody is added to the network without being told. The response says
@@ -188,7 +191,8 @@ text and defaults for `agree`, `directory_listing`, `share_details` — respect 
 defaults: directory on, details off), `terms_url` (link to the full text), the full
 `documents` and `terms_hash`. Show the summary and choice labels verbatim, link or
 show the full documents, and send back `terms_hash` with the answers. Cache the response
-for a few minutes, not permanently: a stale hash is refused (`409 terms_outdated`).
+for a few minutes, not permanently: a stale hash records nothing (the push still
+succeeds, with `consent_terms_outdated: true`).
 If the terms cannot be fetched, do not offer joining — nobody can agree to terms
 they have not seen.
 

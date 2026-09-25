@@ -202,7 +202,7 @@ components:
           const: true
         terms_hash:
           type: string
-          description: The `terms_hash` of the terms the entrepreneur was shown (getConsentTerms). A stale hash returns 409 `terms_outdated`.
+          description: The `terms_hash` of the terms the entrepreneur was shown (getConsentTerms). A stale hash records nothing; the push succeeds with `consent_terms_outdated: true`.
         directory_listing:
           type: boolean
           default: false
@@ -243,7 +243,13 @@ components:
           $ref: '#/components/schemas/ConsentState'
         consent_notice_sent:
           type: boolean
-          description: True when this call emailed the person the consent notice (no `consent` was attached and they had not yet answered).
+          description: True when this call emailed the person the consent notice (no `consent` was attached and they had not yet answered, or the attached consent was against outdated terms).
+        consent_terms_outdated:
+          type: boolean
+          description: Present and true when the attached `consent.terms_hash` is not the current terms. The push succeeded and consent already on file stands, but nothing new was recorded; show the entrepreneur the current terms and resend.
+        current_terms_hash:
+          type: string
+          description: The current `terms_hash`, when `consent_terms_outdated` is set.
 
     UpsertOrganizationRequest:
       type: object

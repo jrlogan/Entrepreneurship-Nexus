@@ -103,14 +103,35 @@ describe('consent collected in a partner\'s own form', () => {
     assert.equal(acceptance.docs[0].get('attested_by_org_id'), ORG_A);
   });
 
-  it('refuses consent against outdated terms and creates nothing', async () => {
+  it('records nothing against outdated terms, but the push goes through and the founder is asked', async () => {
+    const terms = (await call('GET', 'getConsentTerms')).body;
     const { status, body } = await pushPerson(KEY_A, ORG_A, 'consent-2', 'consent2@example.com', {
-      consent: { agreed: true, terms_hash: 'f'.repeat(64) },
+      consent: { agreed: true, terms_hash: 'f'.repeat(64), directory_listing: true },
     });
-    assert.equal(status, 409);
-    assert.equal(body.reason, 'terms_outdated');
-    const people = await db.collection('people').where('email', '==', 'consent2@example.com').get();
-    assert.equal(people.size, 0);
+    assert.equal(status, 201, JSON.stringify(body));
+    assert.equal(body.consent_terms_outdated, true);
+    assert.equal(body.current_terms_hash, terms.terms_hash);
+    assert.deepEqual(body.consent, { terms_accepted: false, directory_listed: false, shares_details: false });
+    const profile = (await db.collection('network_profiles').doc(body.nexus_id).get()).data()!;
+    assert.deepEqual(profile.directory_listed_ecosystems, [], 'a stale hash never records a choice');
+    assert.ok(profile.consent_notices, 'the founder is asked directly with the current terms');
+
+    // Consent already on file stands when a partner re-sends its stored (now stale) answers.
+    const again = await pushPerson(KEY_A, ORG_A, 'consent-1', 'consent1@example.com', {
+      consent: { agreed: true, terms_hash: 'f'.repeat(64), directory_listing: false },
+    });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(again.body.consent_terms_outdated, true);
+    assert.deepEqual(again.body.consent, { terms_accepted: true, directory_listed: true, shares_details: false });
+  });
+
+  it('still refuses consent the founder did not give', async () => {
+    const terms = (await call('GET', 'getConsentTerms')).body;
+    const { status, body } = await pushPerson(KEY_A, ORG_A, 'consent-2b', 'consent2b@example.com', {
+      consent: { agreed: false, terms_hash: terms.terms_hash },
+    });
+    assert.equal(status, 400);
+    assert.equal(body.reason, 'not_agreed');
   });
 
   it('a person pushed without consent starts with everything off — and is told', async () => {
