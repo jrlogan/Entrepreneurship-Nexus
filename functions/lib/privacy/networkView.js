@@ -108,7 +108,7 @@ const resolveViewer = async (db, uid, ecosystemId, requestedOrgId) => {
 exports.resolveViewer = resolveViewer;
 /** Load everything the policy needs for one network. */
 const loadNetworkData = async (db, ecosystemId) => {
-    const [peopleByIds, peopleByLegacy, orgs, interactions, participations, referrals, grants, profiles, sharers, withdrawn,] = await Promise.all([
+    const [peopleByIds, peopleByLegacy, orgs, interactions, participations, referrals, grants, profiles, sharers, withdrawn, signatures,] = await Promise.all([
         db.collection('people').where('ecosystem_ids', 'array-contains', ecosystemId).get(),
         db.collection('people').where('ecosystem_id', '==', ecosystemId).get(),
         db.collection('organizations').where('ecosystem_ids', 'array-contains', ecosystemId).get(),
@@ -119,7 +119,18 @@ const loadNetworkData = async (db, ecosystemId) => {
         db.collection('network_profiles').where('directory_listed_ecosystems', 'array-contains', ecosystemId).get(),
         db.collection('network_profiles').where('detail_sharing_ecosystems', 'array-contains', ecosystemId).get(),
         db.collection('network_profiles').where('withdrawn_ecosystems', 'array-contains', ecosystemId).get(),
+        db.collection('org_agreement_acceptances').where('ecosystem_id', '==', ecosystemId).get(),
     ]);
+    const signaturesByOrg = new Map();
+    signatures.docs.forEach((d) => {
+        const orgId = d.get('org_id');
+        if (!orgId)
+            return;
+        signaturesByOrg.set(orgId, [...(signaturesByOrg.get(orgId) || []), d.data()]);
+    });
+    const signedOrgIds = Array.from(signaturesByOrg.entries())
+        .filter(([, sigs]) => (0, orgSignatures_1.evaluateOrgSignatures)(sigs).signed)
+        .map(([orgId]) => orgId);
     const consentGrants = grants.docs.map((d) => {
         const g = d.data();
         return {
@@ -142,6 +153,7 @@ const loadNetworkData = async (db, ecosystemId) => {
         directoryListedPersonIds: profiles.docs.map((d) => d.get('person_id') || d.id),
         detailSharingPersonIds: sharers.docs.map((d) => d.get('person_id') || d.id),
         withdrawnPersonIds: withdrawn.docs.map((d) => d.get('person_id') || d.id),
+        signedOrgIds,
     };
 };
 exports.loadNetworkData = loadNetworkData;

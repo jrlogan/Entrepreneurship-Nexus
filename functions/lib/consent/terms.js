@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.parseFounderConsent = exports.buildConsentTerms = exports.CONSENT_CHOICES = exports.CONSENT_SUMMARY = exports.FOUNDER_AGREEMENTS = void 0;
+exports.parseFounderConsent = exports.buildConsentTerms = exports.CONSENT_CHOICES = exports.CONSENT_SUMMARY = exports.acceptanceIsCurrent = exports.RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE = exports.FOUNDER_AGREEMENTS = void 0;
 /**
  * The founder-facing consent terms: what an entrepreneur is shown and agrees
  * to when they join the network, whether on the hosted consent page or inside
@@ -13,6 +13,31 @@ exports.parseFounderConsent = exports.buildConsentTerms = exports.CONSENT_CHOICE
  */
 const content_1 = require("../agreements/content");
 exports.FOUNDER_AGREEMENTS = ['federation_compact', 'privacy_policy'];
+/**
+ * How founders experience a change to the terms — deliberately undisruptive.
+ *
+ * A new version does NOT invalidate what a founder agreed to: their choices
+ * carry over, partners' stored answers keep working, and the founder is told
+ * the next time they visit (a note in their network settings, with a link to
+ * the current text and a one-click "I've read them"). Organizations, by
+ * contrast, must sign every new version before it applies to them.
+ *
+ * The one hard lever: when a change is significant enough that the old
+ * agreement should no longer be relied on, set this to the moment the new
+ * terms took effect. Acceptances recorded before it are then treated as
+ * absent — founders are asked again at their next sign-in, and a partner's
+ * next push triggers the consent notice. Leave it null for ordinary edits.
+ */
+exports.RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE = null;
+/** Whether an acceptance recorded at `acceptedAt` still counts. */
+const acceptanceIsCurrent = (acceptedAt) => {
+    if (!exports.RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE)
+        return true;
+    if (!acceptedAt)
+        return false;
+    return acceptedAt >= exports.RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE;
+};
+exports.acceptanceIsCurrent = acceptanceIsCurrent;
 const CONTENT = {
     federation_compact: content_1.FEDERATION_COMPACT_CONTENT,
     privacy_policy: content_1.PRIVACY_POLICY_CONTENT,

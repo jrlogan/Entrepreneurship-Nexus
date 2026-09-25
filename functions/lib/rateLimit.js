@@ -31,6 +31,11 @@ exports.PARTNER_RULES = {
     write: { limit: 600, windowSeconds: 60, alertAt: 0.9 },
     // Registration/provisioning: rare by nature, so a low ceiling is generous.
     register: { limit: 20, windowSeconds: 3600, alertAt: 0.5 },
+    // Linking to a person another organization already knows, by email. A
+    // partner does this a few times a day when a client of theirs turns out to
+    // be in the network already; a harvester would do it thousands of times
+    // with guessed addresses. Alerts the operators at half the budget.
+    link: { limit: 30, windowSeconds: 3600, alertAt: 0.5 },
 };
 /**
  * Consumes one unit of a caller's budget.

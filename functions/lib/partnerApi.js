@@ -68,7 +68,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerLogActivity = exports.partnerListReferrals = exports.partnerUpdateReferral = exports.partnerCreateReferral = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = void 0;
+exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerLogActivity = exports.partnerListReferrals = exports.partnerUpdateReferral = exports.partnerCreateReferral = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.ensureConsentNotice = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -508,6 +508,7 @@ const ensureConsentNotice = async (db, personId, firstName, email, ecosystemId, 
     }, { merge: true });
     return sent;
 };
+exports.ensureConsentNotice = ensureConsentNotice;
 /**
  * Record consent a partner collected in its own form (if any), and report the
  * founder's consent state back to the partner either way — so a partner's
@@ -637,13 +638,17 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             external_ref: ref,
         });
         const consent = await applyPartnerConsent(db, byRef.id, ecosystemId, esoOrgId, consentChoices, terms);
-        const noticeSent = consentChoices ? false : await ensureConsentNotice(db, byRef.id, firstName, email, ecosystemId, esoOrgId);
+        const noticeSent = consentChoices ? false : await (0, exports.ensureConsentNotice)(db, byRef.id, firstName, email, ecosystemId, esoOrgId);
         res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent, consent_notice_sent: noticeSent, ...outdated });
         return;
     }
     // 2. Try email match — add ExternalRef to existing person
     const emailSnap = await db.collection('people').where('email', '==', email).limit(1).get();
     if (!emailSnap.empty) {
+        // Attaching to a person the network already knows makes them "yours" to
+        // see — so it is budgeted separately and tightly (see rateLimit.ts).
+        if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'link', res)))
+            return;
         const existing = emailSnap.docs[0];
         const existingRefs = (existing.get('external_refs') || []);
         await existing.ref.set({
@@ -670,7 +675,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             ecosystem_id: ecosystemId,
         });
         const consent = await applyPartnerConsent(db, existing.id, ecosystemId, esoOrgId, consentChoices, terms);
-        const noticeSent = consentChoices ? false : await ensureConsentNotice(db, existing.id, firstName, email, ecosystemId, esoOrgId);
+        const noticeSent = consentChoices ? false : await (0, exports.ensureConsentNotice)(db, existing.id, firstName, email, ecosystemId, esoOrgId);
         res.json({ ok: true, nexus_id: existing.id, action: 'linked', consent, consent_notice_sent: noticeSent, ...outdated });
         return;
     }
@@ -719,7 +724,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         external_ref: ref,
     });
     const consent = await applyPartnerConsent(db, personRef.id, ecosystemId, esoOrgId, consentChoices, terms);
-    const noticeSent = consentChoices ? false : await ensureConsentNotice(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
+    const noticeSent = consentChoices ? false : await (0, exports.ensureConsentNotice)(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
     res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent, ...outdated });
 });
 /**

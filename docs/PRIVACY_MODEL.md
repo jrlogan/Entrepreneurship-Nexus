@@ -14,6 +14,18 @@ network agreements; entrepreneurs agree to it on the consent terms.
 | | Details of another organization's records — program names, descriptions, referral outcomes — **off by default** | Partners who work with them, if the entrepreneur shares with all of them or with that partner |
 | **Never shared** | Interaction notes; referral notes outside the two parties; each organization's internal record IDs (`external_refs`). Financial information is not collected at all | Only the organization that wrote them |
 
+**When the terms change.** A new version is not a re-prompt for founders:
+their acceptance and choices stand, partners' stored answers keep working
+(`consent_terms_outdated` in the API response), and the founder sees a note in
+their network settings with a link to `/network-terms` and a one-click
+"I've read them" (recorded as a fresh acceptance, `accepted_via: terms_update`).
+Organizations must sign every new version before it applies to them (a stale
+signature blocks the network view and API key, as a missing one does). For a
+change significant enough that the old agreement should not be relied on, set
+`RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE` in `functions/src/consent/terms.ts`:
+acceptances before that moment stop counting — founders are asked again at
+sign-in, and a partner's next push triggers the consent notice.
+
 Consent choices are **per network** and **revocable**; the directory default
 is on and detail sharing off, and both are recorded only when the founder is
 actually asked (a person pushed without consent is listed nowhere).

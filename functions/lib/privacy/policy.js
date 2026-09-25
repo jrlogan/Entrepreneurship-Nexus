@@ -341,6 +341,7 @@ const buildNetworkView = (viewer, data) => {
         if (listed.has(person.id))
             ventureOrgIdsFor(person, orgsById).forEach((id) => listedVentures.add(id));
     });
+    const signedOrgs = data.signedOrgIds ? new Set(data.signedOrgIds) : null;
     const organizations = [];
     for (const org of data.organizations) {
         let visibility = null;
@@ -364,6 +365,10 @@ const buildNetworkView = (viewer, data) => {
             external_refs: ownRefsOnly(org.external_refs, viewer.orgId),
             _visibility: visibility,
             _detail_access: detailAccess,
+            // Whether this support organization is a signed member of the network.
+            // Founders see this: a member can coordinate about them under the
+            // compact; a mere resource sees nothing about them.
+            ...(signedOrgs && (0, exports.isSupportOrganization)(org) ? { _compact_signed: signedOrgs.has(org.id) } : {}),
         });
     }
     return { people, organizations, interactions, participations, referrals };

@@ -35,9 +35,11 @@ export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
   // "why not a central database" argument became "who is in the network"
   // (approved members who signed not to sell or spam); anonymous aggregate
   // statistics are stated explicitly.
+  // 0.4: says how changes to the terms are handled (current text always
+  // published; founders re-asked only when a change matters).
   privacy_policy: '1.2-pilot',
   data_usage_agreement: '1.0',
-  federation_compact: '0.3-pilot',
+  federation_compact: '0.4-pilot',
   // 0.3: the governance clause no longer promises a seat in a governance body
   // that does not exist yet; it states the intent (a member-benefit nonprofit)
   // and that no member is bound by a version it has not signed.
@@ -159,6 +161,10 @@ export const FEDERATION_COMPACT_CONTENT: AgreementContent = {
     {
       heading: 'Anonymous statistics',
       body: 'The network publishes aggregate statistics — how many entrepreneurs were served, referred and helped, and where organizations record them, businesses started, jobs and capital. Your record counts toward those totals whatever your choices; the totals are anonymous and nothing published identifies you or your venture.',
+    },
+    {
+      heading: 'When these terms change',
+      body: 'These terms will be improved as the network learns. The current version is always published on the network\'s terms page, and every organization in the network signs each new version before it applies to them. We ask you to agree again only when a change affects what is shared about you; otherwise we let you know the next time you visit, and your choices carry over unchanged.',
     },
     {
       heading: 'What this organization will not do',

@@ -420,6 +420,8 @@ export const OrganizationDetailView = ({
             system_role: personUpdates.system_role || 'entrepreneur',
             organization_id: org.id,
             ecosystem_id: viewer.ecosystemId,
+            created_by_org_id: viewer.orgId,
+            source: 'staff_ui',
             tags: personUpdates.tags || [],
             external_refs: personUpdates.external_refs || [],
             links: personUpdates.links || [],

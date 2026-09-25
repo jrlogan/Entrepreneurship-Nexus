@@ -161,6 +161,8 @@ export const buildLocalNetworkData = (eco: string): NetworkData => {
     consentGrants: MOCK_CONSENT_POLICIES.map(toGrant),
     directoryListedPersonIds: MOCK_DIRECTORY_LISTINGS.filter((l) => l.ecosystem_id === eco).map((l) => l.person_id),
     withdrawnPersonIds: Array.from(MOCK_WITHDRAWN).filter((k) => k.endsWith(`|${eco}`)).map((k) => k.split('|')[0]),
+    // In the demo every support organization is a signed member.
+    signedOrgIds: orgsInEco.filter((o) => (o.roles || []).some((r) => ['eso', 'funder', 'resource'].includes(r))).map((o) => o.id),
   };
 };
 

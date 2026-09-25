@@ -4625,6 +4625,9 @@ export const previewQueuedNotices = onRequest({ invoker: 'public' }, async (req,
 // ─── Network view — the redacting read path (see privacy/policy.ts) ──────────
 export { getNetworkView, getNetworkStats } from './privacy/networkView';
 
+// ─── Consent notice for people staff add by hand (no partner system needed) ──
+export { onPersonCreatedNotifyConsent } from './consent/notifyOnCreate';
+
 // ─── Partner API — ESO integration (CiviCRM ↔ Nexus) ─────────────────────────
 export {
   partnerUpsertPerson,

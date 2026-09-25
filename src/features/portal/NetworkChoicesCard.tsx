@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '../../shared/ui/Components';
 import { useRepos, useViewer } from '../../data/AppDataContext';
 import type { NetworkChoices } from '../../data/repos/networkProfiles';
+import { getFirebaseAuth, isFirebaseEnabled } from '../../services/firebaseApp';
+import { FirebaseAgreementsRepo } from '../../data/repos/firebase/agreements';
+import { AGREEMENT_VERSIONS, computeTextHash, getContent } from '../../../functions/src/agreements/content';
+import { FOUNDER_AGREEMENTS } from '../../../functions/src/consent/terms';
 
 /**
  * The founder's two network choices, per network — the same two offered on
@@ -23,6 +27,44 @@ export const NetworkChoicesCard = ({
   const [busy, setBusy] = useState<keyof NetworkChoices | null>(null);
   const [error, setError] = useState('');
   const networkName = networks.find((n) => n.id === ecosystemId)?.name || 'this network';
+  // A new version of the terms is a note here, not a re-prompt: their
+  // choices carry over, and one click records that they have read the
+  // current words (see RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE for the
+  // rare case where a change is significant enough to ask again).
+  const [outdated, setOutdated] = useState<Array<{ type: typeof FOUNDER_AGREEMENTS[number]; from: string; to: string }>>([]);
+  const [acknowledging, setAcknowledging] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const authUid = isFirebaseEnabled() ? getFirebaseAuth()?.currentUser?.uid : undefined;
+    if (!authUid) { setOutdated([]); return; }
+    new FirebaseAgreementsRepo().getAcceptances(authUid, ecosystemId)
+      .then((accepted) => {
+        if (cancelled) return;
+        setOutdated(FOUNDER_AGREEMENTS
+          .filter((type) => accepted[type] && accepted[type]!.version !== AGREEMENT_VERSIONS[type])
+          .map((type) => ({ type, from: accepted[type]!.version, to: AGREEMENT_VERSIONS[type] })));
+      })
+      .catch(() => { if (!cancelled) setOutdated([]); });
+    return () => { cancelled = true; };
+  }, [ecosystemId]);
+
+  const acknowledgeTerms = async () => {
+    const authUid = getFirebaseAuth()?.currentUser?.uid;
+    if (!authUid) return;
+    setAcknowledging(true);
+    try {
+      const repo = new FirebaseAgreementsRepo();
+      for (const { type } of outdated) {
+        await repo.recordAcceptance(authUid, viewer.personId, ecosystemId, type, 'terms_update', await computeTextHash(getContent(type)));
+      }
+      setOutdated([]);
+    } catch {
+      setError('Could not record that. Please try again.');
+    } finally {
+      setAcknowledging(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +102,22 @@ export const NetworkChoicesCard = ({
           >
             {networks.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
           </select>
+        )}
+        {outdated.length > 0 && (
+          <div className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+            <div className="font-semibold">The network terms were updated since you agreed.</div>
+            <p className="mt-1 text-xs">
+              {outdated.map((o) => `${getContent(o.type).title}: ${o.from} → ${o.to}`).join('; ')}. Your choices below carry over unchanged.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <a href="/network-terms" target="_blank" rel="noreferrer" className="rounded border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100">
+                Read the current terms
+              </a>
+              <button type="button" disabled={acknowledging} onClick={() => void acknowledgeTerms()} className="rounded bg-[#8b1919] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#710a0a] disabled:opacity-40">
+                {acknowledging ? 'Saving…' : "I've read them"}
+              </button>
+            </div>
+          </div>
         )}
         <p className="text-sm text-gray-600">
           Organizations you work with in {networkName} see your name and that other partners are helping you; they get your

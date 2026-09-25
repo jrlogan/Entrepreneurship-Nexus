@@ -624,7 +624,7 @@ p{margin:0 0 16px}
  * Returns whether a notice went out on this call.
  */
 
-const ensureConsentNotice = async (
+export const ensureConsentNotice = async (
   db: FirebaseFirestore.Firestore,
   personId: string,
   firstName: string,
@@ -804,6 +804,9 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
   // 2. Try email match — add ExternalRef to existing person
   const emailSnap = await db.collection('people').where('email', '==', email).limit(1).get();
   if (!emailSnap.empty) {
+    // Attaching to a person the network already knows makes them "yours" to
+    // see — so it is budgeted separately and tightly (see rateLimit.ts).
+    if (!(await enforceRateLimit(db, authContext.key_id, 'link', res))) return;
     const existing = emailSnap.docs[0];
     const existingRefs = (existing.get('external_refs') || []) as ExternalRef[];
     await existing.ref.set(

@@ -196,6 +196,11 @@ succeeds, with `consent_terms_outdated: true`).
 If the terms cannot be fetched, do not offer joining — nobody can agree to terms
 they have not seen.
 
+**No system of your own yet?** Staff can add clients directly in Nexus (People →
+Add person). The network sends them the consent notice itself, the record is your
+organization's to work with, and you can connect a system later without re-entering
+anyone.
+
 **C. Send them to the network's page.** `POST <FUNCTIONS_BASE_URL>/partnerCreateConsentLink` with
 `{ "ecosystem_id", "external_ref": { "source", "id" }, "return_url"? }` returns a
 one-time `consent_url`. Redirect the entrepreneur there; they come back to

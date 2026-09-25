@@ -13,7 +13,7 @@
  */
 import type * as admin from 'firebase-admin';
 import { createHash, randomBytes } from 'crypto';
-import { FOUNDER_AGREEMENTS, type ConsentTerms, type FounderConsentChoices } from './terms';
+import { FOUNDER_AGREEMENTS, acceptanceIsCurrent, type ConsentTerms, type FounderConsentChoices } from './terms';
 
 export type ConsentVia = 'partner_form' | 'consent_page';
 
@@ -68,6 +68,8 @@ export const recordFounderConsent = async (
     detail_sharing_ecosystems: arrayUnion(profile.detail_sharing_ecosystems, ecosystemId, choices.share_details),
     // Agreeing again is rejoining.
     withdrawn_ecosystems: arrayUnion(profile.withdrawn_ecosystems, ecosystemId, false),
+    // When they agreed, per network — what the re-consent lever compares against.
+    terms_accepted_at: { ...(profile.terms_accepted_at || {}), [ecosystemId]: choices.accepted_at },
     consent_updated_at: now,
     consent_via: via,
   }, { merge: true });
@@ -108,8 +110,11 @@ export const readConsentState = async (
 ): Promise<{ terms_accepted: boolean; directory_listed: boolean; shares_details: boolean; withdrawn?: boolean }> => {
   const profile = (await db.collection('network_profiles').doc(personId).get()).data() || {};
   const has = (field: string) => Array.isArray(profile[field]) && profile[field].includes(ecosystemId);
+  // An acceptance older than the re-consent lever (see terms.ts) no longer
+  // counts, so the founder is asked again.
+  const acceptedAt = (profile.terms_accepted_at || {})[ecosystemId] || profile.consent_updated_at;
   return {
-    terms_accepted: has('terms_accepted_ecosystems'),
+    terms_accepted: has('terms_accepted_ecosystems') && acceptanceIsCurrent(acceptedAt),
     directory_listed: has('directory_listed_ecosystems'),
     shares_details: has('detail_sharing_ecosystems'),
     ...(has('withdrawn_ecosystems') ? { withdrawn: true } : {}),

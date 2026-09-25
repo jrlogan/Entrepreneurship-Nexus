@@ -54,12 +54,16 @@ export const ContactsView = ({
     const handleSavePerson = async (personData: Partial<Person>) => {
         setAddPersonError(null);
         try {
+            // created_by_org_id makes the person yours to work with, and lets
+            // the network send them the consent notice (onPersonCreatedNotifyConsent).
             await repos.people.add({
                 id: `person_${Date.now()}`,
                 system_role: 'entrepreneur',
                 ecosystem_id: viewer.ecosystemId,
                 memberships: [],
                 tags: [],
+                created_by_org_id: viewer.orgId,
+                source: 'staff_ui',
                 ...personData
             } as Person);
             setIsAddModalOpen(false);

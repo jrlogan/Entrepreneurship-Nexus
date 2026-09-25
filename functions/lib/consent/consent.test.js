@@ -28,6 +28,13 @@ const recordConsent_1 = require("./recordConsent");
         strict_1.default.equal(plain.terms_hash, linked.terms_hash);
     });
 });
+(0, node_test_1.describe)('changing the terms is not disruptive', () => {
+    (0, node_test_1.it)('ordinary edits leave every earlier acceptance standing (the lever is off)', () => {
+        strict_1.default.equal(terms_1.RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE, null, 'set only for a significant change, and say why in the commit');
+        strict_1.default.equal((0, terms_1.acceptanceIsCurrent)('2026-09-01T00:00:00.000Z'), true);
+        strict_1.default.equal((0, terms_1.acceptanceIsCurrent)(undefined), true);
+    });
+});
 (0, node_test_1.describe)('parseFounderConsent', () => {
     (0, node_test_1.it)('accepts consent against the current terms', async () => {
         const terms = await (0, terms_1.buildConsentTerms)();

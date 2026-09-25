@@ -17,6 +17,30 @@ import {
 } from '../agreements/content';
 
 export const FOUNDER_AGREEMENTS = ['federation_compact', 'privacy_policy'] as const;
+
+/**
+ * How founders experience a change to the terms — deliberately undisruptive.
+ *
+ * A new version does NOT invalidate what a founder agreed to: their choices
+ * carry over, partners' stored answers keep working, and the founder is told
+ * the next time they visit (a note in their network settings, with a link to
+ * the current text and a one-click "I've read them"). Organizations, by
+ * contrast, must sign every new version before it applies to them.
+ *
+ * The one hard lever: when a change is significant enough that the old
+ * agreement should no longer be relied on, set this to the moment the new
+ * terms took effect. Acceptances recorded before it are then treated as
+ * absent — founders are asked again at their next sign-in, and a partner's
+ * next push triggers the consent notice. Leave it null for ordinary edits.
+ */
+export const RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE = null as string | null;
+
+/** Whether an acceptance recorded at `acceptedAt` still counts. */
+export const acceptanceIsCurrent = (acceptedAt: string | null | undefined): boolean => {
+  if (!RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE) return true;
+  if (!acceptedAt) return false;
+  return acceptedAt >= RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE;
+};
 export type FounderAgreementType = typeof FOUNDER_AGREEMENTS[number];
 
 const CONTENT: Record<FounderAgreementType, AgreementContent> = {

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildConsentTerms, parseFounderConsent } from './terms';
+import { RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE, acceptanceIsCurrent, buildConsentTerms, parseFounderConsent } from './terms';
 import { validateReturnUrl } from './recordConsent';
 
 describe('consent terms', () => {
@@ -24,6 +24,14 @@ describe('consent terms', () => {
     assert.equal(plain.terms_url, undefined);
     assert.equal(linked.terms_url, 'https://example.test/network-terms');
     assert.equal(plain.terms_hash, linked.terms_hash);
+  });
+});
+
+describe('changing the terms is not disruptive', () => {
+  it('ordinary edits leave every earlier acceptance standing (the lever is off)', () => {
+    assert.equal(RECONSENT_REQUIRED_FOR_ACCEPTANCES_BEFORE, null, 'set only for a significant change, and say why in the commit');
+    assert.equal(acceptanceIsCurrent('2026-09-01T00:00:00.000Z'), true);
+    assert.equal(acceptanceIsCurrent(undefined), true);
   });
 });
 

@@ -151,6 +151,12 @@ export interface NetworkData {
    * listed. Optional for older callers.
    */
   withdrawnPersonIds?: string[];
+  /**
+   * Support organizations that have signed this network's agreements at
+   * their current versions — the network's members, as opposed to resources
+   * merely listed in the directory. Optional for older callers.
+   */
+  signedOrgIds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +184,7 @@ export interface NetworkView {
    * `_detail_access` — whether the viewer may see other organizations' record
    * details about this venture (own org, a support org, or entrepreneur consent).
    */
-  organizations: Array<PolicyOrganization & { _visibility: OrgVisibility; _detail_access: boolean }>;
+  organizations: Array<PolicyOrganization & { _visibility: OrgVisibility; _detail_access: boolean; _compact_signed?: boolean }>;
   interactions: Array<PolicyInteraction & { _access: AccessTier }>;
   participations: Array<PolicyParticipation & { _access: AccessTier }>;
   referrals: Array<PolicyReferral & { _access: AccessTier }>;
@@ -525,6 +531,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
   data.people.forEach((person) => {
     if (listed.has(person.id)) ventureOrgIdsFor(person, orgsById).forEach((id) => listedVentures.add(id));
   });
+  const signedOrgs = data.signedOrgIds ? new Set(data.signedOrgIds) : null;
   const organizations: NetworkView['organizations'] = [];
   for (const org of data.organizations) {
     let visibility: OrgVisibility | null = null;
@@ -543,6 +550,10 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
       external_refs: ownRefsOnly(org.external_refs, viewer.orgId),
       _visibility: visibility,
       _detail_access: detailAccess,
+      // Whether this support organization is a signed member of the network.
+      // Founders see this: a member can coordinate about them under the
+      // compact; a mere resource sees nothing about them.
+      ...(signedOrgs && isSupportOrganization(org) ? { _compact_signed: signedOrgs.has(org.id) } : {}),
     });
   }
 

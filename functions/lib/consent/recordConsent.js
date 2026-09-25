@@ -40,6 +40,8 @@ const recordFounderConsent = async (db, args) => {
         detail_sharing_ecosystems: arrayUnion(profile.detail_sharing_ecosystems, ecosystemId, choices.share_details),
         // Agreeing again is rejoining.
         withdrawn_ecosystems: arrayUnion(profile.withdrawn_ecosystems, ecosystemId, false),
+        // When they agreed, per network — what the re-consent lever compares against.
+        terms_accepted_at: { ...(profile.terms_accepted_at || {}), [ecosystemId]: choices.accepted_at },
         consent_updated_at: now,
         consent_via: via,
     }, { merge: true });
@@ -73,8 +75,11 @@ exports.recordFounderConsent = recordFounderConsent;
 const readConsentState = async (db, personId, ecosystemId) => {
     const profile = (await db.collection('network_profiles').doc(personId).get()).data() || {};
     const has = (field) => Array.isArray(profile[field]) && profile[field].includes(ecosystemId);
+    // An acceptance older than the re-consent lever (see terms.ts) no longer
+    // counts, so the founder is asked again.
+    const acceptedAt = (profile.terms_accepted_at || {})[ecosystemId] || profile.consent_updated_at;
     return {
-        terms_accepted: has('terms_accepted_ecosystems'),
+        terms_accepted: has('terms_accepted_ecosystems') && (0, terms_1.acceptanceIsCurrent)(acceptedAt),
         directory_listed: has('directory_listed_ecosystems'),
         shares_details: has('detail_sharing_ecosystems'),
         ...(has('withdrawn_ecosystems') ? { withdrawn: true } : {}),

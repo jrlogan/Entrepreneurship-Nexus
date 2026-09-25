@@ -17,7 +17,7 @@ export interface AgreementAcceptance {
   // can be detected and re-prompted without a schema change.
   text_hash?: string;
   accepted_at: string;
-  accepted_via: 'signup' | 'invite' | 'post_login_gate' | 'oidc_sso';
+  accepted_via: 'signup' | 'invite' | 'post_login_gate' | 'oidc_sso' | 'terms_update';
 }
 
 // Which agreement types are required for each system role. Entrepreneurs

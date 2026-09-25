@@ -358,6 +358,21 @@ describe('email only once an organization needs it', () => {
   });
 });
 
+describe('who is in the network', () => {
+  it('marks support organizations as signed members or not, for founders to see', () => {
+    const data = { ...baseData(), signedOrgIds: ['org_mh', 'org_ef'] };
+    const view = buildNetworkView({ personId: 'person_grace', orgId: null, role: 'entrepreneur', ecosystemId: ECO }, data);
+    assert.equal(find(view.organizations, 'org_mh')!._compact_signed, true);
+    assert.equal(find(view.organizations, 'org_ipf')!._compact_signed, false);
+    assert.equal(find(view.organizations, 'org_grace_co')!._compact_signed, undefined, 'ventures are not members');
+  });
+
+  it('says nothing when the caller did not load signatures', () => {
+    const view = buildNetworkView(staff('org_mh', 'staff_mh'), baseData());
+    assert.equal(find(view.organizations, 'org_ef')!._compact_signed, undefined);
+  });
+});
+
 describe('founder <-> venture linkage', () => {
   it('working with the venture means working with its founder', () => {
     const data = baseData();

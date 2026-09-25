@@ -328,6 +328,19 @@ const find = (list, id) => list.find((x) => x.id === id);
         strict_1.default.equal(samCo.email, undefined);
     });
 });
+(0, node_test_1.describe)('who is in the network', () => {
+    (0, node_test_1.it)('marks support organizations as signed members or not, for founders to see', () => {
+        const data = { ...baseData(), signedOrgIds: ['org_mh', 'org_ef'] };
+        const view = (0, policy_1.buildNetworkView)({ personId: 'person_grace', orgId: null, role: 'entrepreneur', ecosystemId: ECO }, data);
+        strict_1.default.equal(find(view.organizations, 'org_mh')._compact_signed, true);
+        strict_1.default.equal(find(view.organizations, 'org_ipf')._compact_signed, false);
+        strict_1.default.equal(find(view.organizations, 'org_grace_co')._compact_signed, undefined, 'ventures are not members');
+    });
+    (0, node_test_1.it)('says nothing when the caller did not load signatures', () => {
+        const view = (0, policy_1.buildNetworkView)(staff('org_mh', 'staff_mh'), baseData());
+        strict_1.default.equal(find(view.organizations, 'org_ef')._compact_signed, undefined);
+    });
+});
 (0, node_test_1.describe)('founder <-> venture linkage', () => {
     (0, node_test_1.it)('working with the venture means working with its founder', () => {
         const data = baseData();

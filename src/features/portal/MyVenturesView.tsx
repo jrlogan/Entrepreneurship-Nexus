@@ -7,6 +7,7 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { EditOrgModal } from '../directory/OrgModals';
 import { SharingControls } from './SharingControls';
 import { NetworkChoicesCard } from './NetworkChoicesCard';
+import { NetworkPartnersCard } from './NetworkPartnersCard';
 import { getActiveOrganizationAffiliations } from '../../domain/people/affiliations';
 import { ENUMS } from '../../domain/standards/enums';
 import { callHttpFunction } from '../../services/httpFunctionClient';
@@ -514,6 +515,8 @@ export const MyVenturesView = ({ person, organizations, people, interactions, re
                     </Card>
 
                     <NetworkChoicesCard networks={myNetworks} onChange={onRefresh} />
+
+                    <NetworkPartnersCard organizations={organizations} ecosystemId={viewer.ecosystemId} networkName={currentEcosystem?.name} />
 
                     {myOrg && (
                         <SharingControls
