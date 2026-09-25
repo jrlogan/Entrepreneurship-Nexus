@@ -33,7 +33,10 @@ export const AGREEMENT_VERSIONS: Record<AgreementType, string> = {
   privacy_policy: '1.1-pilot',
   data_usage_agreement: '1.0',
   federation_compact: '0.2-pilot',
-  network_membership: '0.2-pilot',
+  // 0.3: the governance clause no longer promises a seat in a governance body
+  // that does not exist yet; it states the intent (a member-benefit nonprofit)
+  // and that no member is bound by a version it has not signed.
+  network_membership: '0.3-pilot',
 };
 
 /**
@@ -185,8 +188,8 @@ export const NETWORK_MEMBERSHIP_CONTENT: AgreementContent = {
       body: 'API keys and sign-in integrations are issued to your organization and identify every action it takes in the network. You agree to store them as secrets, to limit them to staff who need them, and to notify the network administrator promptly if one may have been exposed so it can be revoked.',
     },
     {
-      heading: 'You participate in governance',
-      body: 'Members share responsibility for the standard and the compact. Each member organization is entitled to a seat in the governance of the network, and agrees that changes to the shared standard, the agreements, and the operator arrangement are made collectively rather than by any single organization.',
+      heading: 'How the network is governed',
+      body: 'How the network is governed is not yet settled. The intent is for it to become a nonprofit organization run for the benefit of its members, which would then decide changes to the shared standard, to these agreements, and to who operates the network. Until it is formed, a proposed change is sent to every member and takes effect for a member only when that member signs the new version. You are never bound by a version you have not signed, and you may leave at any time.',
     },
     {
       heading: 'Aggregate reporting',

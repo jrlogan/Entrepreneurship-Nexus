@@ -296,6 +296,34 @@ describe('organizations that have not signed the agreements', () => {
   });
 });
 
+describe('leaving the network', () => {
+  it('a withdrawn founder is invisible across organizations, but each keeps its own records', () => {
+    const data = baseData();
+    data.withdrawnPersonIds = ['person_grace'];
+    data.directoryListedPersonIds = ['person_grace', 'person_sam'];
+    // Foundation received a referral about Grace and works with her, but sees
+    // nothing MakeHaven recorded — not even the fact of the meeting.
+    const ef = buildNetworkView(staff('org_ef', 'staff_ef'), data);
+    assert.equal(find(ef.interactions, 'int_mh_shared'), undefined);
+    assert.equal(find(ef.participations, 'part_mh'), undefined);
+    assert.equal(find(ef.referrals, 'ref_mh_to_ef')!._access, 'full', 'its own referral is still its own record');
+    // MakeHaven keeps its own records with her in full.
+    const mh = buildNetworkView(staff('org_mh', 'staff_mh'), data);
+    assert.equal(find(mh.interactions, 'int_mh_shared')!._access, 'full');
+    assert.equal(find(mh.participations, 'part_mh')!._access, 'full');
+    // Not listed, whatever the directory flag says; Sam still is.
+    const ipf = buildNetworkView(staff('org_ipf', 'staff_ipf'), data);
+    assert.equal(find(ipf.people, 'person_grace'), undefined);
+    assert.ok(find(ipf.people, 'person_sam'));
+    // Operators see no facts about her either.
+    const ops = buildNetworkView({ personId: 'admin', orgId: null, role: 'ecosystem_manager', ecosystemId: ECO }, data);
+    assert.equal(find(ops.interactions, 'int_mh_shared'), undefined);
+    // She still sees her own history.
+    const grace = buildNetworkView({ personId: 'person_grace', orgId: 'org_grace_co', role: 'entrepreneur', ecosystemId: ECO }, data);
+    assert.ok(find(grace.interactions, 'int_mh_shared'));
+  });
+});
+
 describe('founder <-> venture linkage', () => {
   it('working with the venture means working with its founder', () => {
     const data = baseData();

@@ -550,6 +550,9 @@ export const MOCK_CONSENT_POLICIES: ConsentPolicy[] = [
 // Founders who opted into a network's directory. Listing is off by default and
 // chosen per network; everyone else is visible only to partners who already
 // work with them.
+/** Founders who left a network in the demo session (`personId|ecosystemId`). */
+export const MOCK_WITHDRAWN = new Set<string>();
+
 export const MOCK_DIRECTORY_LISTINGS: Array<{ person_id: string; ecosystem_id: string }> = [
     { person_id: 'person_002', ecosystem_id: 'eco_new_haven' }, // Sarah Connor
 ];

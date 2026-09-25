@@ -95,7 +95,7 @@ export const resolveViewer = async (
 /** Load everything the policy needs for one network. */
 export const loadNetworkData = async (db: admin.firestore.Firestore, ecosystemId: string): Promise<NetworkData> => {
   const [
-    peopleByIds, peopleByLegacy, orgs, interactions, participations, referrals, grants, profiles, sharers,
+    peopleByIds, peopleByLegacy, orgs, interactions, participations, referrals, grants, profiles, sharers, withdrawn,
   ] = await Promise.all([
     db.collection('people').where('ecosystem_ids', 'array-contains', ecosystemId).get(),
     db.collection('people').where('ecosystem_id', '==', ecosystemId).get(),
@@ -106,6 +106,7 @@ export const loadNetworkData = async (db: admin.firestore.Firestore, ecosystemId
     db.collection('consent_policies').where('is_active', '==', true).get(),
     db.collection('network_profiles').where('directory_listed_ecosystems', 'array-contains', ecosystemId).get(),
     db.collection('network_profiles').where('detail_sharing_ecosystems', 'array-contains', ecosystemId).get(),
+    db.collection('network_profiles').where('withdrawn_ecosystems', 'array-contains', ecosystemId).get(),
   ]);
 
   const consentGrants: PolicyConsentGrant[] = grants.docs.map((d) => {
@@ -130,6 +131,7 @@ export const loadNetworkData = async (db: admin.firestore.Firestore, ecosystemId
     consentGrants,
     directoryListedPersonIds: profiles.docs.map((d) => d.get('person_id') || d.id),
     detailSharingPersonIds: sharers.docs.map((d) => d.get('person_id') || d.id),
+    withdrawnPersonIds: withdrawn.docs.map((d) => d.get('person_id') || d.id),
   };
 };
 

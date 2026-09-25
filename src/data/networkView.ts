@@ -33,6 +33,7 @@ import {
   MOCK_PEOPLE,
   MOCK_REFERRALS,
   MOCK_SERVICES,
+  MOCK_WITHDRAWN,
 } from './mockData';
 
 export type AccessTier = 'full' | 'detail' | 'fact';
@@ -159,6 +160,7 @@ export const buildLocalNetworkData = (eco: string): NetworkData => {
       .map((r) => ({ ...r })),
     consentGrants: MOCK_CONSENT_POLICIES.map(toGrant),
     directoryListedPersonIds: MOCK_DIRECTORY_LISTINGS.filter((l) => l.ecosystem_id === eco).map((l) => l.person_id),
+    withdrawnPersonIds: Array.from(MOCK_WITHDRAWN).filter((k) => k.endsWith(`|${eco}`)).map((k) => k.split('|')[0]),
   };
 };
 

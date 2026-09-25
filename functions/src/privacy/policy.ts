@@ -140,6 +140,13 @@ export interface NetworkData {
    * see the details of each other's records. Optional for older callers.
    */
   detailSharingPersonIds?: string[];
+  /**
+   * People who withdrew from THIS network. Each organization keeps its own
+   * records with them and keeps working with them; nothing about them crosses
+   * between organizations — not even the fact of activity — and they are not
+   * listed. Optional for older callers.
+   */
+  withdrawnPersonIds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +412,11 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
     return out;
   };
 
+  // A withdrawn person, and their ventures, are invisible across organizations.
+  const withdrawn = new Set((data.withdrawnPersonIds || []).map(personKey));
+  const isWithdrawnSubject = (subjects: string[]) =>
+    subjects.flatMap(expand).some((key) => withdrawn.has(key));
+
   const isOperator = isOperatorRole(viewer.role);
   const isStaff = isStaffRole(viewer.role) && !!viewer.orgId;
   const isEntrepreneur = viewer.role === 'entrepreneur';
@@ -419,6 +431,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
   /** Tier for a record another organization wrote about `subjects`. */
   const tierForOthersRecord = (subjects: string[]): AccessTier | null => {
     if (isEntrepreneur) return touches(subjects, ownSubjects) ? 'detail' : null;
+    if (isWithdrawnSubject(subjects)) return null;
     if (isStaff && touches(subjects, worksWith)) {
       return hasDetailConsent(subjects, viewer.orgId as string, eco, data, expand) ? 'detail' : 'fact';
     }
@@ -471,7 +484,7 @@ export const buildNetworkView = (viewer: Viewer, data: NetworkData): NetworkView
   }
 
   // --- People -------------------------------------------------------------
-  const listed = new Set(data.directoryListedPersonIds);
+  const listed = new Set(data.directoryListedPersonIds.filter((id) => !withdrawn.has(personKey(id))));
   const people: NetworkView['people'] = [];
   for (const person of data.people) {
     let visibility: PersonVisibility | null = null;

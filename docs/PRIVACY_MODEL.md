@@ -14,6 +14,12 @@ network agreements; entrepreneurs agree to it on the consent terms.
 | **Never shared** | Interaction notes; referral notes outside the two parties; financials; each organization's internal record IDs (`external_refs`) | Only the organization that wrote them |
 
 Consent choices are **off by default**, **per network**, and **revocable**.
+A founder can also **leave a network** (their privacy settings → *Leave this
+network*): nothing about them then crosses between organizations there — not
+even the fact of activity — and they are not listed; each organization they
+work with keeps its own records and keeps working with them. Partner pushes
+still work (they are the agency's own records) but trigger no notice. Agreeing
+to the terms again rejoins.
 An organization "works with" an entrepreneur when it has itself recorded
 something about them: a participation it provides, a referral it sent or
 received (a declined referral does not count for the receiver), an activity it

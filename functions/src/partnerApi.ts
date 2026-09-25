@@ -635,6 +635,9 @@ const ensureConsentNotice = async (
   const profile = (await profileRef.get()).data() || {};
   const accepted = Array.isArray(profile.terms_accepted_ecosystems) && profile.terms_accepted_ecosystems.includes(ecosystemId);
   if (accepted) return false;
+  // Someone who left the network is not asked again by partners' pushes.
+  const withdrawn = Array.isArray(profile.withdrawn_ecosystems) && profile.withdrawn_ecosystems.includes(ecosystemId);
+  if (withdrawn) return false;
 
   const notices = (profile.consent_notices || {}) as Record<string, { sent_at: string; delivered: boolean }>;
   const key = `${ecosystemId}__${orgId}`;

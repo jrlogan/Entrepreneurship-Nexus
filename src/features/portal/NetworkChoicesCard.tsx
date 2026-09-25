@@ -29,7 +29,7 @@ export const NetworkChoicesCard = ({
     setChoices(null);
     repos.networkProfiles.getChoices(viewer.personId, ecosystemId)
       .then((next) => { if (!cancelled) setChoices(next); })
-      .catch(() => { if (!cancelled) setChoices({ directoryListed: false, sharesDetails: false }); });
+      .catch(() => { if (!cancelled) setChoices({ directoryListed: false, sharesDetails: false, withdrawn: false }); });
     return () => { cancelled = true; };
   }, [repos, viewer.personId, ecosystemId]);
 
@@ -69,17 +69,54 @@ export const NetworkChoicesCard = ({
           title="List me in the network directory"
           description="Support organizations you have not worked with yet can find you."
           checked={!!choices?.directoryListed}
-          disabled={!choices || busy !== null}
+          disabled={!choices || busy !== null || !!choices?.withdrawn}
           onChange={(on) => void set('directoryListed', on)}
         />
         <ChoiceRow
           title="Share record details with every partner I work with"
           description="Partners already working with you can see the details of each other's records — such as program names and referral outcomes. You can also choose partners one by one below."
           checked={!!choices?.sharesDetails}
-          disabled={!choices || busy !== null}
+          disabled={!choices || busy !== null || !!choices?.withdrawn}
           onChange={(on) => void set('sharesDetails', on)}
         />
         {error && <p className="text-sm text-red-700">{error}</p>}
+
+        <div className={`rounded border p-3 ${choices?.withdrawn ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+          {choices?.withdrawn ? (
+            <>
+              <div className="text-sm font-semibold text-amber-900">You have left {networkName}.</div>
+              <p className="mt-1 text-xs text-amber-900">
+                Nothing about you is shared between organizations here, and you are not listed. The organizations you work with
+                still work with you and keep their own records, exactly as before.
+              </p>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void set('withdrawn', false)}
+                className="mt-2 rounded border border-amber-400 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-40"
+              >
+                Rejoin {networkName}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold text-gray-900">Leave {networkName}</div>
+              <p className="mt-1 text-xs text-gray-600">
+                Leaving the network does not end your relationship with any organization. Each one you work with keeps
+                working with you and keeps its own records. What stops is sharing between them: nothing about you crosses
+                from one organization to another, not even that you met, and you are not listed in the directory. You can rejoin at any time.
+              </p>
+              <button
+                type="button"
+                disabled={!choices || busy !== null}
+                onClick={() => { if (window.confirm(`Leave ${networkName}? Your relationships with individual organizations are not affected.`)) void set('withdrawn', true); }}
+                className="mt-2 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-800 hover:bg-gray-100 disabled:opacity-40"
+              >
+                Leave this network
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </Card>
   );

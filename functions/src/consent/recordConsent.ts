@@ -66,6 +66,8 @@ export const recordFounderConsent = async (
     terms_accepted_ecosystems: arrayUnion(profile.terms_accepted_ecosystems, ecosystemId, true),
     directory_listed_ecosystems: arrayUnion(profile.directory_listed_ecosystems, ecosystemId, choices.directory_listing),
     detail_sharing_ecosystems: arrayUnion(profile.detail_sharing_ecosystems, ecosystemId, choices.share_details),
+    // Agreeing again is rejoining.
+    withdrawn_ecosystems: arrayUnion(profile.withdrawn_ecosystems, ecosystemId, false),
     consent_updated_at: now,
     consent_via: via,
   }, { merge: true });
@@ -103,13 +105,14 @@ export const readConsentState = async (
   db: admin.firestore.Firestore,
   personId: string,
   ecosystemId: string,
-): Promise<{ terms_accepted: boolean; directory_listed: boolean; shares_details: boolean }> => {
+): Promise<{ terms_accepted: boolean; directory_listed: boolean; shares_details: boolean; withdrawn?: boolean }> => {
   const profile = (await db.collection('network_profiles').doc(personId).get()).data() || {};
   const has = (field: string) => Array.isArray(profile[field]) && profile[field].includes(ecosystemId);
   return {
     terms_accepted: has('terms_accepted_ecosystems'),
     directory_listed: has('directory_listed_ecosystems'),
     shares_details: has('detail_sharing_ecosystems'),
+    ...(has('withdrawn_ecosystems') ? { withdrawn: true } : {}),
   };
 };
 
