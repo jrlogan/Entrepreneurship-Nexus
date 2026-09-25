@@ -38,6 +38,26 @@ breach of those agreements, not a style issue.
 6. **Answer referrals.** Referrals to <Your Organization> must be accepted or declined,
    and completed with an outcome when the work is done.
 
+## Develop against the sandbox first
+
+Do not run your first test against production. The network runs a sandbox: a
+separate project with the same API, invented people only, purged periodically.
+
+| | Sandbox | Production |
+|---|---|---|
+| API base URL | `https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net` | `<FUNCTIONS_BASE_URL>` |
+| App / consent block host | `https://entrepreneurship-nexus-staging.web.app` | `<NEXUS_APP_URL>` |
+| `ecosystem_id` | `eco_connecticut` | `<ECOSYSTEM_ID>` |
+| `eso_org_id` and API key | mint your own: `POST https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net/provisionDemoAgency` with `{"name": "<Your Organization>", "invite_code": "<from the network administrator>"}` — returns `organization.id` and a key shown once | the values below |
+
+Build with the base URL, ecosystem id, org id and key all read from configuration,
+so moving to production is a configuration change and nothing else. Prove the
+integration on the sandbox with the twelve checks in
+`docs/partner-api/AI_AGENT_ACCEPTANCE_TEST.md` (in the repository linked at the
+end), then switch the four values to production. Use `example.com` addresses in
+the sandbox: anyone added without consent attached is emailed the notice, and the
+sandbox may deliver it. Never send real people to the sandbox.
+
 ## Your identifiers
 
 | | |
@@ -261,8 +281,11 @@ All upserts are idempotent, so retrying the same payload is always safe.
 - [ ] Program status changes update participation, ending with `status: "past"`.
 - [ ] Incoming referrals reach a person at <Your Organization> who answers them.
 - [ ] Errors follow the table above; 401s alert a human.
-- [ ] Try it end to end: push a test person with a made-up email, then read it back
-      with `partnerGetPerson`.
+- [ ] The twelve sandbox checks pass (`AI_AGENT_ACCEPTANCE_TEST.md`), and the only
+      difference between sandbox and production in your code is configuration.
+- [ ] After switching to production: push one real person your organization works
+      with, read them back with `partnerGetPerson`, and confirm they appear on the
+      network's People page for your organization.
 
 Full API reference: `docs/partner-api/openapi.yaml` in
 https://github.com/jrlogan/Entrepreneurship-Nexus. A worked example — the first
