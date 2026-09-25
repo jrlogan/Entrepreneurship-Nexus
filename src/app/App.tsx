@@ -257,7 +257,12 @@ const App = () => {
   const [availableEcosystemList, setAvailableEcosystemList] = useState<Ecosystem[]>(
     () => repos.ecosystems.getAll()
   );
+  // Ecosystem config is readable only by signed-in users, so load it once the
+  // session is authenticated (and again if the account changes). Loading at
+  // boot ran before sign-in, failed on permissions, and left the app on the
+  // hardcoded mock network list for every real user.
   useEffect(() => {
+    if (shouldRequireAuth && !session.authUser) return;
     let active = true;
     repos.ecosystems.hydrate()
       .then((list) => { if (active) setAvailableEcosystemList([...list]); })
@@ -267,7 +272,7 @@ const App = () => {
         console.error('Failed to load ecosystem config', error);
       });
     return () => { active = false; };
-  }, [repos]);
+  }, [repos, shouldRequireAuth, session.authUser]);
 
   const baseEcosystem = availableEcosystemList.find(e => e.id === currentEcosystemId)
     || ALL_ECOSYSTEMS.find(e => e.id === currentEcosystemId)
