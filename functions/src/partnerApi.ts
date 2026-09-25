@@ -537,6 +537,13 @@ const enqueueConsentEmail = async (
 
   const greeting = firstName || 'there';
 
+  // Safe mode for test environments: every outbound message goes to one
+  // inbox instead of the real recipient, with the intended address in the
+  // subject. Same switch the notice queue in index.ts honours.
+  const redirect = process.env.POSTMARK_SAFE_MODE_REDIRECT?.trim();
+  const to = redirect || email;
+  const subjectPrefix = redirect ? `[REDIRECTED to ${email}] ` : '';
+
   // Resolve the ESO's display name for the referral attribution line.
   let esoName = 'your support organization';
   try {
@@ -557,8 +564,8 @@ const enqueueConsentEmail = async (
     },
     body: JSON.stringify({
       From: fromEmail,
-      To: email,
-      Subject: `${esoName} works with a regional entrepreneurship network — your choices`,
+      To: to,
+      Subject: `${subjectPrefix}${esoName} works with a regional entrepreneurship network — your choices`,
       TextBody: [
         `Hi ${greeting},`,
         '',

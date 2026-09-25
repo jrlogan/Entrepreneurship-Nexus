@@ -42,6 +42,16 @@ small enough to review.
 Staff at partners that have not integrated yet can still use the app directly
 (log activity, make and answer referrals) or refer by email (BCC intake).
 
+## Testing without emailing real people
+
+On a staging or sandbox project, set `POSTMARK_SAFE_MODE_REDIRECT` in the
+functions config to a shared test inbox. Every message the network sends —
+invites, referral notices, consent notices — goes there instead of to the
+address on the record, with the intended recipient in the subject line. With
+no Postmark token at all, nothing is sent and the flows still complete (the
+Partners page shows invite links to copy; `consent_notice_sent` comes back
+`false`).
+
 ## Where to see it
 
 - **Referrals** — the inbox of referrals to and from your organization.
