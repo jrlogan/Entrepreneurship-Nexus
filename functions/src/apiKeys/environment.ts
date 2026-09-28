@@ -65,19 +65,19 @@ export interface UnrecognizedKeyError {
 
 /** The 401 body for a key this environment does not know. */
 export const unrecognizedKeyError = (apiKey: string, here: NexusEnvironment): UnrecognizedKeyError => {
-  const hereLabel = here === 'local' ? 'local Nexus emulator' : ENVIRONMENTS[here].label;
+  const hereLabel = here === 'local' ? 'the local Nexus emulator' : ENVIRONMENTS[here].label;
   const keyEnv = environmentOfKey(apiKey);
   if (keyEnv && keyEnv !== here && here !== 'local') {
     const target = ENVIRONMENTS[keyEnv];
     return {
-      error: `Invalid or revoked API key: this is a ${keyEnv} key, but you are calling the ${hereLabel}.`,
+      error: `Invalid or revoked API key: this is a ${keyEnv} key, but you are calling ${hereLabel}.`,
       reason: 'wrong_environment',
       environment: here,
       hint: `Keys work only in the environment that issued them. Send ${keyEnv} keys to ${target.functionsBaseUrl}.`,
     };
   }
   return {
-    error: `Invalid or revoked API key: the ${hereLabel} does not recognize this key.`,
+    error: `Invalid or revoked API key: ${hereLabel} does not recognize this key.`,
     reason: 'unknown_key',
     environment: here,
     hint: `Keys work only in the environment that issued them: keys created at ${ENVIRONMENTS.production.appBaseUrl} go to ${ENVIRONMENTS.production.functionsBaseUrl}; sandbox keys go to ${ENVIRONMENTS.sandbox.functionsBaseUrl}. If the key was revoked, create a new one.`,

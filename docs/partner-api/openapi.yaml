@@ -124,7 +124,7 @@ components:
                 error: X-Nexus-API-Key header required for partner API
             wrongEnvironment:
               value:
-                error: 'Invalid or revoked API key: this is a production key, but you are calling the Nexus sandbox.'
+                error: 'Invalid or revoked API key: this is a production key, but you are calling Nexus sandbox.'
                 reason: wrong_environment
                 environment: sandbox
                 hint: Keys work only in the environment that issued them. Send production keys to https://us-central1-entrepreneurship-nexus.cloudfunctions.net.
