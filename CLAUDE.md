@@ -38,6 +38,23 @@ and where it is enforced: `docs/PRIVACY_MODEL.md`.
   `agreements/content.ts`, `consent/terms.ts`, `referrals/transitions.ts`,
   `metrics/networkStats.ts`. The frontend imports them directly.
 
+## Shared vocabulary (SchemaLattice)
+
+The data standard's entities are published to SchemaLattice (schemalattice.com), a public catalog
+of data definitions, so partners' AI assistants and other networks can map onto the same concepts.
+It is documentation, never an authority: the API and `functions/src` decide what is accepted, and
+nothing reads the catalog at runtime.
+
+- `schemalattice.config.json` says what each entity *means* (definition, parent concept, links to
+  the HSDS concepts already in the catalog); the fields come from `data-standards/v1.1`.
+- Changing the data standard: regenerate it (`node scripts/generate-data-standard.mjs`), then
+  `npm run lattice:generate`, and commit both. The client computes the new concept URIs locally —
+  a changed entity becomes a fork of its previous version — so the PR shows exactly what will be
+  published. CI runs `npm run lattice:check`; `.github/workflows/lattice-publish.yml` publishes
+  after merge. The integration brief's "Shared vocabulary" table reads `schemalattice.json`, so
+  run `npm run docs:integration-brief` too.
+- `tools/lattice/schemalattice.mjs` is vendored from the SchemaLattice repo; don't edit it here.
+
 ## Conventions
 
 - **Go through the repos.** Components should use `AppRepos` via

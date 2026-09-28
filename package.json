@@ -27,6 +27,9 @@
     "simulate:full-invite-flow": "node scripts/simulate-full-invite-flow.mjs",
     "staging:seed-mail-test": "node scripts/seed-staging-mail-test.mjs",
     "staging:cleanup-mail-test": "node scripts/cleanup-staging-mail-test.mjs",
+    "lattice:generate": "node tools/lattice/schemalattice.mjs generate",
+    "lattice:check": "node tools/lattice/schemalattice.mjs check",
+    "lattice:publish": "node tools/lattice/schemalattice.mjs publish",
     "docs:integration-brief": "functions/node_modules/.bin/tsx scripts/generate-integration-brief.ts",
     "build:demo:compact": "VITE_DEMO_MODE=true VITE_BUILD_OUT_DIR=dist-demo-compact vite build"
   },

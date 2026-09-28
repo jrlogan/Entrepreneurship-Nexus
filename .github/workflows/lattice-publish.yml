@@ -1,0 +1,22 @@
+# Publish the network's data vocabulary to SchemaLattice after it lands on main.
+#
+# The URIs were computed and reviewed in the PR (`npm run lattice:generate`); this only pushes
+# records the catalog does not hold yet, and fails if the catalog would mint a different URI
+# than the one committed. Idempotent. Needs the repository secret SCHEMALATTICE_KEY.
+name: Publish to SchemaLattice
+on:
+  push:
+    branches: [main]
+    paths: [schemalattice.json, schemalattice.config.json, tools/lattice/**, data-standards/**]
+  workflow_dispatch:
+concurrency: { group: lattice-publish, cancel-in-progress: false }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm run lattice:publish
+        env:
+          SCHEMALATTICE_KEY: ${{ secrets.SCHEMALATTICE_KEY }}
