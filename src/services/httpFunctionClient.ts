@@ -1,4 +1,5 @@
 import { getFirebaseAuth } from './firebaseApp';
+import { environmentForProject, type NexusEnvironment } from '../../functions/src/apiKeys/environment';
 
 const normalizeFunctionsRegion = (value?: string) => {
   const raw = (value || '').trim();
@@ -30,6 +31,10 @@ export const getFunctionsBaseUrl = () => {
 
   return `https://${region}-${projectId}.cloudfunctions.net`;
 };
+
+/** Which environment this build talks to — production, the sandbox, or local. */
+export const getNexusEnvironment = (): NexusEnvironment =>
+  environmentForProject(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'entrepreneurship-nexus-local');
 
 export const callHttpFunction = async <TRequest, TResponse>(name: string, payload: TRequest): Promise<TResponse> => {
   const auth = getFirebaseAuth();

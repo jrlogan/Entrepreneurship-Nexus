@@ -4,6 +4,8 @@ import { useRepos, useViewer } from '../../data/AppDataContext';
 import { Card, Badge, Modal, FORM_LABEL_CLASS, FORM_INPUT_CLASS, CodeBlock, DemoLink, FORM_SELECT_CLASS } from '../../shared/ui/Components';
 import { ApiKey, Webhook } from '../../domain/types';
 import { detectDuplicates } from '../../domain/logic';
+import { getFunctionsBaseUrl, getNexusEnvironment } from '../../services/httpFunctionClient';
+import { ENVIRONMENTS, apiKeyPrefixFor } from '../../../functions/src/apiKeys/environment';
 
 const WEBHOOK_EVENTS = [
     'organization.created',
@@ -197,6 +199,9 @@ interface DeliveryLogEntry {
 export const APIConsoleView = () => {
     const repos = useRepos();
     const viewer = useViewer();
+    const nexusEnvironment = getNexusEnvironment();
+    const environmentLabel = nexusEnvironment === 'local' ? 'the local emulator' : ENVIRONMENTS[nexusEnvironment].label;
+    const keyPrefix = apiKeyPrefixFor(nexusEnvironment);
     const [activeTab, setActiveTab] = useState<'overview' | 'simulator' | 'sync_guide' | 'webhooks' | 'docs'>('overview');
     const [organizations, setOrganizations] = useState<any[]>([]);
     const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -676,18 +681,18 @@ export const APIConsoleView = () => {
                                 shown here are what an integrator will copy. It authenticates
                                 with X-Nexus-API-Key, not a bearer token. */}
                             <p className="text-sm text-gray-600">Authenticate every request with your organization's key in this header:</p>
-                            <CodeBlock code={`X-Nexus-API-Key: sk_live_...`} />
+                            <CodeBlock code={`X-Nexus-API-Key: ${keyPrefix}...`} />
                             <p className="text-sm text-gray-600 mt-4">Example — push a person from your own system (idempotent on <code>external_ref</code>):</p>
                             <CodeBlock code={`curl -s -X POST $BASE/partnerUpsertPerson \\
   -H "Content-Type: application/json" \\
-  -H "X-Nexus-API-Key: sk_live_..." \\
+  -H "X-Nexus-API-Key: ${keyPrefix}..." \\
   -d '{"external_ref":{"source":"your_crm","id":"42"},
       "ecosystem_id":"...","eso_org_id":"...",
       "first_name":"Ada","last_name":"Founder",
       "email":"ada@example.com"}'`} />
                             <p className="text-sm text-gray-600 mt-4">Read it back — you only ever see your own identifiers:</p>
                             <CodeBlock code={`curl "$BASE/partnerGetPerson?source=your_crm&id=42" \\
-  -H "X-Nexus-API-Key: sk_live_..."`} />
+  -H "X-Nexus-API-Key: ${keyPrefix}..."`} />
                             <p className="text-xs text-gray-500">
                                 The step-by-step integration brief — with your identifiers filled in, ready to hand to a
                                 developer or AI coding assistant — is on the <strong>Connect Your System</strong> page. The OpenAPI
@@ -947,8 +952,16 @@ export const APIConsoleView = () => {
                 ) : (
                     <div className="space-y-4">
                         <div className="text-center text-green-600 text-xl mb-2">✓ Key Created</div>
-                        <p className="text-sm text-gray-600">Please copy your key immediately. It will not be shown again.</p>
-                        <CodeBlock code={createdKeySecret} />
+                        <p className="text-sm text-gray-600">Copy these now — the key will not be shown again. They work together, and only here:</p>
+                        {/* The base URL travels with the key: a key from production is
+                            rejected by the sandbox and vice versa. */}
+                        <CodeBlock code={`NEXUS_BASE_URL=${getFunctionsBaseUrl()}
+NEXUS_ORG_ID=${selectedIntegrationOrgId}
+NEXUS_API_KEY=${createdKeySecret}`} />
+                        <p className="text-xs text-gray-500">
+                            This key belongs to {environmentLabel}. The sandbox and production are separate databases, so it
+                            will be rejected by the other environment's URL.
+                        </p>
                         <button onClick={closeCreateKeyModal} className="w-full px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded hover:bg-gray-200 mt-2">Done</button>
                     </div>
                 )}

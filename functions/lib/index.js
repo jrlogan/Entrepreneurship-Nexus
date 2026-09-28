@@ -48,6 +48,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const orgSignatures_1 = require("./agreements/orgSignatures");
+const environment_1 = require("./apiKeys/environment");
 const urlGuard_1 = require("./urlGuard");
 const rateLimit_1 = require("./rateLimit");
 const emailParsing_1 = require("./emailParsing");
@@ -4210,9 +4211,12 @@ exports.generatePartnerApiKey = (0, https_1.onCall)(async (request) => {
     }
     // 32 bytes → 64 hex chars of entropy. Never touches disk.
     const keyMaterial = (0, crypto_1.randomBytes)(32).toString('hex');
-    const fullKey = `sk_live_${keyMaterial}`;
+    // The prefix says which environment issued the key (sk_live_ production,
+    // sk_test_ sandbox), so a key sent to the wrong one can be named as such.
+    const keyPrefix = (0, environment_1.apiKeyPrefixFor)((0, environment_1.environmentForProject)(getProjectId()));
+    const fullKey = `${keyPrefix}${keyMaterial}`;
     const hash = (0, crypto_1.createHash)('sha256').update(fullKey).digest('hex');
-    const prefix = `sk_live_${keyMaterial.substring(0, 4)}...${keyMaterial.substring(keyMaterial.length - 4)}`;
+    const prefix = `${keyPrefix}${keyMaterial.substring(0, 4)}...${keyMaterial.substring(keyMaterial.length - 4)}`;
     const newKey = {
         id: `key_${Date.now()}_${(0, crypto_1.randomBytes)(4).toString('hex')}`,
         label: cleanLabel,

@@ -56,6 +56,7 @@ import { enforceRateLimit } from './rateLimit';
 import { externalRefIndexId, readExternalRefIndex } from './externalRefIndex';
 import { CONSENT_SUMMARY, buildConsentTerms, parseFounderConsent, type FounderConsentChoices } from './consent/terms';
 import { membershipTierOf } from './agreements/content';
+import { environmentForProject, unrecognizedKeyError } from './apiKeys/environment';
 import { canTransitionReferral, type ReferralStatus } from './referrals/transitions';
 import {
   appBaseUrl,
@@ -235,7 +236,10 @@ const requireApiKey = async (
   }
   const context = await validateApiKey(db, apiKey);
   if (!context) {
-    res.status(401).json({ error: 'Invalid or revoked API key' });
+    // Name the environment that answered: a key sent to the wrong one
+    // (production key, sandbox URL) is the usual cause.
+    const projectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
+    res.status(401).json(unrecognizedKeyError(apiKey, environmentForProject(projectId)));
     return null;
   }
   return context;

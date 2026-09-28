@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { Organization, Ecosystem, SystemRole } from '../../domain/types';
 import { useRepos, useViewer } from '../../data/AppDataContext';
-import { getFunctionsBaseUrl } from '../../services/httpFunctionClient';
+import { getFunctionsBaseUrl, getNexusEnvironment } from '../../services/httpFunctionClient';
+import { ENVIRONMENTS } from '../../../functions/src/apiKeys/environment';
 import { Card } from '../../shared/ui/Components';
 import { buildEmbedSnippet, buildIntegrationBrief, SANDBOX, type IntegrationBriefInput } from './integrationBrief';
 
@@ -41,6 +42,8 @@ export const IntegrationGuideView = ({ organization, ecosystem, viewerRole, orgS
   const [copied, setCopied] = useState<string | null>(null);
   const [showBrief, setShowBrief] = useState(false);
   const isAdmin = viewerRole === 'eso_admin' || viewerRole === 'platform_admin';
+  const environment = getNexusEnvironment();
+  const environmentLabel = environment === 'local' ? 'the local emulator' : ENVIRONMENTS[environment].label;
 
   const input: IntegrationBriefInput | null = useMemo(() => organization ? {
     orgId: organization.id,
@@ -177,24 +180,11 @@ export const IntegrationGuideView = ({ organization, ecosystem, viewerRole, orgS
         )}
       </Card>
 
-      <Card title="Test against the sandbox first">
-        <p className="text-sm text-gray-700">
-          The network runs a sandbox — a separate project with the same API, invented people only, purged periodically.
-          Develop and test there, then switch four settings to the production values below. The brief walks your
-          developer or AI assistant through it, and the acceptance test in the repository proves the integration
-          before it touches real data.
+      <Card title={`Your identifiers — ${environmentLabel}`}>
+        <p className="mb-3 text-sm text-gray-700">
+          These values and your API key belong to {environmentLabel}. Use them together — a key from this environment is
+          rejected by any other.
         </p>
-        <dl className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-[max-content_1fr]">
-          <dt className="font-medium text-gray-600">Sandbox API base URL</dt>
-          <dd><code className="rounded bg-gray-100 px-2 py-0.5">{SANDBOX.functionsBaseUrl}</code></dd>
-          <dt className="font-medium text-gray-600">Sandbox network ID</dt>
-          <dd><code className="rounded bg-gray-100 px-2 py-0.5">{SANDBOX.ecosystemId}</code></dd>
-          <dt className="font-medium text-gray-600">Sandbox org ID and key</dt>
-          <dd className="text-gray-700">Mint your own with <code>provisionDemoAgency</code> — it needs an invite code from the network administrator, which is not published because the repository is public.</dd>
-        </dl>
-      </Card>
-
-      <Card title="Your identifiers">
         <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-[max-content_1fr]">
           {[
             ['API base URL', input.functionsBaseUrl],
@@ -214,6 +204,31 @@ export const IntegrationGuideView = ({ organization, ecosystem, viewerRole, orgS
           ))}
         </dl>
       </Card>
+
+      {environment === 'sandbox' ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          You are in the <strong>sandbox</strong>: invented people only, purged periodically. When you go live, create a
+          new organization ID and key in production at{' '}
+          <code className="rounded bg-white px-1">{ENVIRONMENTS.production.appBaseUrl}</code> — sandbox values will not work there.
+        </div>
+      ) : (
+        <Card title="Testing first? The sandbox is a separate environment" className="border-dashed">
+          <p className="text-sm text-gray-700">
+            The network runs a sandbox — a separate project with the same API, invented people only, purged periodically.
+            <strong> Your identifiers and API key above do not work there</strong>: the sandbox has its own database, so you
+            mint a separate organization ID and key for it. Develop and test there, then switch all four settings (base URL,
+            network ID, organization ID, key) to the values above. The brief walks your developer or AI assistant through it.
+          </p>
+          <dl className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-[max-content_1fr]">
+            <dt className="font-medium text-gray-600">Sandbox API base URL</dt>
+            <dd><code className="rounded bg-gray-100 px-2 py-0.5">{SANDBOX.functionsBaseUrl}</code></dd>
+            <dt className="font-medium text-gray-600">Sandbox network ID</dt>
+            <dd><code className="rounded bg-gray-100 px-2 py-0.5">{SANDBOX.ecosystemId}</code></dd>
+            <dt className="font-medium text-gray-600">Sandbox org ID and key</dt>
+            <dd className="text-gray-700">Mint your own with <code>provisionDemoAgency</code> — it needs an invite code from the network administrator, which is not published because the repository is public.</dd>
+          </dl>
+        </Card>
+      )}
 
       <Card title="The consent block for your signup form">
         <p className="text-sm text-gray-700">

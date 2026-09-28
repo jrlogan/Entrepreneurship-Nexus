@@ -13,6 +13,7 @@ import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { getOrgSignatureStatus } from './agreements/orgSignatures';
+import { apiKeyPrefixFor, environmentForProject } from './apiKeys/environment';
 import { fetchPublicUrl, readTextCapped } from './urlGuard';
 import { enforceRateLimit } from './rateLimit';
 import {
@@ -4935,9 +4936,12 @@ export const generatePartnerApiKey = onCall(async (request) => {
 
   // 32 bytes → 64 hex chars of entropy. Never touches disk.
   const keyMaterial = randomBytes(32).toString('hex');
-  const fullKey = `sk_live_${keyMaterial}`;
+  // The prefix says which environment issued the key (sk_live_ production,
+  // sk_test_ sandbox), so a key sent to the wrong one can be named as such.
+  const keyPrefix = apiKeyPrefixFor(environmentForProject(getProjectId()));
+  const fullKey = `${keyPrefix}${keyMaterial}`;
   const hash = createHash('sha256').update(fullKey).digest('hex');
-  const prefix = `sk_live_${keyMaterial.substring(0, 4)}...${keyMaterial.substring(keyMaterial.length - 4)}`;
+  const prefix = `${keyPrefix}${keyMaterial.substring(0, 4)}...${keyMaterial.substring(keyMaterial.length - 4)}`;
 
   const newKey = {
     id: `key_${Date.now()}_${randomBytes(4).toString('hex')}`,

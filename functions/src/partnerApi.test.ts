@@ -119,6 +119,18 @@ describe('partner API authentication', () => {
     assert.equal(status, 401);
   });
 
+  it('names the environment when a production key is sent elsewhere', async () => {
+    const { status, body } = await post('partnerUpsertPerson', {
+      external_ref: { source: 'test', id: '1' },
+      ecosystem_id: ECO_ID,
+      eso_org_id: MAKEHAVEN_ORG_ID,
+      first_name: 'A', last_name: 'B', email: 'a@b.com',
+    }, 'sk_live_not_a_real_key');
+    assert.equal(status, 401);
+    assert.equal(body.environment, 'local');
+    assert.ok(typeof body.hint === 'string' && (body.hint as string).includes('cloudfunctions.net'));
+  });
+
   it('returns 403 when API key org does not match eso_org_id', async () => {
     const { status } = await post('partnerUpsertPerson', {
       external_ref: { source: 'test', id: '99' },

@@ -490,7 +490,7 @@ Before going live, verify:
 | 400 | `Invalid participation_type` | Use one of: membership, program, application, residency, rental, event, service |
 | 400 | `Invalid status` | Use one of: active, past, applied, waitlisted |
 | 401 | `X-Nexus-API-Key header required` | Add the header |
-| 401 | `Invalid or revoked API key` | Check key value; contact admin if unexpectedly revoked |
+| 401 | `Invalid or revoked API key: …` | Read `reason`: `wrong_environment` means the key belongs to the other environment (production vs sandbox) — use the base URL in `hint`. Otherwise check the key value; contact admin if unexpectedly revoked |
 | 403 | `API key organization does not match eso_org_id` | `eso_org_id` in body must match the org your key belongs to |
 | 404 | `No person found for the given person_external_ref` | Push person via `partnerUpsertPerson` first |
 | 404 | `No person found for the given external reference` | Check `source` + `id` are correct |

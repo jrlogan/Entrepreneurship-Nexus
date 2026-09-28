@@ -270,8 +270,8 @@ export class OrganizationsRepo {
 
     // Simulate a secure key generation
     const randomPart = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    const fullKey = `sk_live_${randomPart}`;
-    const prefix = `sk_live_...${randomPart.substring(randomPart.length - 4)}`;
+    const fullKey = `sk_test_${randomPart}`;
+    const prefix = `sk_test_...${randomPart.substring(randomPart.length - 4)}`;
 
     const newKey: ApiKey = {
       id: `key_${Date.now()}`,

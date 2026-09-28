@@ -22,7 +22,11 @@ export interface IntegrationBriefInput {
   appBaseUrl: string;
 }
 
-/** The shared sandbox every partner develops against before touching production. */
+/**
+ * The shared sandbox every partner develops against before touching production.
+ * Literal rather than imported so the brief generator can load this file on its
+ * own; a test pins it to ENVIRONMENTS.sandbox in functions/src/apiKeys/environment.ts.
+ */
 export const SANDBOX = {
   functionsBaseUrl: 'https://us-central1-entrepreneurship-nexus-staging.cloudfunctions.net',
   appBaseUrl: 'https://entrepreneurship-nexus-staging.web.app',
@@ -93,6 +97,12 @@ separate project with the same API, invented people only, purged periodically.
 | App / consent block host | \`${SANDBOX.appBaseUrl}\` | \`${input.appBaseUrl}\` |
 | \`ecosystem_id\` | \`${SANDBOX.ecosystemId}\` | \`${input.ecosystemId}\` |
 | \`eso_org_id\` and API key | mint your own: \`POST ${SANDBOX.functionsBaseUrl}/provisionDemoAgency\` with \`{"name": "${input.orgName}", "invite_code": "<from the network administrator>"}\` — returns \`organization.id\` and a key shown once | the values below |
+
+The sandbox and production are separate databases. A key and org id work only in
+the environment that issued them — production keys start with \`sk_live_\`, sandbox
+keys with \`sk_test_\` or \`nxk_demo_\` — so the four values always move together.
+Pairing the sandbox URL with a production key (or the reverse) returns 401 with
+\`"reason": "wrong_environment"\`.
 
 Build with the base URL, ecosystem id, org id and key all read from configuration,
 so moving to production is a configuration change and nothing else. Prove the
@@ -328,7 +338,7 @@ IDs, types, dates and statuses — never notes.
 | Status | Meaning | What to do |
 |---|---|---|
 | 400 | Bad payload | Log it and fix the mapping. Do not retry unchanged. |
-| 401 | Missing, invalid or revoked key | Stop and alert a human. Do not retry. |
+| 401 | Missing, invalid or revoked key, or a key sent to the other environment (the body's \`reason\` and \`hint\` say which) | Stop and alert a human. Do not retry. |
 | 403 | Wrong network or organization | Check \`ecosystem_id\` and \`eso_org_id\`. |
 | 404 | Unknown person reference | Push the person (step 1) first, then retry. |
 | 409 | Terms outdated / invalid referral step | See the step above; do not blindly retry. |

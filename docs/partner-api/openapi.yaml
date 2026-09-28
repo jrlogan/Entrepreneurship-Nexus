@@ -110,13 +110,24 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Unauthorized:
-      description: Missing or invalid API key
+      description: |
+        Missing or invalid API key. For a key this environment does not know,
+        the body adds `reason` (`wrong_environment` or `unknown_key`),
+        `environment` (the one that answered) and a `hint`.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            error: X-Nexus-API-Key header required for partner API
+          examples:
+            missing:
+              value:
+                error: X-Nexus-API-Key header required for partner API
+            wrongEnvironment:
+              value:
+                error: 'Invalid or revoked API key: this is a production key, but you are calling the Nexus sandbox.'
+                reason: wrong_environment
+                environment: sandbox
+                hint: Keys work only in the environment that issued them. Send production keys to https://us-central1-entrepreneurship-nexus.cloudfunctions.net.
     Forbidden:
       description: API key org does not match eso_org_id in request body
       content:
@@ -137,8 +148,10 @@ components:
       name: X-Nexus-API-Key
       description: |
         Issued per ESO via the Nexus admin console.
-        Format: `sk_live_...` (issued in the app once agreements are signed) or
-        `nxk_demo_...` (sandbox, minted by provisionDemoAgency).
+        Keys belong to the environment that issued them: `sk_live_...`
+        (production app), `sk_test_...` (sandbox app) or `nxk_demo_...`
+        (sandbox, minted by provisionDemoAgency). A key sent to the other
+        environment's base URL returns 401 with `reason: wrong_environment`.
 
   schemas:
 
@@ -535,6 +548,16 @@ components:
         error:
           type: string
           example: external_ref.source and external_ref.id are required
+        reason:
+          type: string
+          description: Machine-readable cause, where one is given (e.g. `wrong_environment`).
+        environment:
+          type: string
+          enum: [production, sandbox, local]
+          description: On 401s for an unrecognized key, the environment that answered.
+        hint:
+          type: string
+          description: What to do next, where the server can tell.
 
     WebhookDelivery:
       type: object

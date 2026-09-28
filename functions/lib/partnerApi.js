@@ -81,6 +81,7 @@ const rateLimit_1 = require("./rateLimit");
 const externalRefIndex_1 = require("./externalRefIndex");
 const terms_1 = require("./consent/terms");
 const content_1 = require("./agreements/content");
+const environment_1 = require("./apiKeys/environment");
 const transitions_1 = require("./referrals/transitions");
 const recordConsent_1 = require("./consent/recordConsent");
 // ─── Helpers (mirrors of index.ts utilities; extract to shared.ts in cleanup) ──
@@ -170,7 +171,10 @@ const requireApiKey = async (req, res, db) => {
     }
     const context = await validateApiKey(db, apiKey);
     if (!context) {
-        res.status(401).json({ error: 'Invalid or revoked API key' });
+        // Name the environment that answered: a key sent to the wrong one
+        // (production key, sandbox URL) is the usual cause.
+        const projectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
+        res.status(401).json((0, environment_1.unrecognizedKeyError)(apiKey, (0, environment_1.environmentForProject)(projectId)));
         return null;
     }
     return context;

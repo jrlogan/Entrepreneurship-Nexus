@@ -1,7 +1,8 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
-import { buildIntegrationBrief, buildEmbedSnippet, PLACEHOLDER_INPUT } from './integrationBrief';
+import { buildIntegrationBrief, buildEmbedSnippet, PLACEHOLDER_INPUT, SANDBOX } from './integrationBrief';
+import { ENVIRONMENTS } from '../../../functions/src/apiKeys/environment';
 
 const input = {
   orgId: 'org_makehaven',
@@ -13,6 +14,11 @@ const input = {
 };
 
 describe('integration brief', () => {
+  it('uses the same sandbox URLs as the API key environments', () => {
+    expect(SANDBOX.functionsBaseUrl).toBe(ENVIRONMENTS.sandbox.functionsBaseUrl);
+    expect(SANDBOX.appBaseUrl).toBe(ENVIRONMENTS.sandbox.appBaseUrl);
+  });
+
   it('fills in the partner\'s identifiers', () => {
     const brief = buildIntegrationBrief(input);
     expect(brief).toContain('"eso_org_id": "org_makehaven"');
