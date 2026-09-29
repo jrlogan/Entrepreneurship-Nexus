@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schemalattice.com/schema/manifest-v1.json",
+  "lattice": "https://schemalattice.com",
+  "project": {
+    "name": "Entrepreneurship Nexus"
+  },
+  "contexts": {
+    "entrepreneur-support": "https://schemalattice.com/s/entrepreneur-support@f0eeee255495"
+  },
+  "concepts": {
+    "Organization": {
+      "uri": "https://schemalattice.com/c/entrepreneur-support/ecosystem-organization@697bfa7517b3",
+      "status": "originated",
+      "localLocation": "src/domain/standards/dictionary.ts#organization"
+    },
+    "Person": {
+      "uri": "https://schemalattice.com/c/entrepreneur-support/network-member@17b1f5e6e293",
+      "status": "originated",
+      "localLocation": "src/domain/standards/dictionary.ts#person"
+    },
+    "Service": {
+      "uri": "https://schemalattice.com/c/entrepreneur-support/program-participation@e51a9662c626",
+      "status": "originated",
+      "localLocation": "src/domain/standards/dictionary.ts#service"
+    },
+    "Referral": {
+      "uri": "https://schemalattice.com/c/entrepreneur-support/client-referral@0a3349cbddca",
+      "status": "originated",
+      "localLocation": "src/domain/standards/dictionary.ts#referral"
+    },
+    "Interaction": {
+      "uri": "https://schemalattice.com/c/entrepreneur-support/client-interaction@ddb0015e5199",
+      "status": "originated",
+      "localLocation": "src/domain/standards/dictionary.ts#interaction"
+    },
+    "Initiative": {
+      "uri": "https://schemalattice.com/c/entrepreneur-support/initiative@80bc6eae48c2",
+      "status": "originated",
+      "localLocation": "src/domain/standards/dictionary.ts#initiative"
+    }
+  },
+  "generatedBy": "schemalattice client"
+}

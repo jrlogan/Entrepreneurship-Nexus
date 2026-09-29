@@ -10,6 +10,7 @@
  *
  * Pure: no React, no Firebase.
  */
+import lattice from '../../../schemalattice.json';
 
 export interface IntegrationBriefInput {
   orgId: string;
@@ -47,6 +48,25 @@ export const buildEmbedSnippet = (input: IntegrationBriefInput) =>
      data-terms-url="${input.functionsBaseUrl}/getConsentTerms"
      data-organization="${input.orgName}"></div>
 <script src="${input.appBaseUrl}/embed/nexus-consent.js" defer></script>`;
+
+/**
+ * The network's records as published SchemaLattice concepts (schemalattice.json, written by
+ * `npm run lattice:generate`). A partner's AI reads this brief anyway; this is how it learns the
+ * shared vocabulary without having to know the lattice exists.
+ */
+const VOCABULARY: Array<[string, string]> = [
+  ['People (step 1)', 'Person'],
+  ['Organizations', 'Organization'],
+  ['Program participation (step 2)', 'Service'],
+  ['Referrals (step 4)', 'Referral'],
+  ['Activity (step 5)', 'Interaction'],
+];
+
+const vocabularyTable = () =>
+  VOCABULARY.map(([what, key]) => {
+    const concept = (lattice.concepts as Record<string, { uri: string }>)[key];
+    return `| ${what} | ${concept ? `\`${concept.uri}\`` : '—'} |`;
+  }).join('\n');
 
 export const buildIntegrationBrief = (input: IntegrationBriefInput): string => {
   const B = input.functionsBaseUrl;
@@ -332,6 +352,24 @@ returns a \`signing_secret\` once — store it. Each delivery carries
 \`X-Nexus-Signature: sha256=<hex>\`, the HMAC-SHA256 of the raw body with that secret;
 verify it with a constant-time comparison before trusting the payload. Payloads carry
 IDs, types, dates and statuses — never notes.
+
+## Shared vocabulary (for your field map)
+
+Each kind of record you send is a published concept in SchemaLattice, a public
+catalog of data definitions:
+
+| Record | Concept |
+|---|---|
+${vocabularyTable()}
+
+Use them to document your integration, not to change it: this brief and the API
+reference decide what the network accepts. Record how your system's fields map
+onto the network's — your field name, the network field, any conversion, and
+what you deliberately leave out — as \`fieldMaps\` in a \`schemalattice.json\` in
+your own repository (format: https://schemalattice.com/specs/annotation-standard.md,
+"Field maps"). It stays in your repository; never send it or your records to the
+catalog. The next organization on the same CRM can then start from your map
+instead of from scratch.
 
 ## Errors and retries
 
