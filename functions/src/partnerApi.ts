@@ -49,8 +49,19 @@ import {
   matchOrganization,
   attachExternalRef,
   flagPossibleDuplicate,
+  storableDomain,
   type ExternalRef as FedExternalRef,
 } from './federationDedup';
+import { providerRefBuilder } from './oidcRefs';
+import {
+  isLinkedToVenture,
+  mergeIndustryTags,
+  newFounderAffiliations,
+  parseFounderRef,
+  parseOrgType,
+  sanitizeIndustryTags,
+  sanitizeStage,
+} from './partnerOrgFields';
 import { followMergePointer } from './recordMerge';
 import { enforceRateLimit } from './rateLimit';
 import { externalRefIndexId, readExternalRefIndex } from './externalRefIndex';
@@ -116,6 +127,23 @@ interface WebhookRecord {
  * If a key is not configured here, oidcExchangeToken falls back to a
  * provider-namespaced default (`<provider_id>:<key>`) so dedup still works
  * within the SSO path alone.
+ *
+ * Mapping a key declares that it is in this organization's partner ID
+ * scheme: refs built for mapped keys carry `owner_org_id:
+ * provider.organization_id`, so they resolve through (and are indexed under)
+ * the same owner-scoped external_ref_index keys the organization's partner-API
+ * pushes use. Unmapped fallback refs stay ownerless/global. See oidcRefs.ts.
+ * Applies to person refs (drupal_uid, civi_contact_id), employer_org_id and
+ * venture_id.
+ *
+ * MakeHaven's provider must register
+ *   ref_sources: { civi_contact_id: "makehaven_civicrm", venture_id: "makehaven_civicrm" }
+ * because its Drupal bridge pushes people AND their businesses with
+ * external_ref.source "makehaven_civicrm", and its userinfo `ventures[].id`
+ * is the CiviCRM organization contact id (the same id the bridge sends as the
+ * venture's external_ref.id). With that mapping a founder signing in matches
+ * the venture MakeHaven already pushed instead of creating a duplicate shell.
+ * Ops steps: docs/partner-api/PENDING_OPS.md.
  */
 interface OidcProviderRecord {
   id: string;
@@ -921,6 +949,54 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
 
 
 /**
+ * Links a founder — resolved ONLY through the calling partner's own external
+ * ref — to a venture, so the privacy policy can list the venture in the
+ * directory through that founder (ventureOrgIdsFor: organization_id or an
+ * active organization_affiliations entry).
+ *
+ * Writes the same founder affiliation the OIDC venture path writes
+ * (newFounderAffiliations), and sets the person's primary organization_id if
+ * it is empty. Idempotent: an existing affiliation with the venture is left
+ * alone (an ended one stays ended — reported as `affiliation_inactive`).
+ */
+const linkFounderToVenture = async (
+  db: FirebaseFirestore.Firestore,
+  callerOrgId: string,
+  founderRef: { source: string; id: string },
+  ventureId: string,
+  ecosystemId: string,
+): Promise<{ founder_linked: boolean; founder_link_reason?: 'founder_not_found' | 'affiliation_inactive' }> => {
+  // Owner-scoped: another partner's ref scheme never resolves here.
+  const found = await findByExternalRef(db, { ...founderRef, owner_org_id: callerOrgId }, 'person', callerOrgId);
+  if (!found) return { founder_linked: false, founder_link_reason: 'founder_not_found' };
+
+  const personRef = db.collection('people').doc(found.id);
+  const linked = await db.runTransaction(async (tx): Promise<boolean | null> => {
+    const snap = await tx.get(personRef);
+    if (!snap.exists) return null;
+    const person = snap.data() || {};
+    const existing = (person.organization_affiliations || []) as Array<{ organization_id?: string; status?: string }>;
+    const now = new Date().toISOString();
+    const additions = newFounderAffiliations(existing, [ventureId], ecosystemId, now);
+    const updates: Record<string, unknown> = {};
+    if (additions.length > 0) updates.organization_affiliations = [...existing, ...additions];
+    if (!person.organization_id) updates.organization_id = ventureId;
+    if (Object.keys(updates).length > 0) {
+      tx.update(personRef, { ...updates, updated_at: now });
+    }
+    return isLinkedToVenture(
+      {
+        organization_id: (updates.organization_id as string | undefined) ?? person.organization_id,
+        organization_affiliations: (updates.organization_affiliations as typeof existing | undefined) ?? existing,
+      },
+      ventureId,
+    );
+  });
+  if (linked === null) return { founder_linked: false, founder_link_reason: 'founder_not_found' };
+  return linked ? { founder_linked: true } : { founder_linked: false, founder_link_reason: 'affiliation_inactive' };
+};
+
+/**
  * POST /partnerUpsertOrganization
  *
  * Creates or updates an organization record by external system identifier.
@@ -935,12 +1011,40 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
  *   name           string
  *   description?   string
  *   email?         string
- *   url?           string
+ *   url?           string   — also stored as a normalized `domain` (unless the
+ *                             host is a shared platform such as etsy.com) so a
+ *                             founder's SSO sign-in can match it by domain
  *   tax_status?    "non_profit" | "for_profit" | "government" | "other"
  *   tags?          string[]
+ *   founder_ref?   { id: string, source?: string } — the founder, by YOUR OWN
+ *                  person external ref (source defaults to external_ref.source).
+ *                  Push the person first (partnerUpsertPerson). Resolved only
+ *                  among refs your organization owns. When found, the person
+ *                  gets an active 'founder' affiliation with this venture (and
+ *                  it becomes their primary organization if they have none),
+ *                  which is what lists the venture in the network directory
+ *                  once the founder has chosen to be listed. A founder who
+ *                  cannot be resolved does not fail the call.
+ *   logo_url?      string   — public https URL. An invalid value is ignored
+ *                             (the rest of the upsert goes through) and named
+ *                             in `warnings`, like an unknown org_type.
+ *   industry_tags? string[] — merged into classification.industry_tags
+ *                             (≤20 tags, each ≤40 chars, de-duplicated)
+ *   stage?         string   — free text, trimmed, ≤40 chars, stored as `stage`
+ *   org_type?      "startup" | "small_business" | "business" | "nonprofit"
+ *                  | "government_agency" | "other"
+ *
+ * On an existing record found by YOUR external_ref ("updated") the fields you
+ * send replace the stored ones (industry tags merge). On a record another
+ * organization created that matched by exact name ("linked"), Nexus only adds
+ * your ref, tags and founder link, and fills url/domain, logo_url, stage and
+ * org_type where they are empty — it never overwrites another manager's data.
  *
  * Response:
- *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked" }
+ *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked",
+ *     founder_linked: boolean,
+ *     founder_link_reason?: "founder_not_found" | "affiliation_inactive",
+ *     warnings?: string[] }
  */
 export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) return;
@@ -966,6 +1070,11 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
   const url = (req.body?.url || '').toString().trim();
   const taxStatus = normalize(req.body?.tax_status) || 'other';
   const tags: string[] = Array.isArray(req.body?.tags) ? req.body.tags : [];
+  const industryTags = sanitizeIndustryTags(req.body?.industry_tags);
+  const stage = sanitizeStage(req.body?.stage);
+  const orgType = parseOrgType(req.body?.org_type);
+  const domain = storableDomain(url);
+  const warnings: string[] = [];
 
   if (!externalRef?.source || !externalRef?.id) {
     res.status(400).json({ error: 'external_ref.source and external_ref.id are required' });
@@ -973,6 +1082,13 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
   }
   if (!ecosystemId || !name) {
     res.status(400).json({ error: 'ecosystem_id and name are required' });
+    return;
+  }
+  const founderRef = req.body?.founder_ref != null
+    ? parseFounderRef(req.body.founder_ref, externalRef.source)
+    : null;
+  if (req.body?.founder_ref != null && !founderRef) {
+    res.status(400).json({ error: 'founder_ref must be an object with an id (and optionally a source)' });
     return;
   }
   if (authContext.organization_id !== esoOrgId) {
@@ -984,12 +1100,43 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
     return;
   }
 
+  const rawOrgType = req.body?.org_type;
+  if (rawOrgType != null && rawOrgType !== '' && !orgType) {
+    warnings.push('org_type ignored: not one of startup, small_business, business, nonprofit, government_agency, other');
+  }
+  // A bad logo must not cost the partner the rest of its sync: drop it and
+  // say so, rather than 400 the whole upsert (unlike webhook URLs, which are
+  // the point of their call).
+  let logoUrl = '';
+  const rawLogo = (req.body?.logo_url ?? '').toString().trim();
+  if (rawLogo) {
+    try {
+      await assertPublicHttpUrl(rawLogo, { httpsOnly: true });
+      logoUrl = rawLogo;
+    } catch {
+      warnings.push('logo_url ignored: must be a public https URL');
+    }
+  }
+
   const ref: ExternalRef = {
     source: externalRef.source,
     id: externalRef.id,
     owner_org_id: esoOrgId,
   };
   const now = new Date().toISOString();
+
+  const finish = async (status: number, nexusId: string, action: 'created' | 'updated' | 'linked') => {
+    const founder = founderRef
+      ? await linkFounderToVenture(db, authContext.organization_id, founderRef, nexusId, ecosystemId)
+      : { founder_linked: false };
+    res.status(status).json({
+      ok: true,
+      nexus_id: nexusId,
+      action,
+      ...founder,
+      ...(warnings.length > 0 && { warnings }),
+    });
+  };
 
   // 1. ExternalRef index lookup
   const byRef = await findByExternalRef(db, ref, 'organization', authContext.organization_id);
@@ -1002,6 +1149,13 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
         ...(description && { description }),
         ...(email && { email }),
         ...(url && { url }),
+        ...(domain && { domain }),
+        ...(logoUrl && { logo_url: logoUrl }),
+        ...(stage && { stage }),
+        ...(orgType && { org_type: orgType }),
+        ...(industryTags.length > 0 && {
+          classification: { industry_tags: mergeIndustryTags(byRef.data.classification?.industry_tags, industryTags) },
+        }),
         external_refs: refPresent ? existingRefs : [...existingRefs, ref],
         tags: Array.from(new Set([...(byRef.data.tags || []), ...tags])),
         updated_at: now,
@@ -1013,11 +1167,13 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
       nexus_id: byRef.id,
       external_ref: ref,
     });
-    res.json({ ok: true, nexus_id: byRef.id, action: 'updated' });
+    await finish(200, byRef.id, 'updated');
     return;
   }
 
-  // 2. Exact name match within ecosystem — link ExternalRef to existing org
+  // 2. Exact name match within ecosystem — link ExternalRef to existing org.
+  //    The record may be another organization's: add our ref, tags and
+  //    founder link, fill only what is empty, never overwrite.
   const ecosystemOrgs = await db
     .collection('organizations')
     .where('ecosystem_ids', 'array-contains', ecosystemId)
@@ -1025,10 +1181,20 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
   const nameMatch = ecosystemOrgs.docs.find(d => normalize(d.get('name')) === normalize(name));
   if (nameMatch) {
     const existingRefs = (nameMatch.get('external_refs') || []) as ExternalRef[];
+    const existingUrl = (nameMatch.get('url') as string | undefined) || '';
+    const fillDomain = (nameMatch.get('domain') as string | undefined) ? '' : storableDomain(existingUrl || url);
     await nameMatch.ref.set(
       {
         external_refs: [...existingRefs, ref],
         tags: Array.from(new Set([...(nameMatch.get('tags') || []), ...tags])),
+        ...(!existingUrl && url && { url }),
+        ...(fillDomain && { domain: fillDomain }),
+        ...(!nameMatch.get('logo_url') && logoUrl && { logo_url: logoUrl }),
+        ...(!nameMatch.get('stage') && stage && { stage }),
+        ...(!nameMatch.get('org_type') && orgType && { org_type: orgType }),
+        ...(industryTags.length > 0 && {
+          classification: { industry_tags: mergeIndustryTags(nameMatch.get('classification')?.industry_tags, industryTags) },
+        }),
         updated_at: now,
         updated_via_api_key_id: authContext.key_id,
       },
@@ -1039,7 +1205,7 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
       nexus_id: nameMatch.id,
       external_ref: ref,
     });
-    res.json({ ok: true, nexus_id: nameMatch.id, action: 'linked' });
+    await finish(200, nameMatch.id, 'linked');
     return;
   }
 
@@ -1051,9 +1217,13 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
     description: description || '',
     ...(email && { email }),
     ...(url && { url }),
+    ...(domain && { domain }),
+    ...(logoUrl && { logo_url: logoUrl }),
+    ...(stage && { stage }),
+    ...(orgType && { org_type: orgType }),
     tax_status: taxStatus,
     roles: [],
-    classification: { industry_tags: [] },
+    classification: { industry_tags: industryTags },
     external_refs: [ref],
     managed_by_ids: [esoOrgId],
     operational_visibility: 'restricted',
@@ -1074,7 +1244,7 @@ export const partnerUpsertOrganization = onRequest({ invoker: 'public' }, async 
     external_ref: ref,
   });
 
-  res.status(201).json({ ok: true, nexus_id: orgRef.id, action: 'created' });
+  await finish(201, orgRef.id, 'created');
 });
 
 
@@ -2534,17 +2704,19 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
   // entrepreneur_nexus_bridge writes with source "makehaven_civicrm" and
   // MakeHaven's provider should register with
   // `ref_sources: { civi_contact_id: "makehaven_civicrm" }` so dedup hits
-  // Tier 1. If a key is not mapped, we fall back to a provider-namespaced
+  // Tier 1. A mapped key is the provider organization's own partner ID, so
+  // its ref carries owner_org_id and resolves through the owner-scoped index
+  // entries that organization's partner-API pushes wrote (oidcRefs.ts). If a
+  // key is not mapped, we fall back to a provider-namespaced, ownerless
   // default so SSO-only dedup still works.
-  const refSourceFor = (userinfoKey: string): string =>
-    provider.ref_sources?.[userinfoKey] || `${providerId}:${userinfoKey}`;
+  const refFor = providerRefBuilder(provider, providerId);
 
   const providerRefs: FedExternalRef[] = [];
   if (providerSubject) {
-    providerRefs.push({ source: refSourceFor('drupal_uid'), id: providerSubject });
+    providerRefs.push(refFor('drupal_uid', providerSubject));
   }
   if (providerCiviContactId) {
-    providerRefs.push({ source: refSourceFor('civi_contact_id'), id: providerCiviContactId });
+    providerRefs.push(refFor('civi_contact_id', providerCiviContactId));
   }
 
   // Resolve the person via cross-source dedup. Tier 1 (external_ref) wins
@@ -2739,7 +2911,7 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
   if (employerInfo) {
     const orgRefs: FedExternalRef[] = [];
     if (employerInfo.id) {
-      orgRefs.push({ source: refSourceFor('employer_org_id'), id: employerInfo.id });
+      orgRefs.push(refFor('employer_org_id', employerInfo.id));
     }
     const orgMatch = await matchOrganization(db, {
       external_refs: orgRefs,
@@ -2766,7 +2938,7 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
         description: '',
         email: '',
         url: employerInfo.website || '',
-        domain: employerInfo.domain || '',
+        domain: storableDomain(employerInfo.domain || employerInfo.website || ''),
         tax_status: '',
         external_refs: orgRefs,
         managed_by_ids: [],
@@ -2822,7 +2994,7 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
     for (const venture of ventures) {
       const ventureRefs: FedExternalRef[] = [];
       if (venture.id) {
-        ventureRefs.push({ source: refSourceFor('venture_id'), id: venture.id });
+        ventureRefs.push(refFor('venture_id', venture.id));
       }
       const ventureMatch = await matchOrganization(db, {
         external_refs: ventureRefs,
@@ -2846,7 +3018,7 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
           description: venture.description || '',
           email: '',
           url: venture.website || '',
-          domain: venture.domain || '',
+          domain: storableDomain(venture.domain || venture.website || ''),
           tax_status: '',
           founded_year: venture.founded_year ?? null,
           external_refs: ventureRefs,
@@ -2889,16 +3061,13 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       const personSnap = await personRef.get();
       const existingAffiliations: Array<{ organization_id: string; [k: string]: unknown }> =
         (personSnap.get('organization_affiliations') as any[]) || [];
-      const existingIds = new Set(existingAffiliations.map(a => a.organization_id));
-      const additions = resolvedVentureOrgIds
-        .filter(id => !existingIds.has(id))
-        .map(id => ({
-          organization_id: id,
-          relationship_type: 'founder' as const,
-          status: 'active' as const,
-          ecosystem_ids: [provider.ecosystem_id],
-          joined_at: new Date().toISOString(),
-        }));
+      // Same shape the partner API writes for founder_ref (partnerOrgFields.ts).
+      const additions = newFounderAffiliations(
+        existingAffiliations,
+        resolvedVentureOrgIds,
+        provider.ecosystem_id,
+        new Date().toISOString(),
+      );
 
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (additions.length > 0) {
@@ -3094,12 +3263,12 @@ export const oidcLinkAccount = onRequest({ invoker: 'public' }, async (req, res)
   }
 
   // Build refs using the provider's ref_sources map (same convention as
-  // oidcExchangeToken) so link and login converge on identical sources.
-  const refSourceFor = (userinfoKey: string): string =>
-    provider.ref_sources?.[userinfoKey] || `${providerId}:${userinfoKey}`;
+  // oidcExchangeToken, including owner scoping of mapped keys) so link and
+  // login converge on identical refs.
+  const refFor = providerRefBuilder(provider, providerId);
   const newRefs: FedExternalRef[] = [];
-  if (providerSubject) newRefs.push({ source: refSourceFor('drupal_uid'), id: providerSubject });
-  if (providerCiviContactId) newRefs.push({ source: refSourceFor('civi_contact_id'), id: providerCiviContactId });
+  if (providerSubject) newRefs.push(refFor('drupal_uid', providerSubject));
+  if (providerCiviContactId) newRefs.push(refFor('civi_contact_id', providerCiviContactId));
 
   if (newRefs.length === 0) {
     res.status(502).json({ error: 'Provider did not return any identifier suitable for linking' });

@@ -74,12 +74,46 @@ const normalizeName = (raw?: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const normalizeDomain = (raw?: string): string => {
+/**
+ * Normalized host for org domain matching: lowercased, scheme/path/port
+ * stripped, leading "www." removed. Exported so writers (partner API, SSO
+ * shells) store `domain` in exactly the form Tier-2 matching queries.
+ */
+export const normalizeDomain = (raw?: string): string => {
   const s = (raw || '').trim().toLowerCase();
   if (!s) return '';
   // Strip scheme and path if a URL slipped in; strip leading "www."
-  const host = s.replace(/^https?:\/\//, '').split('/')[0] || s;
-  return host.replace(/^www\./, '');
+  const host = s.replace(/^https?:\/\//, '').split(/[/?#]/)[0] || s;
+  return host.replace(/:\d+$/, '').replace(/^www\./, '');
+};
+
+/**
+ * Hosts many unrelated businesses share (social profiles, marketplaces,
+ * link-in-bio pages). A venture whose "website" is its Etsy shop or
+ * Instagram page must not get `domain: "etsy.com"`: Tier-2 domain matching
+ * silently auto-links, so a shared host would merge strangers' ventures.
+ */
+const SHARED_PLATFORM_DOMAINS: ReadonlySet<string> = new Set([
+  'facebook.com', 'fb.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com',
+  'tiktok.com', 'youtube.com', 'youtu.be', 'pinterest.com', 'threads.net',
+  'etsy.com', 'ebay.com', 'amazon.com', 'shopify.com', 'square.site', 'squareup.com',
+  'linktr.ee', 'linktree.com', 'bio.link', 'beacons.ai', 'carrd.co',
+  'google.com', 'sites.google.com', 'business.site', 'goo.gl', 'g.page',
+  'github.com', 'gitlab.com', 'medium.com', 'substack.com', 'patreon.com',
+  'kickstarter.com', 'indiegogo.com', 'gofundme.com', 'yelp.com', 'eventbrite.com',
+  'wix.com', 'squarespace.com', 'wordpress.com', 'weebly.com', 'godaddysites.com',
+  'notion.site', 'notion.so', 'canva.site', 'bit.ly',
+]);
+
+/**
+ * The `domain` worth storing on an org record for Tier-2 matching, from a
+ * domain or website value: normalized, a plausible hostname, and not a
+ * shared platform. Returns '' when nothing safe to store.
+ */
+export const storableDomain = (raw?: string): string => {
+  const domain = normalizeDomain(raw);
+  if (!domain || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return '';
+  return SHARED_PLATFORM_DOMAINS.has(domain) ? '' : domain;
 };
 
 const domainOfEmail = (email: string): string => {
@@ -116,6 +150,13 @@ const GENERIC_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
  * Look up an entity by external_ref via the external_ref_index collection.
  * Returns the document id and data if found and the underlying record still
  * exists, else null.
+ *
+ * `ref.owner_org_id` is passed straight through: an owned ref (an SSO
+ * provider's key mapped via `ref_sources` to its partner ID scheme) reads the
+ * owner's scoped entry first — where that organization's partner-API pushes
+ * are indexed — then an ownerless global one; a global entry owned by a
+ * different organization never matches. Ownerless refs read only the global
+ * key, as before.
  */
 const lookupByExternalRef = async (
   db: admin.firestore.Firestore,
@@ -226,7 +267,9 @@ export const matchOrganization = async (
   // Tier 2: exact domain match. We match on either `domain` (normalized) or
   // `url` (parsed). Nexus org schema today stores URL; new writes should also
   // store a normalized `domain` field (added as part of this phase).
-  const domain = normalizeDomain(signals.domain || signals.website || '');
+  // storableDomain: a shared platform host (etsy.com, instagram.com, …) is
+  // never a match signal, even if an older record stored it.
+  const domain = storableDomain(signals.domain || signals.website || '');
   if (domain) {
     const domainSnap = await db.collection('organizations')
       .where('domain', '==', domain)
@@ -286,7 +329,12 @@ export const attachExternalRef = async (
   if (!snap.exists) return { added: false };
 
   const existing = (snap.get('external_refs') || []) as ExternalRef[];
-  const already = existing.some(r => r.source === ref.source && r.id === ref.id);
+  // Same source + id + owner. An owner-scoped ref is a different claim from
+  // an ownerless one with the same source string (another provider may use
+  // it), so it is recorded alongside rather than treated as present.
+  const already = existing.some(
+    r => r.source === ref.source && r.id === ref.id && (r.owner_org_id || '') === (ref.owner_org_id || '')
+  );
   if (!already) {
     await ref_doc.update({
       external_refs: [...existing, ref],
@@ -294,8 +342,24 @@ export const attachExternalRef = async (
     });
   }
 
-  // Index write is idempotent (deterministic doc id).
-  await db.collection('external_ref_index').doc(externalRefIndexId(entityType, ref)).set({
+  // Index write is idempotent (deterministic doc id). A ref with an owner is
+  // written under that owner's scoped key, so it lands next to the entries
+  // the same organization's partner-API pushes made. Mirror the guard in
+  // partnerApi indexExternalRef: never re-point an entry another
+  // organization owns (an ownerless ref on a global key that a partner
+  // already owns is exactly that case).
+  const indexRef = db.collection('external_ref_index').doc(externalRefIndexId(entityType, ref));
+  const existingIndex = await indexRef.get();
+  if (existingIndex.exists) {
+    const owner = existingIndex.get('owner_org_id') as string | undefined;
+    if (owner && owner !== ref.owner_org_id) {
+      console.warn(
+        `external_ref_index owner mismatch for ${indexRef.id}: owned by ${owner}, attach attempted by ${ref.owner_org_id || '(no owner)'}`
+      );
+      return { added: !already };
+    }
+  }
+  await indexRef.set({
     ref_key: `${ref.source}:${ref.id}`,
     source: ref.source,
     external_id: ref.id,
