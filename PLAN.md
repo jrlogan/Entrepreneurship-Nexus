@@ -57,6 +57,9 @@ way to recognize the same person across systems.
    privacy model in the deck; the group should confirm it.
 4. **Decide the open questions** on the deck's list that the pilot touches:
    who operates the node, whether founders see notes written about them.
+5. **MakeHaven venture linking config** — after deploying, set MakeHaven's
+   OIDC provider `ref_sources` (in order with the Drupal change):
+   [docs/partner-api/PENDING_OPS.md](docs/partner-api/PENDING_OPS.md).
 
 ## Next, once partners are connected
 

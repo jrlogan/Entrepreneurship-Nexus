@@ -119,11 +119,20 @@ MakeHaven already has the `entrepreneur_nexus_bridge` module pushing CiviCRM con
 {
   "ref_sources": {
     "civi_contact_id":    "makehaven_civicrm",
-    "employer_org_id":    "makehaven_civicrm",
-    "drupal_uid":         "makehaven_drupal"
+    "venture_id":         "makehaven_civicrm"
   }
 }
 ```
+
+A mapped key is the provider organization's own partner ID: its ref carries
+`owner_org_id` = the provider's organization and resolves through the same
+owner-scoped `external_ref_index` entries the bridge's pushes wrote
+(`functions/src/oidcRefs.ts`). That is what lets a sign-in Tier-1-match a
+person or venture the bridge pushed. `venture_id` may be mapped only once
+userinfo `ventures[].id` is the CiviCRM organization contact id (the id the
+bridge pushes the business under). `employer_org_id` can be mapped the same way
+if it is a CiviCRM contact id; `drupal_uid` is best left unmapped (it is not
+an id the bridge pushes). Current steps: `docs/partner-api/PENDING_OPS.md`.
 
 If `ref_sources` is omitted, Nexus falls back to `<provider_id>:<userinfo_key>` — SSO-only dedup still works, but SSO and bridge-pushed records will be two Nexus records for the same person, relying on the weaker Tier 2 (exact email) auto-link.
 

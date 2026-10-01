@@ -83,6 +83,38 @@ every signup into an email the entrepreneur has to answer.
 - **Pushes come from real activity.** A tag applied, a program joined, a
   member saving the page. There is no bulk import anywhere in the bridge.
 
+## Member businesses: push the founder, then the venture
+
+A member's business is a CiviCRM organization contact. The bridge pushes the
+founder first (`partnerUpsertPerson`, `external_ref: { source:
+"makehaven_civicrm", id: <individual contact id> }`) and then the business:
+
+```json
+POST /partnerUpsertOrganization
+{
+  "external_ref": { "source": "makehaven_civicrm", "id": "<organization contact id>" },
+  "ecosystem_id": "...", "eso_org_id": "...",
+  "name": "Acme Woodworks",
+  "url": "https://acmewoodworks.com",
+  "logo_url": "https://acmewoodworks.com/logo.png",
+  "industry_tags": ["Woodworking"],
+  "stage": "early revenue",
+  "founder_ref": { "id": "<individual contact id>" }
+}
+```
+
+Without `founder_ref` the venture exists but is listed nowhere: the directory
+shows a venture only through a founder who chose to be listed. If the
+response says `founder_link_reason: "founder_not_found"`, the person push has
+not landed yet — re-push the business after it does.
+
+**Signing in with MakeHaven must find the same records.** MakeHaven's userinfo
+sends `civi_contact_id` and `ventures[].id` as CiviCRM contact ids, and its
+OIDC provider maps both to `makehaven_civicrm` (`ref_sources`). Mapped keys
+are MakeHaven's own partner IDs, so the sign-in resolves them through
+MakeHaven's scoped refs and finds the person and venture the bridge pushed,
+instead of creating a duplicate venture. Setup: [PENDING_OPS.md](PENDING_OPS.md).
+
 ## What MakeHaven has not done yet
 
 Two calls the brief describes that the bridge does not make: membership

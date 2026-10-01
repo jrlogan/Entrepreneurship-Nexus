@@ -215,7 +215,8 @@ components:
           const: true
         terms_hash:
           type: string
-          description: The `terms_hash` of the terms the entrepreneur was shown (getConsentTerms). A stale hash records nothing; the push succeeds with `consent_terms_outdated: true`.
+          description: >-
+            The `terms_hash` of the terms the entrepreneur was shown (getConsentTerms). A stale hash records nothing; the push succeeds with `consent_terms_outdated: true`.
         directory_listing:
           type: boolean
           default: false
@@ -287,6 +288,11 @@ components:
         url:
           type: string
           format: uri
+          description: |
+            Also stored as a normalized `domain` (scheme, `www.` and path
+            stripped) so a founder signing in with SSO can be matched to this
+            venture by website. Shared platform hosts (etsy.com,
+            instagram.com, linktr.ee, …) are never stored as a domain.
         tax_status:
           type: string
           enum: [non_profit, for_profit, government, other]
@@ -295,10 +301,55 @@ components:
           type: array
           items:
             type: string
+        founder_ref:
+          type: object
+          description: |
+            The founder, by your OWN person external ref — push the person
+            first with partnerUpsertPerson. Resolved only among refs your
+            organization owns (another partner's IDs never resolve). When
+            found, the person gets an active `founder` affiliation with this
+            venture (idempotent), and the venture becomes their primary
+            organization if they have none. This is what lists the venture in
+            the network directory once the founder has chosen to be listed.
+            A founder that cannot be resolved does not fail the upsert — see
+            `founder_linked` / `founder_link_reason` in the response.
+          required: [id]
+          properties:
+            id:
+              type: string
+              example: "12345"
+            source:
+              type: string
+              description: Defaults to `external_ref.source`.
+              example: makehaven_civicrm
+        logo_url:
+          type: string
+          format: uri
+          description: |
+            Public https URL. An invalid value (http, private host, not a URL)
+            is ignored and named in `warnings`; the rest of the upsert goes
+            through.
+        industry_tags:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 40
+          description: Merged into `classification.industry_tags` (trimmed, de-duplicated, at most 20).
+          example: [Woodworking, Furniture]
+        stage:
+          type: string
+          maxLength: 40
+          description: Free-text venture stage, trimmed and cut to 40 characters, stored as `stage`.
+          example: early revenue
+        org_type:
+          type: string
+          enum: [startup, small_business, business, nonprofit, government_agency, other]
+          description: An unknown value is ignored and named in `warnings`.
 
     UpsertOrganizationResponse:
       type: object
-      required: [ok, nexus_id, action]
+      required: [ok, nexus_id, action, founder_linked]
       properties:
         ok:
           type: boolean
@@ -307,6 +358,28 @@ components:
         action:
           type: string
           enum: [created, updated, linked]
+          description: |
+            `updated` — found by your external_ref; fields you send replace
+            the stored ones (industry tags merge). `linked` — matched another
+            organization's record by exact name; Nexus adds your ref, tags and
+            founder link and fills url/domain, logo_url, stage and org_type
+            only where empty — it never overwrites another manager's data.
+        founder_linked:
+          type: boolean
+          description: True when `founder_ref` resolved and the founder is linked to this venture. False when no founder_ref was sent.
+        founder_link_reason:
+          type: string
+          enum: [founder_not_found, affiliation_inactive]
+          description: |
+            Present when founder_ref was sent but not linked.
+            `founder_not_found` — push the person first (with your own ref).
+            `affiliation_inactive` — an ended affiliation with this venture
+            exists and is not revived by a sync.
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Optional fields that were ignored (invalid logo_url, unknown org_type).
 
     GetPersonResponse:
       type: object

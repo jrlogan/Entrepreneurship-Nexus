@@ -233,12 +233,38 @@ X-Nexus-API-Key: nxk_live_...
   "email": "hello@lovelaceanalytics.com",
   "url": "https://lovelaceanalytics.com",
   "tax_status": "for_profit",
-  "tags": ["tech", "ai"]
+  "tags": ["tech", "ai"],
+  "founder_ref": { "id": "42" },
+  "logo_url": "https://lovelaceanalytics.com/logo.png",
+  "industry_tags": ["Analytics", "AI"],
+  "stage": "early revenue",
+  "org_type": "startup"
 }
 ```
 
 Resolution follows the same three-step pattern: ExternalRef index → name match
 within ecosystem → create.
+
+- **`founder_ref`** links the venture to its founder — **your own** person ref
+  (`source` defaults to the venture's `external_ref.source`), so push the person
+  first. The founder gets an active `founder` affiliation with the venture. This
+  is what makes the venture appear in the network directory: a venture is listed
+  only through a founder who chose to be listed. The response says
+  `founder_linked: true`, or `false` with `founder_link_reason:
+  "founder_not_found"` (push the person, then re-push the venture) — the
+  venture upsert itself never fails on this. Only refs your organization owns
+  resolve.
+- **`url`** is also stored as a normalized `domain`, so a founder who signs in
+  with SSO can be matched to the venture by website. Shared hosts (Etsy,
+  Instagram, Linktree, …) are not used as a domain.
+- **`logo_url`** must be a public https URL; **`org_type`** one of `startup`,
+  `small_business`, `business`, `nonprofit`, `government_agency`, `other`. An
+  invalid value is ignored and named in `warnings` — the rest goes through.
+- **`industry_tags`** merge into the venture's industry tags (≤20, ≤40 chars
+  each); **`stage`** is free text (≤40 chars).
+- On `action: "linked"` (another organization's record with the same name)
+  Nexus adds your ref, tags and founder link and fills url, logo, stage and
+  org_type only where they are empty; it never overwrites their description.
 
 ---
 
