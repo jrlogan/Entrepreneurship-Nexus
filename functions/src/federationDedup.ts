@@ -56,6 +56,8 @@ export type PersonSignals = {
   external_refs?: ExternalRef[];
   email?: string;
   display_name?: string;
+  first_name?: string;
+  last_name?: string;
 };
 
 export type OrgSignals = {
@@ -173,6 +175,58 @@ const lookupByExternalRef = async (
 };
 
 /**
+ * A person whose main email or one of whose extra emails (secondary_emails)
+ * is `email`, or null. The same lookup the inbound-email and invite paths use
+ * (index.ts findExistingPersonByEmail), so every path agrees on who an
+ * address belongs to.
+ */
+export const findPersonByAnyEmail = async (
+  db: admin.firestore.Firestore,
+  rawEmail: string
+): Promise<{ id: string; via: string } | null> => {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return null;
+  const [primary, secondary] = await Promise.all([
+    db.collection('people').where('email', '==', email).limit(1).get(),
+    db.collection('people').where('secondary_emails', 'array-contains', email).limit(1).get(),
+  ]);
+  if (!primary.empty) return { id: primary.docs[0].id, via: email };
+  if (!secondary.empty) return { id: secondary.docs[0].id, via: `secondary_email:${email}` };
+  return null;
+};
+
+/**
+ * Full name reduced to letters and digits only, so "J.R. Logan", "JR Logan"
+ * and "jr  logan" compare equal. Empty when either part is missing.
+ */
+export const compactFullName = (first?: string, last?: string): string => {
+  const squash = (v?: string) => (v || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '');
+  const f = squash(first);
+  const l = squash(last);
+  return f && l ? `${f}${l}` : '';
+};
+
+/**
+ * Another person with the same full name, for a human to review — never an
+ * automatic merge: two people can share a name, and one person can use two
+ * unrelated emails (work and personal). Looks up by last name (as written,
+ * then title-cased) and compares the compacted full name.
+ */
+export const findSameNamePerson = async (
+  db: admin.firestore.Firestore,
+  signals: { first_name?: string; last_name?: string; exclude_id?: string }
+): Promise<string | null> => {
+  const target = compactFullName(signals.first_name, signals.last_name);
+  const last = (signals.last_name || '').trim();
+  if (!target || !last) return null;
+  const variants = Array.from(new Set([last, last.charAt(0).toUpperCase() + last.slice(1).toLowerCase(), last.toLowerCase()]));
+  const snap = await db.collection('people').where('last_name', 'in', variants).limit(50).get();
+  const hit = snap.docs.find((d) => d.id !== signals.exclude_id
+    && compactFullName(d.get('first_name') as string, d.get('last_name') as string) === target);
+  return hit ? hit.id : null;
+};
+
+/**
  * Match an incoming person identity against existing Nexus people. Returns
  * the highest-tier match found. Tiers cascade: strong matches short-circuit
  * weaker checks to avoid unnecessary Firestore reads.
@@ -193,56 +247,64 @@ export const matchPerson = async (
   const email = normalizeEmail(signals.email);
   if (!email) return { tier: 'none' };
 
-  // Tier 2: exact email match.
-  const emailSnap = await db.collection('people').where('email', '==', email).limit(1).get();
-  if (!emailSnap.empty) {
-    return { tier: 'email_exact', person_id: emailSnap.docs[0].id, via: email };
+  // Tier 2: exact email match — the person's main email or any extra email
+  // they (or an admin) added to their record. Partners never add extra
+  // emails, so this matches only addresses the person themself claims.
+  const byEmail = await findPersonByAnyEmail(db, email);
+  if (byEmail) {
+    return { tier: 'email_exact', person_id: byEmail.id, via: byEmail.via };
   }
 
-  // Tier 3: weak signal — same email domain + name similarity above threshold.
+  // Tier 3: weak signals, for review only — never an automatic link.
+  // 3a: same (non-generic) email domain + similar name.
   const name = normalizeName(signals.display_name);
-  if (!name) return { tier: 'none' };
-
   const domain = domainOfEmail(email);
-  if (!domain || GENERIC_EMAIL_DOMAINS.has(domain)) return { tier: 'none' };
+  if (name && domain && !GENERIC_EMAIL_DOMAINS.has(domain)) {
+    // Firestore cannot do substring / prefix matches inside an email string, so
+    // weak-signal matching scans a bounded slice of recent people and filters
+    // in-memory. v1 trade-off: misses older records, but a miss just means a
+    // duplicate is created (flagged elsewhere or caught on a later upsert) —
+    // the failure mode is "extra record" not "wrong link." Proper fix is a
+    // denormalized `email_domain` indexed field on writes; do it later if
+    // dup volume warrants.
+    const candidates = await db.collection('people')
+      .orderBy('updated_at', 'desc')
+      .limit(200)
+      .get();
 
-  // Firestore cannot do substring / prefix matches inside an email string, so
-  // weak-signal matching scans a bounded slice of recent people and filters
-  // in-memory. v1 trade-off: misses older records, but a miss just means a
-  // duplicate is created (flagged elsewhere or caught on a later upsert) —
-  // the failure mode is "extra record" not "wrong link." Proper fix is a
-  // denormalized `email_domain` indexed field on writes; do it later if
-  // dup volume warrants.
-  const candidates = await db.collection('people')
-    .orderBy('updated_at', 'desc')
-    .limit(200)
-    .get();
+    const domainMatches = candidates.docs.filter(d => {
+      const e = ((d.get('email') as string) || '').toLowerCase();
+      return domainOfEmail(e) === domain;
+    });
 
-  const domainMatches = candidates.docs.filter(d => {
-    const e = ((d.get('email') as string) || '').toLowerCase();
-    return domainOfEmail(e) === domain;
-  });
+    let best: { id: string; score: number } | null = null;
+    const nameTokens = tokenize(name);
+    for (const candidate of domainMatches) {
+      const cdName = normalizeName(
+        `${candidate.get('first_name') || ''} ${candidate.get('last_name') || ''}`.trim()
+        || (candidate.get('display_name') as string) || ''
+      );
+      const score = jaccard(nameTokens, tokenize(cdName));
+      if (score >= WEAK_NAME_THRESHOLD && (!best || score > best.score)) {
+        best = { id: candidate.id, score };
+      }
+    }
 
-  let best: { id: string; score: number } | null = null;
-  const nameTokens = tokenize(name);
-  for (const candidate of domainMatches) {
-    const cdName = normalizeName(
-      `${candidate.get('first_name') || ''} ${candidate.get('last_name') || ''}`.trim()
-      || (candidate.get('display_name') as string) || ''
-    );
-    const score = jaccard(nameTokens, tokenize(cdName));
-    if (score >= WEAK_NAME_THRESHOLD && (!best || score > best.score)) {
-      best = { id: candidate.id, score };
+    if (best) {
+      return {
+        tier: 'weak_signal',
+        candidate_person_id: best.id,
+        confidence: best.score,
+        reason: `domain=${domain}, name_jaccard=${best.score.toFixed(2)}`,
+      };
     }
   }
 
-  if (best) {
-    return {
-      tier: 'weak_signal',
-      candidate_person_id: best.id,
-      confidence: best.score,
-      reason: `domain=${domain}, name_jaccard=${best.score.toFixed(2)}`,
-    };
+  // 3b: the same full name under a different email (work vs personal, or a
+  // second account). Flagged for an admin, who can merge or dismiss it.
+  const sameName = await findSameNamePerson(db, { first_name: signals.first_name, last_name: signals.last_name });
+  if (sameName) {
+    return { tier: 'weak_signal', candidate_person_id: sameName, confidence: 0.6, reason: 'same_name_different_email' };
   }
 
   return { tier: 'none' };

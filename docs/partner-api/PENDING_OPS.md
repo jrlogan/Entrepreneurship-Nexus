@@ -79,3 +79,27 @@ Ventures created by earlier MakeHaven sign-ins (`source: "oidc_shell"`,
 refs `oidc_<org>:venture_id`) are not merged by this change. Merge each into
 the bridge-pushed venture with the admin record merge, once the bridge has
 re-pushed businesses with `founder_ref`.
+
+## 5. One person, several emails
+
+Since `makehaven-venture-linking` (2026-10-01), a partner push and an SSO
+sign-in match a person by their main email **or any email on their
+`secondary_emails`**, the same rule the inbound-email and invite paths use.
+
+- **Partners never add emails to someone's record.** Only the person (profile
+  page) or an admin adds extra emails. Otherwise any partner could attach itself
+  to someone else's account by sending their address.
+- **A push changes name and main email only on records that partner created.**
+  A self-signup person matched through an extra email keeps the name and address
+  they sign in with.
+- **A same-name person under another email is flagged, never merged.** It
+  appears in `dedup_flags` with `reason: same_name_different_email`, `status:
+  pending_review`. An admin merges the pair (`mergeRecords`) or dismisses the
+  flag.
+
+Before a founder whose MakeHaven email differs from their Nexus email is pushed:
+add the MakeHaven address as an extra email on their Nexus profile. The first
+push then links to their existing account. Example: JR — Nexus account
+jrlogan@makehaven.org; MakeHaven member account johnrichardlogan@gmail.com.
+Rehearsed end to end against the emulator on 2026-10-01: one person, the
+business linked, no flags.

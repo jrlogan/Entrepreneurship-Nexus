@@ -15,6 +15,7 @@ import { createHash } from 'crypto';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { AGREEMENT_VERSIONS, ORG_REQUIRED_AGREEMENTS } from './agreements/content';
+import { matchPerson } from './federationDedup';
 
 const FUNCTIONS_BASE = 'http://127.0.0.1:55001/entrepreneurship-nexus-local/us-central1';
 const PROJECT_ID = 'entrepreneurship-nexus-local';
@@ -655,5 +656,86 @@ describe('SSO sign-in matches what the same partner pushed (scoped refs)', () =>
     assert.notEqual(shells.docs[0].id, ventureId);
     const aIndex = await db.collection('external_ref_index').doc(`organization:${ORG_A}:${MH_SOURCE}:${civiVenture}`).get();
     assert.equal(aIndex.get('entity_id'), ventureId, 'A\'s index entry is untouched');
+  });
+});
+
+describe('one person, several emails', () => {
+  const stamp = Date.now();
+  const selfId = `self-${stamp}`;
+  const work = `jr-${stamp}@work.example.org`;
+  const personal = `jr-${stamp}@gmail.com`;
+
+  before(async () => {
+    await seed();
+    // The founder signed up on their own with a work address, and added
+    // their personal address as an extra email.
+    await db.collection('people').doc(selfId).set({
+      id: selfId, first_name: 'Jay', last_name: `Arr${stamp}`, email: work, secondary_emails: [personal],
+      system_role: 'entrepreneur', ecosystem_id: ECO_ID, ecosystem_ids: [ECO_ID], status: 'active',
+      external_refs: [], source: 'self_signup', updated_at: new Date().toISOString(),
+    });
+  });
+
+  it('a push under an extra email links to that person — and leaves their own name and main email alone', async () => {
+    const push = (first: string) => call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `civi-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: first, last_name: `Arr${stamp}`, email: personal,
+    }, KEY_A);
+    const first = await push('J.');
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.equal(first.body.action, 'linked');
+    assert.equal(first.body.nexus_id, selfId);
+
+    const again = await push('Jaybird');
+    assert.equal(again.body.action, 'updated');
+    const person = (await db.collection('people').doc(selfId).get()).data()!;
+    assert.equal(person.email, work, 'main email is the person\'s own');
+    assert.equal(person.first_name, 'Jay', 'name is the person\'s own');
+  });
+
+  it('a partner-created record still follows the partner\'s updates', async () => {
+    const id = `own-${stamp}`;
+    const body = (email: string) => ({ external_ref: { source: MH_SOURCE, id }, ecosystem_id: ECO_ID, eso_org_id: ORG_A, first_name: 'Own', last_name: `Rec${stamp}`, email });
+    const created = await call('POST', 'partnerUpsertPerson', body(`own-${stamp}@a.example.org`), KEY_A);
+    assert.equal(created.body.action, 'created');
+    await call('POST', 'partnerUpsertPerson', body(`own-${stamp}@b.example.org`), KEY_A);
+    const person = (await db.collection('people').doc(created.body.nexus_id).get()).data()!;
+    assert.equal(person.email, `own-${stamp}@b.example.org`);
+  });
+
+  it('sign-in under an extra email matches the person', async () => {
+    const match = await matchPerson(db, { email: personal, display_name: 'Someone Else' });
+    assert.equal(match.tier, 'email_exact');
+    assert.equal((match as any).person_id, selfId);
+  });
+
+  it('the same name under an unknown email creates a person and flags the pair for review', async () => {
+    const res = await call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `other-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: 'JAY', last_name: `Arr${stamp}`, email: `elsewhere-${stamp}@yahoo.com`,
+    }, KEY_A);
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.action, 'created', 'never merged on a name');
+    assert.equal(res.body.possible_duplicate_flagged, true);
+    const flags = await db.collection('dedup_flags').where('new_entity_id', '==', res.body.nexus_id).get();
+    assert.equal(flags.size, 1);
+    assert.equal(flags.docs[0].get('candidate_entity_id'), selfId);
+    assert.equal(flags.docs[0].get('reason'), 'same_name_different_email');
+    assert.equal(flags.docs[0].get('status'), 'pending_review');
+  });
+
+  it('a different name raises no flag', async () => {
+    const res = await call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `diff-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: 'Kay', last_name: `Arr${stamp}`, email: `kay-${stamp}@yahoo.com`,
+    }, KEY_A);
+    assert.equal(res.body.action, 'created');
+    assert.equal(res.body.possible_duplicate_flagged, undefined);
+  });
+
+  it('sign-in with the same name under an unknown email is a review flag, not a match', async () => {
+    const match = await matchPerson(db, { email: `new-${stamp}@hotmail.com`, display_name: `Jay Arr${stamp}`, first_name: 'Jay', last_name: `Arr${stamp}` });
+    assert.equal(match.tier, 'weak_signal');
+    assert.equal((match as any).reason, 'same_name_different_email');
   });
 });

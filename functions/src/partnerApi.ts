@@ -49,6 +49,8 @@ import {
   matchOrganization,
   attachExternalRef,
   flagPossibleDuplicate,
+  findPersonByAnyEmail,
+  findSameNamePerson,
   storableDomain,
   type ExternalRef as FedExternalRef,
 } from './federationDedup';
@@ -748,9 +750,15 @@ const applyPartnerConsent = async (
  *   tags?          string[]
  *
  * Response:
- *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked" }
- *   action "linked" means an existing person was found by email and the
- *   ExternalRef was added to their record.
+ *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked",
+ *     possible_duplicate_flagged?: true }
+ *   action "linked" means an existing person was found by email — their main
+ *   email or one of the extra emails on their record — and the ExternalRef
+ *   was added to their record.
+ *   The partner updates name and email only on records it created; a linked
+ *   person's own name and main email are never overwritten by a push.
+ *   possible_duplicate_flagged: a new person was created, and someone with the
+ *   same full name under another email exists; an admin reviews the pair.
  */
 export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, res) => {
   if (handlePreflight(req, res)) return;
@@ -829,11 +837,15 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
   if (byRef) {
     const existingRefs = (byRef.data.external_refs || []) as ExternalRef[];
     const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
+    // A partner keeps the name and email current only on a record it created.
+    // On a record the person made themself (or another partner created) and
+    // this partner linked to, the person's own name and main email stand —
+    // otherwise a push matched through an extra email would replace the
+    // address the person signs in and is reached at.
+    const partnerOwned = byRef.data.source === 'partner_api' && byRef.data.created_by_org_id === esoOrgId;
     await db.collection('people').doc(byRef.id).set(
       {
-        first_name: firstName,
-        last_name: lastName,
-        email,
+        ...(partnerOwned ? { first_name: firstName, last_name: lastName, email } : {}),
         external_refs: refPresent ? existingRefs : [...existingRefs, ref],
         tags: Array.from(new Set([...(byRef.data.tags || []), ...tags])),
         updated_at: now,
@@ -851,13 +863,14 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
     return;
   }
 
-  // 2. Try email match — add ExternalRef to existing person
-  const emailSnap = await db.collection('people').where('email', '==', email).limit(1).get();
-  if (!emailSnap.empty) {
+  // 2. Try email match — the person's main email or one of their extra
+  //    emails — and add the ExternalRef to that person.
+  const emailMatch = await findPersonByAnyEmail(db, email);
+  if (emailMatch) {
     // Attaching to a person the network already knows makes them "yours" to
     // see — so it is budgeted separately and tightly (see rateLimit.ts).
     if (!(await enforceRateLimit(db, authContext.key_id, 'link', res))) return;
-    const existing = emailSnap.docs[0];
+    const existing = await db.collection('people').doc(emailMatch.id).get();
     const existingRefs = (existing.get('external_refs') || []) as ExternalRef[];
     await existing.ref.set(
       {
@@ -886,6 +899,7 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
       nexus_id: existing.id,
       external_ref: ref,
       ecosystem_id: ecosystemId,
+      via: emailMatch.via,
     });
     const consent = await applyPartnerConsent(db, existing.id, ecosystemId, esoOrgId, consentChoices, terms);
     const noticeSent = consentChoices ? false : await ensureConsentNotice(db, existing.id, firstName, email, ecosystemId, esoOrgId);
@@ -941,10 +955,29 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
     external_ref: ref,
   });
 
+  // Someone with the same name under another email may be this person (work
+  // and personal addresses). Flag it for an admin — never merge on a name.
+  const sameName = await findSameNamePerson(db, { first_name: firstName, last_name: lastName, exclude_id: personRef.id });
+  if (sameName) {
+    await flagPossibleDuplicate(db, {
+      entity_type: 'person',
+      new_entity_id: personRef.id,
+      candidate_entity_id: sameName,
+      confidence: 0.6,
+      reason: 'same_name_different_email',
+      source: `partner:${esoOrgId}`,
+      ecosystem_id: ecosystemId,
+    });
+  }
+
   const consent = await applyPartnerConsent(db, personRef.id, ecosystemId, esoOrgId, consentChoices, terms);
   const noticeSent = consentChoices ? false : await ensureConsentNotice(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
 
-  res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent, ...outdated });
+  res.status(201).json({
+    ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent,
+    ...(sameName ? { possible_duplicate_flagged: true } : {}),
+    ...outdated,
+  });
 });
 
 
@@ -2727,6 +2760,8 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
     external_refs: providerRefs,
     email: userEmail,
     display_name: `${userFirstName} ${userLastName}`.trim(),
+    first_name: userFirstName,
+    last_name: userLastName,
   });
 
   let personId = '';
