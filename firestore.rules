@@ -119,8 +119,14 @@ service cloud.firestore {
     // Fields on a Person document that a user cannot modify on themselves.
     // Only platform admins / ecosystem managers can change these. Self-update
     // of any of these would allow privilege escalation or org-hopping.
+    // email and secondary_emails decide who a person is: inbound referrals,
+    // invites, partner pushes and SSO all match on them. A user who could
+    // write someone else's address onto their own record would receive that
+    // person's referrals, partner records and consent.
     function personPrivilegedFieldsChanged() {
       return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'email',
+        'secondary_emails',
         'system_role',
         'organization_id',
         'primary_organization_id',
@@ -137,6 +143,8 @@ service cloud.firestore {
     // SDK and bypass these rules when assigning trusted role/org fields.
     function personCreateHasPrivilegedFields() {
       return request.resource.data.keys().hasAny([
+        'email',
+        'secondary_emails',
         'system_role',
         'organization_id',
         'primary_organization_id',

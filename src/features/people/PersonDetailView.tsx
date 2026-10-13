@@ -312,8 +312,13 @@ export const PersonDetailView = ({
       await repos.people.update(person.id, {
         first_name: profileForm.first_name,
         last_name: profileForm.last_name,
-        email: profileForm.email,
-        secondary_emails: profileForm.secondary_emails.map(e => e.toLowerCase().trim()).filter(Boolean),
+        // Email addresses decide who a person is (referral and partner
+        // matching), so only network operators change them; the rules refuse
+        // anyone else.
+        ...(isAdminViewer ? {
+          email: profileForm.email,
+          secondary_emails: profileForm.secondary_emails.map(e => e.toLowerCase().trim()).filter(Boolean),
+        } : {}),
         avatar_url: resolvedAvatarUrl,
         role: profileForm.role,
         organization_id: primaryOrganizationId,
@@ -912,6 +917,14 @@ export const PersonDetailView = ({
               <input className={FORM_INPUT_CLASS} value={profileForm.last_name} onChange={(event) => setProfileForm({ ...profileForm, last_name: event.target.value })} />
             </div>
           </div>
+          {!isAdminViewer && (
+          <div>
+            <label className={FORM_LABEL_CLASS}>Email</label>
+            <p className="text-sm text-gray-700">{[person.email, ...(person.secondary_emails || [])].join(', ')}</p>
+            <p className="mt-1 text-xs text-gray-500">To change or add an email address, ask your network operator.</p>
+          </div>
+          )}
+          {isAdminViewer && (<>
           <div>
             <label className={FORM_LABEL_CLASS}>Primary Email</label>
             <input className={FORM_INPUT_CLASS} value={profileForm.email} onChange={(event) => setProfileForm({ ...profileForm, email: event.target.value })} />
@@ -964,6 +977,7 @@ export const PersonDetailView = ({
               </button>
             </div>
           </div>
+          </>)}
           <div>
             <label className={FORM_LABEL_CLASS}>Social Links</label>
             <div className="space-y-2">
