@@ -21,7 +21,7 @@ import {
   assertSucceeds,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { beforeAll, afterAll, beforeEach, describe, it } from 'vitest';
 
 const PROJECT_ID = 'nexus-rules-test';
@@ -305,6 +305,21 @@ describe('privilege escalation', () => {
     await assertFails(setDoc(doc(authed('staff_a'), 'people/staff_a'), {
       id: 'staff_a', system_role: 'eso_staff', organization_id: ORG_A, ecosystem_id: ECO_A, ecosystem_ids: [ECO_A, ECO_B],
     }));
+  });
+
+  it("blocks a user from putting someone else's address on their own record", async () => {
+    await assertFails(updateDoc(doc(authed('staff_a'), 'people/staff_a'), { secondary_emails: ['victim@example.com'] }));
+    await assertFails(updateDoc(doc(authed('staff_a'), 'people/staff_a'), { email: 'victim@example.com' }));
+  });
+
+  it('an operator can still set the emails on a person', async () => {
+    await assertSucceeds(updateDoc(doc(authed('manager'), 'people/founder'), {
+      email: 'founder@example.com', secondary_emails: ['founder.other@example.com'],
+    }));
+  });
+
+  it('a user can still edit the rest of their own profile', async () => {
+    await assertSucceeds(updateDoc(doc(authed('staff_a'), 'people/staff_a'), { first_name: 'Ada' }));
   });
 
   it('people records are readable only by their owner and operators', async () => {
