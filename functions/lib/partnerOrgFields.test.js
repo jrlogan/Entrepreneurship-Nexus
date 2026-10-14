@@ -26,6 +26,10 @@ const policy_1 = require("./privacy/policy");
         strict_1.default.equal((0, partnerOrgFields_1.sanitizeStage)(5), '');
         strict_1.default.equal((0, partnerOrgFields_1.parseOrgType)('Startup'), 'startup');
         strict_1.default.equal((0, partnerOrgFields_1.parseOrgType)('unicorn'), undefined);
+        // MakeHaven's Drupal bridge sends every member business as member_business.
+        strict_1.default.equal((0, partnerOrgFields_1.parseOrgType)('member_business'), 'small_business');
+        strict_1.default.equal((0, partnerOrgFields_1.parseOrgType)(' Member_Business '), 'small_business');
+        strict_1.default.equal((0, partnerOrgFields_1.parseOrgType)('toString'), undefined);
     });
     (0, node_test_1.it)('parses founder_ref, defaulting the source', () => {
         strict_1.default.deepEqual((0, partnerOrgFields_1.parseFounderRef)({ id: 42 }, 'makehaven_civicrm'), { source: 'makehaven_civicrm', id: '42' });

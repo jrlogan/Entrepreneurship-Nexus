@@ -11,7 +11,7 @@
  * (privacy/policy.ts, ventureOrgIdsFor).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isLinkedToVenture = exports.newFounderAffiliations = exports.parseFounderRef = exports.parseOrgType = exports.sanitizeStage = exports.mergeIndustryTags = exports.sanitizeIndustryTags = exports.ORGANIZATION_TYPES = exports.MAX_STAGE_LENGTH = exports.MAX_INDUSTRY_TAG_LENGTH = exports.MAX_INDUSTRY_TAGS = void 0;
+exports.isLinkedToVenture = exports.newFounderAffiliations = exports.parseFounderRef = exports.parseOrgType = exports.ORG_TYPE_ALIASES = exports.sanitizeStage = exports.mergeIndustryTags = exports.sanitizeIndustryTags = exports.ORGANIZATION_TYPES = exports.MAX_STAGE_LENGTH = exports.MAX_INDUSTRY_TAG_LENGTH = exports.MAX_INDUSTRY_TAGS = void 0;
 exports.MAX_INDUSTRY_TAGS = 20;
 exports.MAX_INDUSTRY_TAG_LENGTH = 40;
 exports.MAX_STAGE_LENGTH = 40;
@@ -77,10 +77,20 @@ exports.mergeIndustryTags = mergeIndustryTags;
 /** Free-text stage label: trimmed, at most MAX_STAGE_LENGTH characters. */
 const sanitizeStage = (raw) => cleanShortString(raw, exports.MAX_STAGE_LENGTH);
 exports.sanitizeStage = sanitizeStage;
-/** An org_type, if it is one of the shared vocabulary's values. */
+/**
+ * Partner vocabularies that name a Nexus type differently. MakeHaven's Drupal
+ * bridge sends every member business as "member_business"; in Nexus terms
+ * that is a small business (a founder can still be re-typed by hand).
+ */
+exports.ORG_TYPE_ALIASES = {
+    member_business: 'small_business',
+};
+/** An org_type, if it is one of the shared vocabulary's values (or an alias of one). */
 const parseOrgType = (raw) => {
     const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-    return exports.ORGANIZATION_TYPES.includes(value) ? value : undefined;
+    if (exports.ORGANIZATION_TYPES.includes(value))
+        return value;
+    return Object.prototype.hasOwnProperty.call(exports.ORG_TYPE_ALIASES, value) ? exports.ORG_TYPE_ALIASES[value] : undefined;
 };
 exports.parseOrgType = parseOrgType;
 /** The `founder_ref` of a partnerUpsertOrganization body, or null if absent/invalid. */

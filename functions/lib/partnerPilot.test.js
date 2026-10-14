@@ -504,27 +504,93 @@ const pushVenture = (apiKey, orgId, civiOrgId, extra = {}) => call('POST', 'part
         assert.equal(org.logo_url, undefined);
         assert.equal(org.org_type, undefined);
     });
-    (0, node_test_1.it)('linking by name fills only empty fields of someone else\'s record', async () => {
+    (0, node_test_1.it)('a name match on someone else\'s record creates our own record and flags the pair — never takes theirs over', async () => {
         const otherId = `org_existing_${stamp}`;
         await db.collection('organizations').doc(otherId).set({
             id: otherId, name: `Venture name-${stamp}`, description: 'Curated by its manager', roles: [],
             url: 'https://curated.example.com', logo_url: 'https://curated.example.com/logo.png',
             classification: { industry_tags: ['Curated'] }, ecosystem_ids: [ECO_ID], managed_by_ids: ['org_someone_else'],
+            source: 'partner_api', created_by_org_id: 'org_someone_else',
         });
         const res = await pushVenture(KEY_A, ORG_A, `name-${stamp}`, {
             description: 'Overwrite attempt', url: 'https://mine.example.com', logo_url: 'https://mine.example.com/logo.png',
             industry_tags: ['Added'], stage: 'idea', founder_ref: { id: `f-${stamp}` },
         });
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        assert.equal(res.body.action, 'created');
+        assert.notEqual(res.body.nexus_id, otherId);
+        assert.equal(res.body.possible_duplicate_flagged, true);
+        assert.equal(res.body.founder_linked, true, 'the founder is linked to our own record');
+        const other = (await db.collection('organizations').doc(otherId).get()).data();
+        assert.equal(other.description, 'Curated by its manager');
+        assert.equal(other.url, 'https://curated.example.com');
+        assert.equal(other.stage, undefined);
+        assert.deepEqual(other.classification.industry_tags, ['Curated']);
+        assert.equal(other.external_refs, undefined, 'our ref is not attached to their record');
+        const person = (await db.collection('people').doc(founderId).get()).data();
+        assert.ok(!(person.organization_affiliations || []).some((a) => a.organization_id === otherId));
+        assert.notEqual(person.organization_id, otherId);
+        const flags = await db.collection('dedup_flags').where('new_entity_id', '==', res.body.nexus_id).get();
+        assert.equal(flags.size, 1);
+        assert.equal(flags.docs[0].get('entity_type'), 'organization');
+        assert.equal(flags.docs[0].get('candidate_entity_id'), otherId);
+        assert.equal(flags.docs[0].get('status'), 'pending_review');
+        // Later pushes find our own record by ref and leave theirs alone.
+        const again = await pushVenture(KEY_A, ORG_A, `name-${stamp}`, { description: 'Second push' });
+        assert.equal(again.body.action, 'updated');
+        assert.equal(again.body.nexus_id, res.body.nexus_id);
+        assert.equal((await db.collection('organizations').doc(otherId).get()).get('description'), 'Curated by its manager');
+    });
+    (0, node_test_1.it)('a name match on a record we created links our ref to it', async () => {
+        const first = await pushVenture(KEY_A, ORG_A, `own-a-${stamp}`, { stage: 'idea' });
+        assert.equal(first.status, 201, JSON.stringify(first.body));
+        const res = await call('POST', 'partnerUpsertOrganization', {
+            external_ref: { source: MH_SOURCE, id: `own-b-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+            name: `Venture own-a-${stamp}`, founder_ref: { id: `f-${stamp}` },
+        }, KEY_A);
         assert.equal(res.body.action, 'linked', JSON.stringify(res.body));
-        assert.equal(res.body.nexus_id, otherId);
+        assert.equal(res.body.nexus_id, first.body.nexus_id);
         assert.equal(res.body.founder_linked, true);
-        const org = (await db.collection('organizations').doc(otherId).get()).data();
-        assert.equal(org.description, 'Curated by its manager');
-        assert.equal(org.url, 'https://curated.example.com');
-        assert.equal(org.logo_url, 'https://curated.example.com/logo.png');
-        assert.equal(org.domain, 'curated.example.com', 'domain backfilled from the record\'s own url');
-        assert.equal(org.stage, 'idea');
-        assert.deepEqual(org.classification.industry_tags, ['Curated', 'Added']);
+        assert.equal(res.body.possible_duplicate_flagged, undefined);
+    });
+    (0, node_test_1.it)('a record found by our ref that someone else created is only filled, never overwritten or claimed', async () => {
+        // Older Nexus versions linked a partner's ref on a name match; such a
+        // record is found by the ref but still belongs to its own manager.
+        const legacyId = `org_legacy_${stamp}`;
+        const civiId = `legacy-${stamp}`;
+        await db.collection('organizations').doc(legacyId).set({
+            id: legacyId, name: 'Their Name', description: 'Theirs', url: 'https://theirs.example.com', roles: [],
+            ecosystem_ids: [ECO_ID], managed_by_ids: ['org_someone_else'], source: 'partner_api', created_by_org_id: 'org_someone_else',
+            external_refs: [{ source: MH_SOURCE, id: civiId, owner_org_id: ORG_A }],
+        });
+        await db.collection('external_ref_index').doc(`organization:${ORG_A}:${MH_SOURCE}:${civiId}`).set({
+            ref_key: `${MH_SOURCE}:${civiId}`, source: MH_SOURCE, external_id: civiId, entity_type: 'organization',
+            entity_id: legacyId, owner_org_id: ORG_A, indexed_at: new Date().toISOString(),
+        });
+        const res = await pushVenture(KEY_A, ORG_A, civiId, {
+            description: 'Overwrite attempt', url: 'https://mine.example.com', stage: 'growth', org_type: 'member_business',
+            founder_ref: { id: `f-${stamp}` },
+        });
+        assert.equal(res.status, 200, JSON.stringify(res.body));
+        assert.equal(res.body.action, 'updated');
+        assert.equal(res.body.nexus_id, legacyId);
+        assert.equal(res.body.founder_linked, false);
+        assert.equal(res.body.founder_link_reason, 'venture_not_managed_by_you');
+        const org = (await db.collection('organizations').doc(legacyId).get()).data();
+        assert.equal(org.name, 'Their Name');
+        assert.equal(org.description, 'Theirs');
+        assert.equal(org.url, 'https://theirs.example.com');
+        assert.equal(org.domain, 'theirs.example.com', 'domain backfilled from the record\'s own url');
+        assert.equal(org.stage, 'growth', 'empty fields are filled');
+        assert.equal(org.org_type, 'small_business');
+        const person = (await db.collection('people').doc(founderId).get()).data();
+        assert.ok(!(person.organization_affiliations || []).some((a) => a.organization_id === legacyId));
+    });
+    (0, node_test_1.it)('maps the Drupal bridge\'s member_business org_type to small_business without a warning', async () => {
+        const res = await pushVenture(KEY_A, ORG_A, `mb-${stamp}`, { org_type: 'member_business' });
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        assert.equal(res.body.warnings, undefined);
+        assert.equal((await db.collection('organizations').doc(res.body.nexus_id).get()).get('org_type'), 'small_business');
     });
     (0, node_test_1.it)('a listed founder lists the venture in another partner\'s directory', async () => {
         const venture = await pushVenture(KEY_A, ORG_A, `dir-${stamp}`, { founder_ref: { id: `f-${stamp}` }, logo_url: 'https://acme-widgets-test.com/d.png' });
@@ -652,6 +718,11 @@ const pushVenture = (apiKey, orgId, civiOrgId, extra = {}) => call('POST', 'part
         assert.equal(first.status, 200, JSON.stringify(first.body));
         assert.equal(first.body.action, 'linked');
         assert.equal(first.body.nexus_id, selfId);
+        const audit = await db.collection('audit_logs')
+            .where('action', '==', 'partner_person_linked').where('details.nexus_id', '==', selfId).get();
+        assert.equal(audit.size, 1);
+        assert.equal(audit.docs[0].get('details.via'), 'secondary_email', 'the audit log names the field, not the address');
+        assert.ok(!JSON.stringify(audit.docs[0].data()).includes(personal));
         const again = await push('Jaybird');
         assert.equal(again.body.action, 'updated');
         const person = (await db.collection('people').doc(selfId).get()).data();
@@ -685,6 +756,21 @@ const pushVenture = (apiKey, orgId, civiOrgId, extra = {}) => call('POST', 'part
         assert.equal(flags.docs[0].get('candidate_entity_id'), selfId);
         assert.equal(flags.docs[0].get('reason'), 'same_name_different_email');
         assert.equal(flags.docs[0].get('status'), 'pending_review');
+    });
+    (0, node_test_1.it)('the same name in another ecosystem raises no flag (nothing leaks across ecosystems)', async () => {
+        const elsewhereId = `elsewhere-${stamp}`;
+        await db.collection('people').doc(elsewhereId).set({
+            id: elsewhereId, first_name: 'Elle', last_name: `Where${stamp}`, email: `elle-${stamp}@other-eco.example.org`,
+            system_role: 'entrepreneur', ecosystem_id: 'eco_somewhere_else', ecosystem_ids: ['eco_somewhere_else'], status: 'active',
+        });
+        const res = await call('POST', 'partnerUpsertPerson', {
+            external_ref: { source: MH_SOURCE, id: `elle-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+            first_name: 'Elle', last_name: `Where${stamp}`, email: `elle-${stamp}@gmail.com`,
+        }, KEY_A);
+        assert.equal(res.status, 201, JSON.stringify(res.body));
+        assert.equal(res.body.possible_duplicate_flagged, undefined);
+        const flags = await db.collection('dedup_flags').where('new_entity_id', '==', res.body.nexus_id).get();
+        assert.equal(flags.size, 0);
     });
     (0, node_test_1.it)('a different name raises no flag', async () => {
         const res = await call('POST', 'partnerUpsertPerson', {

@@ -183,15 +183,17 @@ const lookupByExternalRef = async (
 export const findPersonByAnyEmail = async (
   db: admin.firestore.Firestore,
   rawEmail: string
-): Promise<{ id: string; via: string } | null> => {
+): Promise<{ id: string; via: 'email' | 'secondary_email' } | null> => {
   const email = normalizeEmail(rawEmail);
   if (!email) return null;
   const [primary, secondary] = await Promise.all([
     db.collection('people').where('email', '==', email).limit(1).get(),
     db.collection('people').where('secondary_emails', 'array-contains', email).limit(1).get(),
   ]);
-  if (!primary.empty) return { id: primary.docs[0].id, via: email };
-  if (!secondary.empty) return { id: secondary.docs[0].id, via: `secondary_email:${email}` };
+  // `via` names which field matched, never the address itself: it ends up in
+  // audit logs, and an extra email is something the person added privately.
+  if (!primary.empty) return { id: primary.docs[0].id, via: 'email' };
+  if (!secondary.empty) return { id: secondary.docs[0].id, via: 'secondary_email' };
   return null;
 };
 
@@ -214,14 +216,23 @@ export const compactFullName = (first?: string, last?: string): string => {
  */
 export const findSameNamePerson = async (
   db: admin.firestore.Firestore,
-  signals: { first_name?: string; last_name?: string; exclude_id?: string }
+  signals: { first_name?: string; last_name?: string; exclude_id?: string; ecosystem_id?: string }
 ): Promise<string | null> => {
   const target = compactFullName(signals.first_name, signals.last_name);
   const last = (signals.last_name || '').trim();
   if (!target || !last) return null;
   const variants = Array.from(new Set([last, last.charAt(0).toUpperCase() + last.slice(1).toLowerCase(), last.toLowerCase()]));
-  const snap = await db.collection('people').where('last_name', 'in', variants).limit(50).get();
+  const snap = await db.collection('people').where('last_name', 'in', variants).limit(200).get();
+  // With an ecosystem, only people in it count. A partner learns from the
+  // response whether a flag was raised, so an unscoped lookup would tell it
+  // that someone of that name exists somewhere else in the network.
+  const inScope = (d: admin.firestore.QueryDocumentSnapshot) => {
+    if (!signals.ecosystem_id) return true;
+    const ids = d.get('ecosystem_ids');
+    return (Array.isArray(ids) && ids.includes(signals.ecosystem_id)) || d.get('ecosystem_id') === signals.ecosystem_id;
+  };
   const hit = snap.docs.find((d) => d.id !== signals.exclude_id
+    && inScope(d)
     && compactFullName(d.get('first_name') as string, d.get('last_name') as string) === target);
   return hit ? hit.id : null;
 };

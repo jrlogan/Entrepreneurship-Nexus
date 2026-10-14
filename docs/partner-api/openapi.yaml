@@ -345,7 +345,9 @@ components:
         org_type:
           type: string
           enum: [startup, small_business, business, nonprofit, government_agency, other]
-          description: An unknown value is ignored and named in `warnings`.
+          description: |
+            An unknown value is ignored and named in `warnings`.
+            `member_business` is accepted as an alias of `small_business`.
 
     UpsertOrganizationResponse:
       type: object
@@ -359,22 +361,34 @@ components:
           type: string
           enum: [created, updated, linked]
           description: |
-            `updated` — found by your external_ref; fields you send replace
-            the stored ones (industry tags merge). `linked` — matched another
-            organization's record by exact name; Nexus adds your ref, tags and
-            founder link and fills url/domain, logo_url, stage and org_type
-            only where empty — it never overwrites another manager's data.
+            `updated` — found by your external_ref. On a record your
+            organization created, fields you send replace the stored ones
+            (industry tags merge); on a record someone else created, Nexus
+            only adds your ref/tags and fills url/domain, logo_url, stage and
+            org_type where empty. `linked` — matched a record your
+            organization created by exact name (same fill-only-empty rule).
+            A name match on another organization's record is never linked:
+            your own record is `created` and the pair is flagged for review
+            (`possible_duplicate_flagged`).
         founder_linked:
           type: boolean
           description: True when `founder_ref` resolved and the founder is linked to this venture. False when no founder_ref was sent.
         founder_link_reason:
           type: string
-          enum: [founder_not_found, affiliation_inactive]
+          enum: [founder_not_found, affiliation_inactive, venture_not_managed_by_you]
           description: |
             Present when founder_ref was sent but not linked.
+            `venture_not_managed_by_you` — the record was created by another
+            organization; a push never makes someone its founder.
             `founder_not_found` — push the person first (with your own ref).
             `affiliation_inactive` — an ended affiliation with this venture
             exists and is not revived by a sync.
+        possible_duplicate_flagged:
+          type: boolean
+          description: |
+            Present (true) when a new record was created because the only
+            exact-name match belongs to another organization; an admin
+            reviews the pair.
         warnings:
           type: array
           items:

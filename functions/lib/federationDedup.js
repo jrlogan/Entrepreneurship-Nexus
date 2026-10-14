@@ -146,10 +146,12 @@ const findPersonByAnyEmail = async (db, rawEmail) => {
         db.collection('people').where('email', '==', email).limit(1).get(),
         db.collection('people').where('secondary_emails', 'array-contains', email).limit(1).get(),
     ]);
+    // `via` names which field matched, never the address itself: it ends up in
+    // audit logs, and an extra email is something the person added privately.
     if (!primary.empty)
-        return { id: primary.docs[0].id, via: email };
+        return { id: primary.docs[0].id, via: 'email' };
     if (!secondary.empty)
-        return { id: secondary.docs[0].id, via: `secondary_email:${email}` };
+        return { id: secondary.docs[0].id, via: 'secondary_email' };
     return null;
 };
 exports.findPersonByAnyEmail = findPersonByAnyEmail;
@@ -176,8 +178,18 @@ const findSameNamePerson = async (db, signals) => {
     if (!target || !last)
         return null;
     const variants = Array.from(new Set([last, last.charAt(0).toUpperCase() + last.slice(1).toLowerCase(), last.toLowerCase()]));
-    const snap = await db.collection('people').where('last_name', 'in', variants).limit(50).get();
+    const snap = await db.collection('people').where('last_name', 'in', variants).limit(200).get();
+    // With an ecosystem, only people in it count. A partner learns from the
+    // response whether a flag was raised, so an unscoped lookup would tell it
+    // that someone of that name exists somewhere else in the network.
+    const inScope = (d) => {
+        if (!signals.ecosystem_id)
+            return true;
+        const ids = d.get('ecosystem_ids');
+        return (Array.isArray(ids) && ids.includes(signals.ecosystem_id)) || d.get('ecosystem_id') === signals.ecosystem_id;
+    };
     const hit = snap.docs.find((d) => d.id !== signals.exclude_id
+        && inScope(d)
         && (0, exports.compactFullName)(d.get('first_name'), d.get('last_name')) === target);
     return hit ? hit.id : null;
 };

@@ -33,6 +33,10 @@ describe('partner venture fields', () => {
     assert.equal(sanitizeStage(5), '');
     assert.equal(parseOrgType('Startup'), 'startup');
     assert.equal(parseOrgType('unicorn'), undefined);
+    // MakeHaven's Drupal bridge sends every member business as member_business.
+    assert.equal(parseOrgType('member_business'), 'small_business');
+    assert.equal(parseOrgType(' Member_Business '), 'small_business');
+    assert.equal(parseOrgType('toString'), undefined);
   });
 
   it('parses founder_ref, defaulting the source', () => {

@@ -258,13 +258,21 @@ within ecosystem → create.
   with SSO can be matched to the venture by website. Shared hosts (Etsy,
   Instagram, Linktree, …) are not used as a domain.
 - **`logo_url`** must be a public https URL; **`org_type`** one of `startup`,
-  `small_business`, `business`, `nonprofit`, `government_agency`, `other`. An
-  invalid value is ignored and named in `warnings` — the rest goes through.
+  `small_business`, `business`, `nonprofit`, `government_agency`, `other`
+  (`member_business` is accepted as `small_business`). An invalid value is
+  ignored and named in `warnings` — the rest goes through.
 - **`industry_tags`** merge into the venture's industry tags (≤20, ≤40 chars
   each); **`stage`** is free text (≤40 chars).
-- On `action: "linked"` (another organization's record with the same name)
-  Nexus adds your ref, tags and founder link and fills url, logo, stage and
-  org_type only where they are empty; it never overwrites their description.
+- **A name is not proof of identity.** A name match links your ref only to a
+  record **your organization created** (`action: "linked"`). If the matching
+  record belongs to someone else, Nexus creates **your own** record
+  (`action: "created"`, `possible_duplicate_flagged: true`), links the founder
+  to it, and flags the pair for an admin to review. You never take over
+  another manager's record.
+- Your values replace stored ones only on records you created. A record found
+  by your ref that someone else created (an older name link) gets your ref,
+  tags and empty-field fills only, and the founder is never newly linked to it
+  (`founder_link_reason: "venture_not_managed_by_you"`).
 
 ---
 

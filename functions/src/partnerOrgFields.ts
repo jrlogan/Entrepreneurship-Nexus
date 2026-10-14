@@ -73,10 +73,20 @@ export const mergeIndustryTags = (existing: unknown, incoming: string[]): string
 /** Free-text stage label: trimmed, at most MAX_STAGE_LENGTH characters. */
 export const sanitizeStage = (raw: unknown): string => cleanShortString(raw, MAX_STAGE_LENGTH);
 
-/** An org_type, if it is one of the shared vocabulary's values. */
+/**
+ * Partner vocabularies that name a Nexus type differently. MakeHaven's Drupal
+ * bridge sends every member business as "member_business"; in Nexus terms
+ * that is a small business (a founder can still be re-typed by hand).
+ */
+export const ORG_TYPE_ALIASES: Readonly<Record<string, PartnerOrgType>> = {
+  member_business: 'small_business',
+};
+
+/** An org_type, if it is one of the shared vocabulary's values (or an alias of one). */
 export const parseOrgType = (raw: unknown): PartnerOrgType | undefined => {
   const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-  return (ORGANIZATION_TYPES as readonly string[]).includes(value) ? (value as PartnerOrgType) : undefined;
+  if ((ORGANIZATION_TYPES as readonly string[]).includes(value)) return value as PartnerOrgType;
+  return Object.prototype.hasOwnProperty.call(ORG_TYPE_ALIASES, value) ? ORG_TYPE_ALIASES[value] : undefined;
 };
 
 /** The `founder_ref` of a partnerUpsertOrganization body, or null if absent/invalid. */

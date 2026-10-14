@@ -66,7 +66,20 @@ for that person.
 ## 3. Verify (staging first, then production)
 
 - Re-push one member business with `founder_ref`; the response should say
-  `founder_linked: true`.
+  `founder_linked: true`. Its `org_type` is stored as `small_business` (the
+  bridge's `member_business`), with no `warnings`.
+- A business whose name exactly matches an organization **another** partner
+  created comes back `action: "created"`, `possible_duplicate_flagged: true`
+  and a `dedup_flags` entry (`entity_type: organization`, `reason:
+  same_name_other_manager`). The other organization's record is unchanged and
+  carries no MakeHaven ref. Review those flags after the first bulk push.
+- A record found by MakeHaven's ref that someone else created (production
+  linked by name before this change) is no longer overwritten; its founder
+  push answers `founder_link_reason: "venture_not_managed_by_you"`. Find such
+  records before the bulk push: `organizations` whose `external_refs` include
+  `owner_org_id: <MakeHaven org id>` but whose `created_by_org_id` is not
+  MakeHaven. Merge or relink them by hand if they are really MakeHaven
+  businesses.
 - With the founder listed in the directory, the venture appears on another
   signed partner's directory page.
 - That founder signs in with MakeHaven: no new `oidc_shell` organization with
@@ -95,7 +108,10 @@ sign-in match a person by their main email **or any email on their
 - **A same-name person under another email is flagged, never merged.** It
   appears in `dedup_flags` with `reason: same_name_different_email`, `status:
   pending_review`. An admin merges the pair (`mergeRecords`) or dismisses the
-  flag.
+  flag. Only people in the push's ecosystem are compared, so the response
+  (`possible_duplicate_flagged`) does not reveal names elsewhere in Nexus.
+- **Audit logs never record the matched address.** `partner_person_linked`
+  stores `via: "email"` or `via: "secondary_email"`.
 
 Before a founder whose MakeHaven email differs from their Nexus email is pushed:
 add the MakeHaven address as an extra email on their Nexus profile. The first
