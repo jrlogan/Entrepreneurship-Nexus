@@ -18,6 +18,13 @@ node scripts/generate-data-standard.mjs --check  # fail if stale (CI)
 Source of truth: `src/domain/standards/enums.ts` (vocabularies) and
 `src/domain/standards/dictionary.ts` (entities and fields).
 
+## Published concepts
+
+Each entity is also published to SchemaLattice as a concept, so other systems and AI assistants
+can map onto it: see `schemalattice.json` at the repository root for the URIs, and the "Shared
+vocabulary" section of the integration brief. The organization and program-participation concepts
+link to the HSDS concepts already in that catalog.
+
 ## What changed in v1.1
 
 v1.0 was transcribed by hand and fell behind. v1.1 adds `OrganizationType`,

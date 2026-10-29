@@ -1,0 +1,79 @@
+{
+  "$comment": "What Entrepreneurship Nexus publishes to SchemaLattice. Fields come from data-standards/v1.1 (itself generated from src/domain/standards); meaning comes from here. Regenerate with `npm run lattice:generate`.",
+  "lattice": "https://schemalattice.com",
+  "app": {
+    "slug": "entrepreneurship-nexus",
+    "name": "Entrepreneurship Nexus",
+    "unit": "Entrepreneurship Nexus",
+    "owner": "Entrepreneurship Nexus Core Team",
+    "description": "Shared data and coordination layer for regional entrepreneurial ecosystems: support organizations, founders, funders, referrals and program participation, with consent-gated sharing."
+  },
+  "source": { "format": "flat-fields", "path": "data-standards/v1.1/fields.json", "enums": "data-standards/v1.1/enums.json" },
+  "generated": "tools/lattice/concepts.generated.json",
+  "manifest": "schemalattice.json",
+  "attribution": { "authoredBy": ["Entrepreneurship Nexus Core Team"], "sourceLicense": "MIT" },
+  "omitFields": ["id"],
+  "references": {
+    "organization_id": "entrepreneur-support/ecosystem-organization",
+    "referring_org_id": "entrepreneur-support/ecosystem-organization",
+    "receiving_org_id": "entrepreneur-support/ecosystem-organization",
+    "provider_org_id": "entrepreneur-support/ecosystem-organization",
+    "recipient_org_id": "entrepreneur-support/ecosystem-organization",
+    "owner_id": "entrepreneur-support/network-member"
+  },
+  "contexts": {
+    "entrepreneur-support": {
+      "title": "Entrepreneur Support Networks",
+      "definition": "Vocabulary for regional networks that support founders and small businesses: the organizations in them (support organizations, funders, workspaces and the ventures they serve), the people involved, enrollment in programs, hand-offs between organizations, and the touchpoints and long-running work those organizations record."
+    }
+  },
+  "annotate": [],
+  "concepts": [
+    {
+      "shortName": "Organization", "entity": "organization", "localLocation": "src/domain/standards/dictionary.ts#organization",
+      "context": "entrepreneur-support", "slug": "ecosystem-organization", "prefLabel": "Ecosystem Organization",
+      "conceptKind": "agent", "broader": "organization", "broadMatch": ["schema:Organization"],
+      "altLabels": ["Entrepreneur support organization", "ESO", "Venture"],
+      "coRefersWith": ["https://schemalattice.com/c/human-services/service-provider@3dfb1c37e45f"],
+      "definition": "A business, nonprofit or agency taking part in a regional entrepreneurial network, whether it supports founders, funds them, hosts them, or is itself a venture being supported, carrying its roles in the network, tax status, industry, support it offers or needs, and how visible it chooses to be to other members."
+    },
+    {
+      "shortName": "Person", "entity": "person", "localLocation": "src/domain/standards/dictionary.ts#person",
+      "context": "entrepreneur-support", "slug": "network-member", "prefLabel": "Network Member",
+      "conceptKind": "agent", "broader": "person", "broadMatch": ["schema:Person"],
+      "altLabels": ["Entrepreneur", "Founder", "Mentor"],
+      "classifications": { "first_name": "personal-identity", "last_name": "personal-identity", "email": "personal-contact", "avatar_url": "personal-identity" },
+      "definition": "An individual known to an entrepreneurial network — a founder, mentor or support-organization staff member — with their contact details, the organization they belong to and their memberships, shared between organizations only under the network's consent rules."
+    },
+    {
+      "shortName": "Service", "entity": "service", "localLocation": "src/domain/standards/dictionary.ts#service",
+      "context": "entrepreneur-support", "slug": "program-participation", "prefLabel": "Program Participation",
+      "conceptKind": "entity", "broader": "record", "closeMatch": ["schema:ProgramMembership"],
+      "related": ["https://schemalattice.com/c/human-services/service-program@1254190755f6"],
+      "altLabels": ["Program enrollment", "Service engagement"],
+      "definition": "A venture's enrollment in a support organization's program, membership or service over a span of time — who provides it, who receives it, the kind of engagement and whether it is applied, active, waitlisted or past — as distinct from single touchpoints."
+    },
+    {
+      "shortName": "Referral", "entity": "referral", "localLocation": "src/domain/standards/dictionary.ts#referral",
+      "context": "entrepreneur-support", "slug": "client-referral", "prefLabel": "Client Referral",
+      "conceptKind": "workflow", "broader": "activity", "broadMatch": ["schema:Action"],
+      "altLabels": ["Warm hand-off", "Introduction"],
+      "definition": "A structured hand-off of a founder or venture from one support organization to another, tracked from sending through acceptance to an outcome, with a follow-up date and who owns it, so that organizations can see whether introductions actually led anywhere."
+    },
+    {
+      "shortName": "Interaction", "entity": "interaction", "localLocation": "src/domain/standards/dictionary.ts#interaction",
+      "context": "entrepreneur-support", "slug": "client-interaction", "prefLabel": "Client Interaction",
+      "conceptKind": "event", "broader": "event", "broadMatch": ["schema:Event"],
+      "altLabels": ["Touchpoint", "Advising session"],
+      "classifications": { "notes": "confidential" },
+      "definition": "A single dated touchpoint between a support organization and someone it serves — a meeting, an email, an event — with its type, who may see it and the notes taken, some of which may be marked confidential."
+    },
+    {
+      "shortName": "Initiative", "entity": "initiative", "localLocation": "src/domain/standards/dictionary.ts#initiative",
+      "context": "entrepreneur-support", "slug": "initiative", "prefLabel": "Initiative",
+      "conceptKind": "workflow", "broader": "activity", "broadMatch": ["schema:Project"],
+      "altLabels": ["Stage-gate project", "Venture milestone plan"],
+      "definition": "A long-running piece of work a venture or support organization pursues, tracked against a stage-gate pipeline or checklists, with its current stage, status, start and target dates, and the history of stages it has passed through."
+    }
+  ]
+}
