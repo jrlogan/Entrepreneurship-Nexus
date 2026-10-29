@@ -53,7 +53,10 @@ nothing reads the catalog at runtime.
   published. CI runs `npm run lattice:check`; `.github/workflows/lattice-publish.yml` publishes
   after merge. The integration brief's "Shared vocabulary" table reads `schemalattice.json`, so
   run `npm run docs:integration-brief` too.
-- Adding an entity to the standard: first search the catalog for it (`lattice_discover` at
+- Adding an entity to the standard: first check the standard itself —
+  `npm run lattice:similar -- "<what the record holds>"` ranks the published entities nearest the
+  description, then other platforms' concepts. Extend a close one rather than adding a second.
+  Then search the catalog for it (`lattice_discover` at
   https://schemalattice.com, with the domain and what the record captures). Resolve candidates
   with the same `sessionId`, then report right/wrong with `lattice_propose` — anonymous,
   quarantined feedback the catalog learns from. Link a close existing concept (`coRefersWith`,
