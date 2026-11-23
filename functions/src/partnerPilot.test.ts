@@ -7,12 +7,15 @@
  * Runs against the emulators (firestore + functions), like partnerApi.test.ts:
  *   npm --prefix functions run test:emulator
  */
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as assert from 'node:assert/strict';
 import { createHash } from 'crypto';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { AGREEMENT_VERSIONS, ORG_REQUIRED_AGREEMENTS } from './agreements/content';
+import { matchPerson } from './federationDedup';
 
 const FUNCTIONS_BASE = 'http://127.0.0.1:55001/entrepreneurship-nexus-local/us-central1';
 const PROJECT_ID = 'entrepreneurship-nexus-local';
@@ -417,5 +420,512 @@ describe('getNetworkView — what a partner sees', () => {
   it('refuses someone acting for an organization they do not belong to', async () => {
     const { body } = await viewAs(staffB.idToken, ORG_A);
     assert.equal(body.viewer.org_id, ORG_B, 'falls back to the caller\'s own organization');
+  });
+});
+
+// ─── Ventures pushed with their founder, and SSO matching them ────────────────
+
+const MH_SOURCE = 'makehaven_civicrm';
+
+const pushMhPerson = (apiKey: string, orgId: string, civiId: string, email: string) =>
+  call('POST', 'partnerUpsertPerson', {
+    external_ref: { source: MH_SOURCE, id: civiId },
+    ecosystem_id: ECO_ID, eso_org_id: orgId,
+    first_name: 'Founder', last_name: `Civi ${civiId}`, email,
+  }, apiKey);
+
+const pushVenture = (apiKey: string, orgId: string, civiOrgId: string, extra: object = {}) =>
+  call('POST', 'partnerUpsertOrganization', {
+    external_ref: { source: MH_SOURCE, id: civiOrgId },
+    ecosystem_id: ECO_ID, eso_org_id: orgId,
+    name: `Venture ${civiOrgId}`,
+    ...extra,
+  }, apiKey);
+
+describe('partnerUpsertOrganization — founder link and venture fields', () => {
+  const stamp = Date.now();
+  let founderId = '';
+
+  before(async () => {
+    await seed();
+    const pushed = await pushMhPerson(KEY_A, ORG_A, `f-${stamp}`, `founder-${stamp}@example.com`);
+    assert.equal(pushed.status, 201, JSON.stringify(pushed.body));
+    founderId = pushed.body.nexus_id;
+  });
+
+  it('links the founder found by the partner\'s own ref, idempotently', async () => {
+    const first = await pushVenture(KEY_A, ORG_A, `v-${stamp}`, { founder_ref: { id: `f-${stamp}` } });
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    assert.equal(first.body.founder_linked, true);
+    const again = await pushVenture(KEY_A, ORG_A, `v-${stamp}`, { founder_ref: { id: `f-${stamp}`, source: MH_SOURCE } });
+    assert.equal(again.body.action, 'updated');
+    assert.equal(again.body.founder_linked, true);
+
+    const person = (await db.collection('people').doc(founderId).get()).data()!;
+    const affs = (person.organization_affiliations || []).filter((a: any) => a.organization_id === first.body.nexus_id);
+    assert.equal(affs.length, 1, 'one affiliation however often it is pushed');
+    assert.equal(affs[0].relationship_type, 'founder');
+    assert.equal(affs[0].status, 'active');
+    assert.deepEqual(affs[0].ecosystem_ids, [ECO_ID]);
+    assert.ok(affs[0].joined_at);
+    assert.equal(person.organization_id, first.body.nexus_id, 'an empty primary organization is filled');
+  });
+
+  it('a founder not pushed yet does not fail the upsert', async () => {
+    const res = await pushVenture(KEY_A, ORG_A, `v2-${stamp}`, { founder_ref: { id: `nobody-${stamp}` } });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.founder_linked, false);
+    assert.equal(res.body.founder_link_reason, 'founder_not_found');
+  });
+
+  it('another partner\'s person ref never resolves', async () => {
+    // B pushes a venture naming A's founder id under the same source.
+    const res = await pushVenture(KEY_B, ORG_B, `vb-${stamp}`, { founder_ref: { id: `f-${stamp}`, source: MH_SOURCE } });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.founder_linked, false);
+    assert.equal(res.body.founder_link_reason, 'founder_not_found');
+    const person = (await db.collection('people').doc(founderId).get()).data()!;
+    assert.ok(!(person.organization_affiliations || []).some((a: any) => a.organization_id === res.body.nexus_id));
+  });
+
+  it('rejects a malformed founder_ref', async () => {
+    const res = await pushVenture(KEY_A, ORG_A, `v3-${stamp}`, { founder_ref: { source: MH_SOURCE } });
+    assert.equal(res.status, 400);
+  });
+
+  it('stores logo, industry tags, stage, org_type and a normalized domain', async () => {
+    const res = await pushVenture(KEY_A, ORG_A, `v4-${stamp}`, {
+      url: 'https://www.Acme-Widgets-Test.com/about',
+      logo_url: 'https://acme-widgets-test.com/logo.png',
+      industry_tags: ['Woodworking', 'woodworking', '  Furniture '],
+      stage: '  early revenue ',
+      org_type: 'startup',
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.warnings, undefined);
+    const org = (await db.collection('organizations').doc(res.body.nexus_id).get()).data()!;
+    assert.equal(org.domain, 'acme-widgets-test.com');
+    assert.equal(org.logo_url, 'https://acme-widgets-test.com/logo.png');
+    assert.deepEqual(org.classification.industry_tags, ['Woodworking', 'Furniture']);
+    assert.equal(org.stage, 'early revenue');
+    assert.equal(org.org_type, 'startup');
+
+    const update = await pushVenture(KEY_A, ORG_A, `v4-${stamp}`, { industry_tags: ['Retail'], url: 'https://www.etsy.com/shop/Acme' });
+    assert.equal(update.body.action, 'updated');
+    const updated = (await db.collection('organizations').doc(res.body.nexus_id).get()).data()!;
+    assert.deepEqual(updated.classification.industry_tags, ['Woodworking', 'Furniture', 'Retail']);
+    assert.equal(updated.domain, 'acme-widgets-test.com', 'a shared-platform url never becomes a domain');
+  });
+
+  it('drops an invalid logo or org_type with a warning instead of failing', async () => {
+    const res = await pushVenture(KEY_A, ORG_A, `v5-${stamp}`, { logo_url: 'http://insecure.example/logo.png', org_type: 'unicorn' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal((res.body.warnings || []).length, 2);
+    const org = (await db.collection('organizations').doc(res.body.nexus_id).get()).data()!;
+    assert.equal(org.logo_url, undefined);
+    assert.equal(org.org_type, undefined);
+  });
+
+  it('a name match on someone else\'s record creates our own record and flags the pair — never takes theirs over', async () => {
+    const otherId = `org_existing_${stamp}`;
+    await db.collection('organizations').doc(otherId).set({
+      id: otherId, name: `Venture name-${stamp}`, description: 'Curated by its manager', roles: [],
+      url: 'https://curated.example.com', logo_url: 'https://curated.example.com/logo.png',
+      classification: { industry_tags: ['Curated'] }, ecosystem_ids: [ECO_ID], managed_by_ids: ['org_someone_else'],
+      source: 'partner_api', created_by_org_id: 'org_someone_else',
+    });
+    const res = await pushVenture(KEY_A, ORG_A, `name-${stamp}`, {
+      description: 'Overwrite attempt', url: 'https://mine.example.com', logo_url: 'https://mine.example.com/logo.png',
+      industry_tags: ['Added'], stage: 'idea', founder_ref: { id: `f-${stamp}` },
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.action, 'created');
+    assert.notEqual(res.body.nexus_id, otherId);
+    assert.equal(res.body.possible_duplicate_flagged, true);
+    assert.equal(res.body.founder_linked, true, 'the founder is linked to our own record');
+
+    const other = (await db.collection('organizations').doc(otherId).get()).data()!;
+    assert.equal(other.description, 'Curated by its manager');
+    assert.equal(other.url, 'https://curated.example.com');
+    assert.equal(other.stage, undefined);
+    assert.deepEqual(other.classification.industry_tags, ['Curated']);
+    assert.equal(other.external_refs, undefined, 'our ref is not attached to their record');
+    const person = (await db.collection('people').doc(founderId).get()).data()!;
+    assert.ok(!(person.organization_affiliations || []).some((a: any) => a.organization_id === otherId));
+    assert.notEqual(person.organization_id, otherId);
+
+    const flags = await db.collection('dedup_flags').where('new_entity_id', '==', res.body.nexus_id).get();
+    assert.equal(flags.size, 1);
+    assert.equal(flags.docs[0].get('entity_type'), 'organization');
+    assert.equal(flags.docs[0].get('candidate_entity_id'), otherId);
+    assert.equal(flags.docs[0].get('status'), 'pending_review');
+
+    // Later pushes find our own record by ref and leave theirs alone.
+    const again = await pushVenture(KEY_A, ORG_A, `name-${stamp}`, { description: 'Second push' });
+    assert.equal(again.body.action, 'updated');
+    assert.equal(again.body.nexus_id, res.body.nexus_id);
+    assert.equal((await db.collection('organizations').doc(otherId).get()).get('description'), 'Curated by its manager');
+  });
+
+  it('a name match on a record we created links our ref to it', async () => {
+    const first = await pushVenture(KEY_A, ORG_A, `own-a-${stamp}`, { stage: 'idea' });
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    const res = await call('POST', 'partnerUpsertOrganization', {
+      external_ref: { source: MH_SOURCE, id: `own-b-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      name: `Venture own-a-${stamp}`, founder_ref: { id: `f-${stamp}` },
+    }, KEY_A);
+    assert.equal(res.body.action, 'linked', JSON.stringify(res.body));
+    assert.equal(res.body.nexus_id, first.body.nexus_id);
+    assert.equal(res.body.founder_linked, true);
+    assert.equal(res.body.possible_duplicate_flagged, undefined);
+  });
+
+  it('a record found by our ref that someone else created is only filled, never overwritten or claimed', async () => {
+    // Older Nexus versions linked a partner's ref on a name match; such a
+    // record is found by the ref but still belongs to its own manager.
+    const legacyId = `org_legacy_${stamp}`;
+    const civiId = `legacy-${stamp}`;
+    await db.collection('organizations').doc(legacyId).set({
+      id: legacyId, name: 'Their Name', description: 'Theirs', url: 'https://theirs.example.com', roles: [],
+      ecosystem_ids: [ECO_ID], managed_by_ids: ['org_someone_else'], source: 'partner_api', created_by_org_id: 'org_someone_else',
+      external_refs: [{ source: MH_SOURCE, id: civiId, owner_org_id: ORG_A }],
+    });
+    await db.collection('external_ref_index').doc(`organization:${ORG_A}:${MH_SOURCE}:${civiId}`).set({
+      ref_key: `${MH_SOURCE}:${civiId}`, source: MH_SOURCE, external_id: civiId, entity_type: 'organization',
+      entity_id: legacyId, owner_org_id: ORG_A, indexed_at: new Date().toISOString(),
+    });
+    const res = await pushVenture(KEY_A, ORG_A, civiId, {
+      description: 'Overwrite attempt', url: 'https://mine.example.com', stage: 'growth', org_type: 'member_business',
+      founder_ref: { id: `f-${stamp}` },
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.action, 'updated');
+    assert.equal(res.body.nexus_id, legacyId);
+    assert.equal(res.body.founder_linked, false);
+    assert.equal(res.body.founder_link_reason, 'venture_not_managed_by_you');
+    const org = (await db.collection('organizations').doc(legacyId).get()).data()!;
+    assert.equal(org.name, 'Their Name');
+    assert.equal(org.description, 'Theirs');
+    assert.equal(org.url, 'https://theirs.example.com');
+    assert.equal(org.domain, 'theirs.example.com', 'domain backfilled from the record\'s own url');
+    assert.equal(org.stage, 'growth', 'empty fields are filled');
+    assert.equal(org.org_type, 'small_business');
+    const person = (await db.collection('people').doc(founderId).get()).data()!;
+    assert.ok(!(person.organization_affiliations || []).some((a: any) => a.organization_id === legacyId));
+  });
+
+  it('maps the Drupal bridge\'s member_business org_type to small_business without a warning', async () => {
+    const res = await pushVenture(KEY_A, ORG_A, `mb-${stamp}`, { org_type: 'member_business' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.warnings, undefined);
+    assert.equal((await db.collection('organizations').doc(res.body.nexus_id).get()).get('org_type'), 'small_business');
+  });
+
+  it('a listed founder lists the venture in another partner\'s directory', async () => {
+    const venture = await pushVenture(KEY_A, ORG_A, `dir-${stamp}`, { founder_ref: { id: `f-${stamp}` }, logo_url: 'https://acme-widgets-test.com/d.png' });
+    await db.collection('network_profiles').doc(founderId).set({ directory_listed_ecosystems: [ECO_ID] }, { merge: true });
+    await signOrg(ORG_B);
+    const staff = await signUp(`dir-staff-${stamp}@partner-b.example.org`);
+    await db.collection('people').doc(staff.uid).set({
+      id: staff.uid, auth_uid: staff.uid, first_name: 'Dee', last_name: 'Staff', email: `dir-staff-${stamp}@partner-b.example.org`,
+      system_role: 'eso_staff', organization_id: ORG_B, ecosystem_id: ECO_ID, ecosystem_ids: [ECO_ID],
+    });
+    const { status, body } = await viewAs(staff.idToken, ORG_B);
+    assert.equal(status, 200, JSON.stringify(body));
+    const listed = body.organizations.find((o: any) => o.id === venture.body.nexus_id);
+    assert.equal(listed?._visibility, 'directory', JSON.stringify(listed));
+    assert.equal(listed.logo_url, 'https://acme-widgets-test.com/d.png');
+    assert.equal(listed.domain, undefined, 'directory carries only the directory fields');
+  });
+});
+
+describe('SSO sign-in matches what the same partner pushed (scoped refs)', () => {
+  const stamp = Date.now();
+  const PROVIDER_ID = `oidc_test_mh_${stamp}`;
+  const civiPerson = `sso-p-${stamp}`;
+  const civiVenture = `sso-v-${stamp}`;
+  const email = `sso-founder-${stamp}@example.com`;
+  let server: Server;
+  let personId = '';
+  let ventureId = '';
+
+  before(async () => {
+    await seed();
+    const person = await pushMhPerson(KEY_A, ORG_A, civiPerson, email);
+    personId = person.body.nexus_id;
+    const venture = await pushVenture(KEY_A, ORG_A, civiVenture, {
+      name: `SSO Venture ${stamp}`, url: `https://sso-venture-${stamp}.example.com`, founder_ref: { id: civiPerson },
+    });
+    ventureId = venture.body.nexus_id;
+
+    // A stand-in for MakeHaven's Drupal OAuth server.
+    server = createServer((req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url?.startsWith('/token')) {
+        res.end(JSON.stringify({ access_token: 'test-access-token' }));
+      } else if (req.url?.startsWith('/userinfo')) {
+        res.end(JSON.stringify({
+          email, given_name: 'Founder', family_name: `Civi ${civiPerson}`,
+          drupal_uid: `uid-${stamp}`, civi_contact_id: civiPerson,
+          // Different name and website from the push: only the scoped ref can match.
+          ventures: [{ id: civiVenture, name: `Renamed In Drupal ${stamp}`, website: `https://elsewhere-${stamp}.example.com` }],
+        }));
+      } else {
+        res.statusCode = 404;
+        res.end('{}');
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+    await db.collection('oidc_providers').doc(PROVIDER_ID).set({
+      id: PROVIDER_ID, organization_id: ORG_A, ecosystem_id: ECO_ID, display_name: 'Sign in with Test MH',
+      authorization_endpoint: `${base}/authorize`, token_endpoint: `${base}/token`, userinfo_endpoint: `${base}/userinfo`,
+      client_id: 'test-client', client_secret: '', scopes: ['openid'],
+      ref_sources: { civi_contact_id: MH_SOURCE, venture_id: MH_SOURCE },
+      status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    });
+  });
+
+  after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  it('resolves to the pushed person and venture — no duplicate, no review flag', async () => {
+    const res = await call('POST', 'oidcExchangeToken', {
+      provider_id: PROVIDER_ID, code: 'code', code_verifier: 'verifier', redirect_uri: 'http://localhost:3000/sso/callback',
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.nexus_id, personId, 'Tier-1 match on the partner-scoped person ref');
+
+    const shells = await db.collection('organizations').where('name', '==', `Renamed In Drupal ${stamp}`).get();
+    assert.equal(shells.size, 0, 'no duplicate venture shell');
+    const flags = await db.collection('dedup_flags').where('source', '==', `oidc:${PROVIDER_ID}`).get();
+    assert.equal(flags.size, 0, 'no possible-duplicate flag');
+
+    const person = (await db.collection('people').doc(personId).get()).data()!;
+    const affs = (person.organization_affiliations || []).filter((a: any) => a.organization_id === ventureId);
+    assert.equal(affs.length, 1, 'the founder link from the push is reused, not doubled');
+
+    const scoped = await db.collection('external_ref_index').doc(`person:${ORG_A}:${MH_SOURCE}:${civiPerson}`).get();
+    assert.equal(scoped.get('entity_id'), personId);
+    // The unmapped drupal_uid stays provider-namespaced and global.
+    const uidIndex = await db.collection('external_ref_index').doc(`person:${PROVIDER_ID}:drupal_uid:uid-${stamp}`).get();
+    assert.equal(uidIndex.get('entity_id'), personId);
+    assert.equal(uidIndex.get('owner_org_id'), undefined);
+  });
+
+  it('another organization\'s provider mapping the same source does not match it', async () => {
+    const otherProvider = `${PROVIDER_ID}_b`;
+    const base = (await db.collection('oidc_providers').doc(PROVIDER_ID).get()).data()!;
+    await db.collection('oidc_providers').doc(otherProvider).set({ ...base, id: otherProvider, organization_id: ORG_B });
+    const res = await call('POST', 'oidcExchangeToken', {
+      provider_id: otherProvider, code: 'code', code_verifier: 'verifier', redirect_uri: 'http://localhost:3000/sso/callback',
+    });
+    // The person still resolves by exact email (in-ecosystem), but B's scoped
+    // venture ref must not reach A's venture: B gets its own shell.
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const shells = await db.collection('organizations').where('name', '==', `Renamed In Drupal ${stamp}`).get();
+    assert.equal(shells.size, 1);
+    assert.notEqual(shells.docs[0].id, ventureId);
+    const aIndex = await db.collection('external_ref_index').doc(`organization:${ORG_A}:${MH_SOURCE}:${civiVenture}`).get();
+    assert.equal(aIndex.get('entity_id'), ventureId, 'A\'s index entry is untouched');
+  });
+});
+
+describe('one person, several emails', () => {
+  const stamp = Date.now();
+  const selfId = `self-${stamp}`;
+  const work = `jr-${stamp}@work.example.org`;
+  const personal = `jr-${stamp}@gmail.com`;
+
+  before(async () => {
+    await seed();
+    // The founder signed up on their own with a work address, and added
+    // their personal address as an extra email.
+    await db.collection('people').doc(selfId).set({
+      id: selfId, first_name: 'Jay', last_name: `Arr${stamp}`, email: work, secondary_emails: [personal],
+      system_role: 'entrepreneur', ecosystem_id: ECO_ID, ecosystem_ids: [ECO_ID], status: 'active',
+      external_refs: [], source: 'self_signup', updated_at: new Date().toISOString(),
+    });
+  });
+
+  it('a push under an extra email links to that person — and leaves their own name and main email alone', async () => {
+    const push = (first: string) => call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `civi-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: first, last_name: `Arr${stamp}`, email: personal,
+    }, KEY_A);
+    const first = await push('J.');
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.equal(first.body.action, 'linked');
+    assert.equal(first.body.nexus_id, selfId);
+
+    const audit = await db.collection('audit_logs')
+      .where('action', '==', 'partner_person_linked').where('details.nexus_id', '==', selfId).get();
+    assert.equal(audit.size, 1);
+    assert.equal(audit.docs[0].get('details.via'), 'secondary_email', 'the audit log names the field, not the address');
+    assert.ok(!JSON.stringify(audit.docs[0].data()).includes(personal));
+
+    const again = await push('Jaybird');
+    assert.equal(again.body.action, 'updated');
+    const person = (await db.collection('people').doc(selfId).get()).data()!;
+    assert.equal(person.email, work, 'main email is the person\'s own');
+    assert.equal(person.first_name, 'Jay', 'name is the person\'s own');
+  });
+
+  it('a partner-created record still follows the partner\'s updates', async () => {
+    const id = `own-${stamp}`;
+    const body = (email: string) => ({ external_ref: { source: MH_SOURCE, id }, ecosystem_id: ECO_ID, eso_org_id: ORG_A, first_name: 'Own', last_name: `Rec${stamp}`, email });
+    const created = await call('POST', 'partnerUpsertPerson', body(`own-${stamp}@a.example.org`), KEY_A);
+    assert.equal(created.body.action, 'created');
+    await call('POST', 'partnerUpsertPerson', body(`own-${stamp}@b.example.org`), KEY_A);
+    const person = (await db.collection('people').doc(created.body.nexus_id).get()).data()!;
+    assert.equal(person.email, `own-${stamp}@b.example.org`);
+  });
+
+  it('sign-in under an extra email matches the person', async () => {
+    const match = await matchPerson(db, { email: personal, display_name: 'Someone Else' });
+    assert.equal(match.tier, 'email_exact');
+    assert.equal((match as any).person_id, selfId);
+  });
+
+  it('the same name under an unknown email creates a person and flags the pair for review', async () => {
+    const res = await call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `other-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: 'JAY', last_name: `Arr${stamp}`, email: `elsewhere-${stamp}@yahoo.com`,
+    }, KEY_A);
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.action, 'created', 'never merged on a name');
+    assert.equal(res.body.possible_duplicate_flagged, true);
+    const flags = await db.collection('dedup_flags').where('new_entity_id', '==', res.body.nexus_id).get();
+    assert.equal(flags.size, 1);
+    assert.equal(flags.docs[0].get('candidate_entity_id'), selfId);
+    assert.equal(flags.docs[0].get('reason'), 'same_name_different_email');
+    assert.equal(flags.docs[0].get('status'), 'pending_review');
+  });
+
+  it('the same name in another ecosystem raises no flag (nothing leaks across ecosystems)', async () => {
+    const elsewhereId = `elsewhere-${stamp}`;
+    await db.collection('people').doc(elsewhereId).set({
+      id: elsewhereId, first_name: 'Elle', last_name: `Where${stamp}`, email: `elle-${stamp}@other-eco.example.org`,
+      system_role: 'entrepreneur', ecosystem_id: 'eco_somewhere_else', ecosystem_ids: ['eco_somewhere_else'], status: 'active',
+    });
+    const res = await call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `elle-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: 'Elle', last_name: `Where${stamp}`, email: `elle-${stamp}@gmail.com`,
+    }, KEY_A);
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.possible_duplicate_flagged, undefined);
+    const flags = await db.collection('dedup_flags').where('new_entity_id', '==', res.body.nexus_id).get();
+    assert.equal(flags.size, 0);
+  });
+
+  it('a different name raises no flag', async () => {
+    const res = await call('POST', 'partnerUpsertPerson', {
+      external_ref: { source: MH_SOURCE, id: `diff-${stamp}` }, ecosystem_id: ECO_ID, eso_org_id: ORG_A,
+      first_name: 'Kay', last_name: `Arr${stamp}`, email: `kay-${stamp}@yahoo.com`,
+    }, KEY_A);
+    assert.equal(res.body.action, 'created');
+    assert.equal(res.body.possible_duplicate_flagged, undefined);
+  });
+
+  it('sign-in with the same name under an unknown email is a review flag, not a match', async () => {
+    const match = await matchPerson(db, { email: `new-${stamp}@hotmail.com`, display_name: `Jay Arr${stamp}`, first_name: 'Jay', last_name: `Arr${stamp}` });
+    assert.equal(match.tier, 'weak_signal');
+    assert.equal((match as any).reason, 'same_name_different_email');
+  });
+});
+
+describe('cross-partner safety: domain matches and founder links on people a partner did not create', () => {
+  const stamp = Date.now();
+  const PROVIDER_ID = `oidc_test_safety_${stamp}`;
+  let server: Server;
+  let userinfo: Record<string, unknown> = {};
+
+  before(async () => {
+    await seed();
+    await signOrg(ORG_A);
+    await signOrg(ORG_B);
+    server = createServer((req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url?.startsWith('/token')) res.end(JSON.stringify({ access_token: 'test-access-token' }));
+      else if (req.url?.startsWith('/userinfo')) res.end(JSON.stringify(userinfo));
+      else { res.statusCode = 404; res.end('{}'); }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+    await db.collection('oidc_providers').doc(PROVIDER_ID).set({
+      id: PROVIDER_ID, organization_id: ORG_A, ecosystem_id: ECO_ID, display_name: 'Sign in with Test A',
+      authorization_endpoint: `${base}/authorize`, token_endpoint: `${base}/token`, userinfo_endpoint: `${base}/userinfo`,
+      client_id: 'test-client', client_secret: '', scopes: ['openid'],
+      ref_sources: { civi_contact_id: MH_SOURCE, venture_id: MH_SOURCE },
+      status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    });
+  });
+
+  after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const signIn = () => call('POST', 'oidcExchangeToken', {
+    provider_id: PROVIDER_ID, code: 'code', code_verifier: 'verifier', redirect_uri: 'http://localhost:3000/sso/callback',
+  });
+
+  it('SSO never attaches a user to another partner\'s venture by claiming its website', async () => {
+    const theirs = await pushVenture(KEY_B, ORG_B, `b-site-${stamp}`, { url: `https://b-owned-${stamp}.example.com` });
+    assert.equal(theirs.status, 201, JSON.stringify(theirs.body));
+    userinfo = {
+      email: `claimer-${stamp}@example.com`, given_name: 'Claire', family_name: `Claimer ${stamp}`,
+      ventures: [{ name: `Claimed ${stamp}`, website: `https://b-owned-${stamp}.example.com` }],
+    };
+    const res = await signIn();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const person = (await db.collection('people').doc(res.body.nexus_id).get()).data()!;
+    const linkedIds = [person.organization_id, ...(person.organization_affiliations || []).map((a: any) => a.organization_id)];
+    assert.ok(!linkedIds.includes(theirs.body.nexus_id), 'not linked to partner B\'s venture');
+    const ref = (await db.collection('organizations').doc(theirs.body.nexus_id).get()).get('external_refs') || [];
+    assert.equal(ref.length, 1, 'no SSO ref written onto partner B\'s record');
+    const flags = await db.collection('dedup_flags').where('candidate_entity_id', '==', theirs.body.nexus_id).get();
+    assert.equal(flags.size, 1, 'the pair goes to admin review instead');
+  });
+
+  it('SSO still links by website to a venture the same provider\'s organization pushed', async () => {
+    const ours = await pushVenture(KEY_A, ORG_A, `a-site-${stamp}`, { url: `https://a-owned-${stamp}.example.com` });
+    userinfo = {
+      email: `owner-${stamp}@example.com`, given_name: 'Olu', family_name: `Owner ${stamp}`,
+      ventures: [{ name: `Other Name ${stamp}`, website: `https://a-owned-${stamp}.example.com` }],
+    };
+    const res = await signIn();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const person = (await db.collection('people').doc(res.body.nexus_id).get()).data()!;
+    assert.equal(person.organization_id, ours.body.nexus_id);
+  });
+
+  it('founder_ref on someone the partner did not create is pending until they sign in themselves', async () => {
+    const pid = `selfsignup_${stamp}`;
+    const email = `self-${stamp}@example.com`;
+    await db.collection('people').doc(pid).set({
+      id: pid, first_name: 'Sam', last_name: `Self ${stamp}`, email, system_role: 'entrepreneur',
+      organization_id: '', ecosystem_id: ECO_ID, ecosystem_ids: [ECO_ID], source: 'self_signup', status: 'active',
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    });
+    const linked = await pushMhPerson(KEY_A, ORG_A, `self-p-${stamp}`, email);
+    assert.equal(linked.body.nexus_id, pid, JSON.stringify(linked.body));
+
+    const venture = await pushVenture(KEY_A, ORG_A, `self-v-${stamp}`, { founder_ref: { id: `self-p-${stamp}` } });
+    assert.equal(venture.body.founder_linked, false, JSON.stringify(venture.body));
+    assert.equal(venture.body.founder_link_reason, 'awaiting_founder_confirmation');
+    let person = (await db.collection('people').doc(pid).get()).data()!;
+    assert.equal(person.organization_id, '', 'primary organization untouched');
+    const aff = (person.organization_affiliations || []).find((a: any) => a.organization_id === venture.body.nexus_id);
+    assert.equal(aff?.status, 'pending');
+
+    userinfo = {
+      email, given_name: 'Sam', family_name: `Self ${stamp}`, civi_contact_id: `self-p-${stamp}`,
+      ventures: [{ id: `self-v-${stamp}`, name: `Venture self-v-${stamp}` }],
+    };
+    const res = await signIn();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    person = (await db.collection('people').doc(pid).get()).data()!;
+    const after = (person.organization_affiliations || []).filter((a: any) => a.organization_id === venture.body.nexus_id);
+    assert.equal(after.length, 1);
+    assert.equal(after[0].status, 'active', 'their own sign-in confirms it');
   });
 });

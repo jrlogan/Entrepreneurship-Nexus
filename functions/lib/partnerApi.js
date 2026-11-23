@@ -68,7 +68,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerLogActivity = exports.partnerListReferrals = exports.partnerUpdateReferral = exports.partnerCreateReferral = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.ensureConsentNotice = void 0;
+exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerLogActivity = exports.partnerListReferrals = exports.partnerUpdateReferral = exports.partnerCreateReferral = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.ssoDomainMatchIsTrusted = exports.partnerUpsertPerson = exports.ensureConsentNotice = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -76,6 +76,8 @@ const crypto_1 = require("crypto");
 const urlGuard_1 = require("./urlGuard");
 const payloadRedaction_1 = require("./payloadRedaction");
 const federationDedup_1 = require("./federationDedup");
+const oidcRefs_1 = require("./oidcRefs");
+const partnerOrgFields_1 = require("./partnerOrgFields");
 const recordMerge_1 = require("./recordMerge");
 const rateLimit_1 = require("./rateLimit");
 const externalRefIndex_1 = require("./externalRefIndex");
@@ -568,9 +570,16 @@ const applyPartnerConsent = async (db, personId, ecosystemId, orgId, choices, te
  *   tags?          string[]
  *
  * Response:
- *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked" }
- *   action "linked" means an existing person was found by email and the
- *   ExternalRef was added to their record.
+ *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked",
+ *     possible_duplicate_flagged?: true }
+ *   action "linked" means an existing person was found by email — their main
+ *   email or one of the extra emails on their record — and the ExternalRef
+ *   was added to their record.
+ *   The partner updates name and email only on records it created; a linked
+ *   person's own name and main email are never overwritten by a push.
+ *   possible_duplicate_flagged: a new person was created, and someone in the
+ *   same ecosystem with the same full name under another email exists; an
+ *   admin reviews the pair.
  */
 exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res))
@@ -647,10 +656,14 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
     if (byRef) {
         const existingRefs = (byRef.data.external_refs || []);
         const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
+        // A partner keeps the name and email current only on a record it created.
+        // On a record the person made themself (or another partner created) and
+        // this partner linked to, the person's own name and main email stand —
+        // otherwise a push matched through an extra email would replace the
+        // address the person signs in and is reached at.
+        const partnerOwned = byRef.data.source === 'partner_api' && byRef.data.created_by_org_id === esoOrgId;
         await db.collection('people').doc(byRef.id).set({
-            first_name: firstName,
-            last_name: lastName,
-            email,
+            ...(partnerOwned ? { first_name: firstName, last_name: lastName, email } : {}),
             external_refs: refPresent ? existingRefs : [...existingRefs, ref],
             tags: Array.from(new Set([...(byRef.data.tags || []), ...tags])),
             updated_at: now,
@@ -665,14 +678,15 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         res.json({ ok: true, nexus_id: byRef.id, action: 'updated', consent, consent_notice_sent: noticeSent, ...outdated });
         return;
     }
-    // 2. Try email match — add ExternalRef to existing person
-    const emailSnap = await db.collection('people').where('email', '==', email).limit(1).get();
-    if (!emailSnap.empty) {
+    // 2. Try email match — the person's main email or one of their extra
+    //    emails — and add the ExternalRef to that person.
+    const emailMatch = await (0, federationDedup_1.findPersonByAnyEmail)(db, email);
+    if (emailMatch) {
         // Attaching to a person the network already knows makes them "yours" to
         // see — so it is budgeted separately and tightly (see rateLimit.ts).
         if (!(await (0, rateLimit_1.enforceRateLimit)(db, authContext.key_id, 'link', res)))
             return;
-        const existing = emailSnap.docs[0];
+        const existing = await db.collection('people').doc(emailMatch.id).get();
         const existingRefs = (existing.get('external_refs') || []);
         await existing.ref.set({
             external_refs: [...existingRefs, ref],
@@ -696,6 +710,7 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
             nexus_id: existing.id,
             external_ref: ref,
             ecosystem_id: ecosystemId,
+            via: emailMatch.via,
         });
         const consent = await applyPartnerConsent(db, existing.id, ecosystemId, esoOrgId, consentChoices, terms);
         const noticeSent = consentChoices ? false : await (0, exports.ensureConsentNotice)(db, existing.id, firstName, email, ecosystemId, esoOrgId);
@@ -746,10 +761,121 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         nexus_id: personRef.id,
         external_ref: ref,
     });
+    // Someone with the same name under another email may be this person (work
+    // and personal addresses). Flag it for an admin — never merge on a name.
+    // Only people in the push's ecosystem count: the response tells the partner
+    // whether a flag was raised, so a network-wide lookup would leak whether a
+    // name exists anywhere in Nexus.
+    const sameName = await (0, federationDedup_1.findSameNamePerson)(db, {
+        first_name: firstName, last_name: lastName, exclude_id: personRef.id, ecosystem_id: ecosystemId,
+    });
+    if (sameName) {
+        await (0, federationDedup_1.flagPossibleDuplicate)(db, {
+            entity_type: 'person',
+            new_entity_id: personRef.id,
+            candidate_entity_id: sameName,
+            confidence: 0.6,
+            reason: 'same_name_different_email',
+            source: `partner:${esoOrgId}`,
+            ecosystem_id: ecosystemId,
+        });
+    }
     const consent = await applyPartnerConsent(db, personRef.id, ecosystemId, esoOrgId, consentChoices, terms);
     const noticeSent = consentChoices ? false : await (0, exports.ensureConsentNotice)(db, personRef.id, firstName, email, ecosystemId, esoOrgId);
-    res.status(201).json({ ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent, ...outdated });
+    res.status(201).json({
+        ok: true, nexus_id: personRef.id, action: 'created', consent, consent_notice_sent: noticeSent,
+        ...(sameName ? { possible_duplicate_flagged: true } : {}),
+        ...outdated,
+    });
 });
+/**
+ * Links a founder — resolved ONLY through the calling partner's own external
+ * ref — to a venture, so the privacy policy can list the venture in the
+ * directory through that founder (ventureOrgIdsFor: organization_id or an
+ * active organization_affiliations entry).
+ *
+ * Writes the same founder affiliation the OIDC venture path writes
+ * (newFounderAffiliations), and sets the person's primary organization_id if
+ * it is empty. Idempotent: an existing affiliation with the venture is left
+ * alone (an ended one stays ended — reported as `affiliation_inactive`).
+ */
+/**
+ * A website domain is something any provider's userinfo can assert, so on SSO
+ * it only auto-links to a record nobody else manages: a bare sign-in shell, or
+ * a record the signing-in provider's own organization created. A domain match
+ * on anything else (another partner's pushed venture, a self-managed org)
+ * becomes a new shell plus an admin dedup flag — the same treatment as a
+ * same-name match — so no provider can attach its users to another
+ * partner's records by claiming their website.
+ */
+const ssoDomainMatchIsTrusted = (org, provider) => {
+    const managers = (org.managed_by_ids || []);
+    if (org.source === 'oidc_shell' && managers.length === 0)
+        return true;
+    return !!provider.organization_id && org.created_by_org_id === provider.organization_id;
+};
+exports.ssoDomainMatchIsTrusted = ssoDomainMatchIsTrusted;
+const trustSsoOrgMatch = async (db, match, provider) => {
+    if (match.tier !== 'domain_exact')
+        return match;
+    const snap = await db.collection('organizations').doc(match.org_id).get();
+    if (snap.exists && (0, exports.ssoDomainMatchIsTrusted)(snap.data() || {}, provider))
+        return match;
+    return { tier: 'weak_signal', candidate_org_id: match.org_id, confidence: 0.6, reason: `sso_${match.via}_other_manager` };
+};
+const linkFounderToVenture = async (db, callerOrgId, founderRef, ventureId, ecosystemId, options = { mayWrite: true }) => {
+    // Owner-scoped: another partner's ref scheme never resolves here.
+    const found = await findByExternalRef(db, { ...founderRef, owner_org_id: callerOrgId }, 'person', callerOrgId);
+    if (!found)
+        return { founder_linked: false, founder_link_reason: 'founder_not_found' };
+    // On a venture the caller did not create, a push never makes someone its
+    // founder (or their primary organization): it only reports a link the
+    // founder or the venture's manager already made.
+    if (!options.mayWrite) {
+        const snap = await db.collection('people').doc(found.id).get();
+        if (!snap.exists)
+            return { founder_linked: false, founder_link_reason: 'founder_not_found' };
+        return (0, partnerOrgFields_1.isLinkedToVenture)(snap.data() || {}, ventureId)
+            ? { founder_linked: true }
+            : { founder_linked: false, founder_link_reason: 'venture_not_managed_by_you' };
+    }
+    const personRef = db.collection('people').doc(found.id);
+    let pendingOnly = false;
+    const linked = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(personRef);
+        if (!snap.exists)
+            return null;
+        const person = snap.data() || {};
+        // Only on a person this partner created does a push make them a founder
+        // outright. Anyone else (a self-signup, an SSO account, another partner's
+        // record) that this partner reached by email gets a pending affiliation —
+        // hidden from the directory until the person or an admin confirms it — and
+        // their primary organization is never touched.
+        const partnerOwned = person.source === 'partner_api' && person.created_by_org_id === callerOrgId;
+        pendingOnly = !partnerOwned;
+        const existing = (person.organization_affiliations || []);
+        const now = new Date().toISOString();
+        const additions = (0, partnerOrgFields_1.newFounderAffiliations)(existing, [ventureId], ecosystemId, now)
+            .map((a) => (partnerOwned ? a : { ...a, status: 'pending' }));
+        const updates = {};
+        if (additions.length > 0)
+            updates.organization_affiliations = [...existing, ...additions];
+        if (partnerOwned && !person.organization_id)
+            updates.organization_id = ventureId;
+        if (Object.keys(updates).length > 0) {
+            tx.update(personRef, { ...updates, updated_at: now });
+        }
+        return (0, partnerOrgFields_1.isLinkedToVenture)({
+            organization_id: updates.organization_id ?? person.organization_id,
+            organization_affiliations: updates.organization_affiliations ?? existing,
+        }, ventureId);
+    });
+    if (linked === null)
+        return { founder_linked: false, founder_link_reason: 'founder_not_found' };
+    if (linked)
+        return { founder_linked: true };
+    return { founder_linked: false, founder_link_reason: pendingOnly ? 'awaiting_founder_confirmation' : 'affiliation_inactive' };
+};
 /**
  * POST /partnerUpsertOrganization
  *
@@ -765,12 +891,51 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
  *   name           string
  *   description?   string
  *   email?         string
- *   url?           string
+ *   url?           string   — also stored as a normalized `domain` (unless the
+ *                             host is a shared platform such as etsy.com) so a
+ *                             founder's SSO sign-in can match it by domain
  *   tax_status?    "non_profit" | "for_profit" | "government" | "other"
  *   tags?          string[]
+ *   founder_ref?   { id: string, source?: string } — the founder, by YOUR OWN
+ *                  person external ref (source defaults to external_ref.source).
+ *                  Push the person first (partnerUpsertPerson). Resolved only
+ *                  among refs your organization owns. When found, the person
+ *                  gets an active 'founder' affiliation with this venture (and
+ *                  it becomes their primary organization if they have none),
+ *                  which is what lists the venture in the network directory
+ *                  once the founder has chosen to be listed. A founder who
+ *                  cannot be resolved does not fail the call.
+ *   logo_url?      string   — public https URL. An invalid value is ignored
+ *                             (the rest of the upsert goes through) and named
+ *                             in `warnings`, like an unknown org_type.
+ *   industry_tags? string[] — merged into classification.industry_tags
+ *                             (≤20 tags, each ≤40 chars, de-duplicated)
+ *   stage?         string   — free text, trimmed, ≤40 chars, stored as `stage`
+ *   org_type?      "startup" | "small_business" | "business" | "nonprofit"
+ *                  | "government_agency" | "other"
+ *
+ * On a record YOUR organization created, found by your external_ref
+ * ("updated"), the fields you send replace the stored ones (industry tags
+ * merge). Another organization's data is never overwritten:
+ *   - A record found by your ref that someone else created (your ref was
+ *     attached earlier, e.g. by an older name match) gets only your ref, tags
+ *     and industry tags, and url/domain, logo_url, stage and org_type where
+ *     they are empty. The founder is reported linked only if they already
+ *     are; the push never makes them its founder.
+ *   - An exact name match (in the ecosystem) on a record you created links
+ *     your ref to it ("linked", same fill-only-empty rule).
+ *   - An exact name match on a record someone else created is NOT linked:
+ *     Nexus creates your own record ("created"), links the founder to that
+ *     one, and flags the pair in dedup_flags for an admin to review
+ *     (`possible_duplicate_flagged: true`).
  *
  * Response:
- *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked" }
+ *   { ok: true, nexus_id: string, action: "created" | "updated" | "linked",
+ *     founder_linked: boolean,
+ *     founder_link_reason?: "founder_not_found" | "affiliation_inactive"
+ *                         | "venture_not_managed_by_you",
+ *     possible_duplicate_flagged?: true,
+ *     warnings?: string[] }
  */
 exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }, async (req, res) => {
     if (handlePreflight(req, res))
@@ -797,12 +962,24 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
     const url = (req.body?.url || '').toString().trim();
     const taxStatus = normalize(req.body?.tax_status) || 'other';
     const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
+    const industryTags = (0, partnerOrgFields_1.sanitizeIndustryTags)(req.body?.industry_tags);
+    const stage = (0, partnerOrgFields_1.sanitizeStage)(req.body?.stage);
+    const orgType = (0, partnerOrgFields_1.parseOrgType)(req.body?.org_type);
+    const domain = (0, federationDedup_1.storableDomain)(url);
+    const warnings = [];
     if (!externalRef?.source || !externalRef?.id) {
         res.status(400).json({ error: 'external_ref.source and external_ref.id are required' });
         return;
     }
     if (!ecosystemId || !name) {
         res.status(400).json({ error: 'ecosystem_id and name are required' });
+        return;
+    }
+    const founderRef = req.body?.founder_ref != null
+        ? (0, partnerOrgFields_1.parseFounderRef)(req.body.founder_ref, externalRef.source)
+        : null;
+    if (req.body?.founder_ref != null && !founderRef) {
+        res.status(400).json({ error: 'founder_ref must be an object with an id (and optionally a source)' });
         return;
     }
     if (authContext.organization_id !== esoOrgId) {
@@ -813,56 +990,128 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
         res.status(403).json({ error: 'ecosystem_id is outside your organization\'s ecosystems' });
         return;
     }
+    const rawOrgType = req.body?.org_type;
+    if (rawOrgType != null && rawOrgType !== '' && !orgType) {
+        warnings.push('org_type ignored: not one of startup, small_business, business, nonprofit, government_agency, other');
+    }
+    // A bad logo must not cost the partner the rest of its sync: drop it and
+    // say so, rather than 400 the whole upsert (unlike webhook URLs, which are
+    // the point of their call).
+    let logoUrl = '';
+    const rawLogo = (req.body?.logo_url ?? '').toString().trim();
+    if (rawLogo) {
+        try {
+            await (0, urlGuard_1.assertPublicHttpUrl)(rawLogo, { httpsOnly: true });
+            logoUrl = rawLogo;
+        }
+        catch {
+            warnings.push('logo_url ignored: must be a public https URL');
+        }
+    }
     const ref = {
         source: externalRef.source,
         id: externalRef.id,
         owner_org_id: esoOrgId,
     };
     const now = new Date().toISOString();
+    const finish = async (status, nexusId, action, opts) => {
+        const founder = founderRef
+            ? await linkFounderToVenture(db, authContext.organization_id, founderRef, nexusId, ecosystemId, { mayWrite: opts.callerOwned })
+            : { founder_linked: false };
+        res.status(status).json({
+            ok: true,
+            nexus_id: nexusId,
+            action,
+            ...founder,
+            ...(opts.duplicateFlagged && { possible_duplicate_flagged: true }),
+            ...(warnings.length > 0 && { warnings }),
+        });
+    };
+    // A record this caller created through the partner API. Only those take the
+    // caller's values outright; on anyone else's record a push may add its ref
+    // and tags and fill empty fields, never overwrite (mirrors partnerUpsertPerson).
+    const isCallerOwned = (data) => !!data && data.source === 'partner_api' && data.created_by_org_id === esoOrgId;
+    // Additions that never overwrite: our ref and tags, merged industry tags,
+    // and url/domain, logo, stage and org_type only where the record has none.
+    const fillOnlyEmpty = (data) => {
+        const existingRefs = (data.external_refs || []);
+        const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
+        const existingUrl = data.url || '';
+        const fillDomain = data.domain ? '' : (0, federationDedup_1.storableDomain)(existingUrl || url);
+        return {
+            external_refs: refPresent ? existingRefs : [...existingRefs, ref],
+            tags: Array.from(new Set([...(data.tags || []), ...tags])),
+            ...(!existingUrl && url && { url }),
+            ...(fillDomain && { domain: fillDomain }),
+            ...(!data.logo_url && logoUrl && { logo_url: logoUrl }),
+            ...(!data.stage && stage && { stage }),
+            ...(!data.org_type && orgType && { org_type: orgType }),
+            ...(industryTags.length > 0 && {
+                classification: { industry_tags: (0, partnerOrgFields_1.mergeIndustryTags)(data.classification?.industry_tags, industryTags) },
+            }),
+            updated_at: now,
+            updated_via_api_key_id: authContext.key_id,
+        };
+    };
     // 1. ExternalRef index lookup
     const byRef = await findByExternalRef(db, ref, 'organization', authContext.organization_id);
     if (byRef) {
-        const existingRefs = (byRef.data.external_refs || []);
-        const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
-        await db.collection('organizations').doc(byRef.id).set({
-            name,
-            ...(description && { description }),
-            ...(email && { email }),
-            ...(url && { url }),
-            external_refs: refPresent ? existingRefs : [...existingRefs, ref],
-            tags: Array.from(new Set([...(byRef.data.tags || []), ...tags])),
-            updated_at: now,
-            updated_via_api_key_id: authContext.key_id,
-        }, { merge: true });
+        const callerOwned = isCallerOwned(byRef.data);
+        if (callerOwned) {
+            const existingRefs = (byRef.data.external_refs || []);
+            const refPresent = existingRefs.some(r => r.source === ref.source && r.id === ref.id);
+            await db.collection('organizations').doc(byRef.id).set({
+                name,
+                ...(description && { description }),
+                ...(email && { email }),
+                ...(url && { url }),
+                ...(domain && { domain }),
+                ...(logoUrl && { logo_url: logoUrl }),
+                ...(stage && { stage }),
+                ...(orgType && { org_type: orgType }),
+                ...(industryTags.length > 0 && {
+                    classification: { industry_tags: (0, partnerOrgFields_1.mergeIndustryTags)(byRef.data.classification?.industry_tags, industryTags) },
+                }),
+                external_refs: refPresent ? existingRefs : [...existingRefs, ref],
+                tags: Array.from(new Set([...(byRef.data.tags || []), ...tags])),
+                updated_at: now,
+                updated_via_api_key_id: authContext.key_id,
+            }, { merge: true });
+        }
+        else {
+            await db.collection('organizations').doc(byRef.id).set(fillOnlyEmpty(byRef.data), { merge: true });
+        }
         await logAudit(db, 'partner_org_updated', authContext.organization_id, {
             nexus_id: byRef.id,
             external_ref: ref,
+            ...(!callerOwned && { fill_only: true }),
         });
-        res.json({ ok: true, nexus_id: byRef.id, action: 'updated' });
+        await finish(200, byRef.id, 'updated', { callerOwned });
         return;
     }
-    // 2. Exact name match within ecosystem — link ExternalRef to existing org
+    // 2. Exact name match within the ecosystem. A name is not proof of
+    //    identity: only a record this caller created is linked by name. On
+    //    anyone else's record we fall through to creating the caller's own
+    //    record and flag the pair for an admin — attaching our ref there would
+    //    let later pushes (found by that ref) and the founder link land on
+    //    another manager's organization.
     const ecosystemOrgs = await db
         .collection('organizations')
         .where('ecosystem_ids', 'array-contains', ecosystemId)
         .get();
-    const nameMatch = ecosystemOrgs.docs.find(d => normalize(d.get('name')) === normalize(name));
-    if (nameMatch) {
-        const existingRefs = (nameMatch.get('external_refs') || []);
-        await nameMatch.ref.set({
-            external_refs: [...existingRefs, ref],
-            tags: Array.from(new Set([...(nameMatch.get('tags') || []), ...tags])),
-            updated_at: now,
-            updated_via_api_key_id: authContext.key_id,
-        }, { merge: true });
-        await indexExternalRef(db, ref, 'organization', nameMatch.id);
+    const nameMatches = ecosystemOrgs.docs.filter(d => normalize(d.get('name')) === normalize(name));
+    const ownNameMatch = nameMatches.find(d => isCallerOwned(d.data()));
+    if (ownNameMatch) {
+        await ownNameMatch.ref.set(fillOnlyEmpty(ownNameMatch.data()), { merge: true });
+        await indexExternalRef(db, ref, 'organization', ownNameMatch.id);
         await logAudit(db, 'partner_org_linked', authContext.organization_id, {
-            nexus_id: nameMatch.id,
+            nexus_id: ownNameMatch.id,
             external_ref: ref,
         });
-        res.json({ ok: true, nexus_id: nameMatch.id, action: 'linked' });
+        await finish(200, ownNameMatch.id, 'linked', { callerOwned: true });
         return;
     }
+    const otherNameMatch = nameMatches[0];
     // 3. Create new organization (restricted visibility, managed by the ESO)
     const orgRef = db.collection('organizations').doc();
     await orgRef.set({
@@ -871,9 +1120,13 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
         description: description || '',
         ...(email && { email }),
         ...(url && { url }),
+        ...(domain && { domain }),
+        ...(logoUrl && { logo_url: logoUrl }),
+        ...(stage && { stage }),
+        ...(orgType && { org_type: orgType }),
         tax_status: taxStatus,
         roles: [],
-        classification: { industry_tags: [] },
+        classification: { industry_tags: industryTags },
         external_refs: [ref],
         managed_by_ids: [esoOrgId],
         operational_visibility: 'restricted',
@@ -893,7 +1146,18 @@ exports.partnerUpsertOrganization = (0, https_1.onRequest)({ invoker: 'public' }
         nexus_id: orgRef.id,
         external_ref: ref,
     });
-    res.status(201).json({ ok: true, nexus_id: orgRef.id, action: 'created' });
+    if (otherNameMatch) {
+        await (0, federationDedup_1.flagPossibleDuplicate)(db, {
+            entity_type: 'organization',
+            new_entity_id: orgRef.id,
+            candidate_entity_id: otherNameMatch.id,
+            confidence: 0.6,
+            reason: 'same_name_other_manager',
+            source: `partner:${esoOrgId}`,
+            ecosystem_id: ecosystemId,
+        });
+    }
+    await finish(201, orgRef.id, 'created', { callerOwned: true, duplicateFlagged: !!otherNameMatch });
 });
 /**
  * GET /partnerGetPerson?source=makehaven_civicrm&id=12345
@@ -2240,15 +2504,18 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
     // entrepreneur_nexus_bridge writes with source "makehaven_civicrm" and
     // MakeHaven's provider should register with
     // `ref_sources: { civi_contact_id: "makehaven_civicrm" }` so dedup hits
-    // Tier 1. If a key is not mapped, we fall back to a provider-namespaced
+    // Tier 1. A mapped key is the provider organization's own partner ID, so
+    // its ref carries owner_org_id and resolves through the owner-scoped index
+    // entries that organization's partner-API pushes wrote (oidcRefs.ts). If a
+    // key is not mapped, we fall back to a provider-namespaced, ownerless
     // default so SSO-only dedup still works.
-    const refSourceFor = (userinfoKey) => provider.ref_sources?.[userinfoKey] || `${providerId}:${userinfoKey}`;
+    const refFor = (0, oidcRefs_1.providerRefBuilder)(provider, providerId);
     const providerRefs = [];
     if (providerSubject) {
-        providerRefs.push({ source: refSourceFor('drupal_uid'), id: providerSubject });
+        providerRefs.push(refFor('drupal_uid', providerSubject));
     }
     if (providerCiviContactId) {
-        providerRefs.push({ source: refSourceFor('civi_contact_id'), id: providerCiviContactId });
+        providerRefs.push(refFor('civi_contact_id', providerCiviContactId));
     }
     // Resolve the person via cross-source dedup. Tier 1 (external_ref) wins
     // silently; Tier 2 (exact email) wins silently and back-fills the missing
@@ -2258,6 +2525,8 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
         external_refs: providerRefs,
         email: userEmail,
         display_name: `${userFirstName} ${userLastName}`.trim(),
+        first_name: userFirstName,
+        last_name: userLastName,
     });
     let personId = '';
     let authUid = '';
@@ -2431,14 +2700,14 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
     if (employerInfo) {
         const orgRefs = [];
         if (employerInfo.id) {
-            orgRefs.push({ source: refSourceFor('employer_org_id'), id: employerInfo.id });
+            orgRefs.push(refFor('employer_org_id', employerInfo.id));
         }
-        const orgMatch = await (0, federationDedup_1.matchOrganization)(db, {
+        const orgMatch = await trustSsoOrgMatch(db, await (0, federationDedup_1.matchOrganization)(db, {
             external_refs: orgRefs,
             name: employerInfo.name,
             domain: employerInfo.domain,
             website: employerInfo.website,
-        });
+        }), provider);
         let resolvedOrgId = null;
         if (orgMatch.tier === 'external_ref' || orgMatch.tier === 'domain_exact') {
             resolvedOrgId = orgMatch.org_id;
@@ -2457,7 +2726,7 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
                 description: '',
                 email: '',
                 url: employerInfo.website || '',
-                domain: employerInfo.domain || '',
+                domain: (0, federationDedup_1.storableDomain)(employerInfo.domain || employerInfo.website || ''),
                 tax_status: '',
                 external_refs: orgRefs,
                 managed_by_ids: [],
@@ -2510,14 +2779,14 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
         for (const venture of ventures) {
             const ventureRefs = [];
             if (venture.id) {
-                ventureRefs.push({ source: refSourceFor('venture_id'), id: venture.id });
+                ventureRefs.push(refFor('venture_id', venture.id));
             }
-            const ventureMatch = await (0, federationDedup_1.matchOrganization)(db, {
+            const ventureMatch = await trustSsoOrgMatch(db, await (0, federationDedup_1.matchOrganization)(db, {
                 external_refs: ventureRefs,
                 name: venture.name,
                 domain: venture.domain,
                 website: venture.website,
-            });
+            }), provider);
             let ventureOrgId = null;
             if (ventureMatch.tier === 'external_ref' || ventureMatch.tier === 'domain_exact') {
                 ventureOrgId = ventureMatch.org_id;
@@ -2534,7 +2803,7 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
                     description: venture.description || '',
                     email: '',
                     url: venture.website || '',
-                    domain: venture.domain || '',
+                    domain: (0, federationDedup_1.storableDomain)(venture.domain || venture.website || ''),
                     tax_status: '',
                     founded_year: venture.founded_year ?? null,
                     external_refs: ventureRefs,
@@ -2573,19 +2842,22 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
             const personRef = db.collection('people').doc(personId);
             const personSnap = await personRef.get();
             const existingAffiliations = personSnap.get('organization_affiliations') || [];
-            const existingIds = new Set(existingAffiliations.map(a => a.organization_id));
-            const additions = resolvedVentureOrgIds
-                .filter(id => !existingIds.has(id))
-                .map(id => ({
-                organization_id: id,
-                relationship_type: 'founder',
-                status: 'active',
-                ecosystem_ids: [provider.ecosystem_id],
-                joined_at: new Date().toISOString(),
-            }));
+            // Same shape the partner API writes for founder_ref (partnerOrgFields.ts).
+            const additions = (0, partnerOrgFields_1.newFounderAffiliations)(existingAffiliations, resolvedVentureOrgIds, provider.ecosystem_id, new Date().toISOString());
+            // The person signing in themself, through a provider that lists this
+            // venture as theirs, confirms a founder link a partner push left pending.
+            const resolvedSet = new Set(resolvedVentureOrgIds);
+            let confirmed = false;
+            const current = existingAffiliations.map((a) => {
+                if (a.status === 'pending' && a.relationship_type === 'founder' && resolvedSet.has(a.organization_id)) {
+                    confirmed = true;
+                    return { ...a, status: 'active', confirmed_at: new Date().toISOString(), confirmed_via: `oidc:${providerId}` };
+                }
+                return a;
+            });
             const updates = { updated_at: new Date().toISOString() };
-            if (additions.length > 0) {
-                updates.organization_affiliations = [...existingAffiliations, ...additions];
+            if (additions.length > 0 || confirmed) {
+                updates.organization_affiliations = [...current, ...additions];
             }
             // Set primary organization_id to the first venture if none was set above
             // by the employer_org branch. Doesn't overwrite an existing assignment.
@@ -2763,13 +3035,14 @@ exports.oidcLinkAccount = (0, https_1.onRequest)({ invoker: 'public' }, async (r
         return;
     }
     // Build refs using the provider's ref_sources map (same convention as
-    // oidcExchangeToken) so link and login converge on identical sources.
-    const refSourceFor = (userinfoKey) => provider.ref_sources?.[userinfoKey] || `${providerId}:${userinfoKey}`;
+    // oidcExchangeToken, including owner scoping of mapped keys) so link and
+    // login converge on identical refs.
+    const refFor = (0, oidcRefs_1.providerRefBuilder)(provider, providerId);
     const newRefs = [];
     if (providerSubject)
-        newRefs.push({ source: refSourceFor('drupal_uid'), id: providerSubject });
+        newRefs.push(refFor('drupal_uid', providerSubject));
     if (providerCiviContactId)
-        newRefs.push({ source: refSourceFor('civi_contact_id'), id: providerCiviContactId });
+        newRefs.push(refFor('civi_contact_id', providerCiviContactId));
     if (newRefs.length === 0) {
         res.status(502).json({ error: 'Provider did not return any identifier suitable for linking' });
         return;

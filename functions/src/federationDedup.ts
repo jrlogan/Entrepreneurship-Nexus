@@ -56,6 +56,8 @@ export type PersonSignals = {
   external_refs?: ExternalRef[];
   email?: string;
   display_name?: string;
+  first_name?: string;
+  last_name?: string;
 };
 
 export type OrgSignals = {
@@ -74,12 +76,46 @@ const normalizeName = (raw?: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const normalizeDomain = (raw?: string): string => {
+/**
+ * Normalized host for org domain matching: lowercased, scheme/path/port
+ * stripped, leading "www." removed. Exported so writers (partner API, SSO
+ * shells) store `domain` in exactly the form Tier-2 matching queries.
+ */
+export const normalizeDomain = (raw?: string): string => {
   const s = (raw || '').trim().toLowerCase();
   if (!s) return '';
   // Strip scheme and path if a URL slipped in; strip leading "www."
-  const host = s.replace(/^https?:\/\//, '').split('/')[0] || s;
-  return host.replace(/^www\./, '');
+  const host = s.replace(/^https?:\/\//, '').split(/[/?#]/)[0] || s;
+  return host.replace(/:\d+$/, '').replace(/^www\./, '');
+};
+
+/**
+ * Hosts many unrelated businesses share (social profiles, marketplaces,
+ * link-in-bio pages). A venture whose "website" is its Etsy shop or
+ * Instagram page must not get `domain: "etsy.com"`: Tier-2 domain matching
+ * silently auto-links, so a shared host would merge strangers' ventures.
+ */
+const SHARED_PLATFORM_DOMAINS: ReadonlySet<string> = new Set([
+  'facebook.com', 'fb.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'x.com',
+  'tiktok.com', 'youtube.com', 'youtu.be', 'pinterest.com', 'threads.net',
+  'etsy.com', 'ebay.com', 'amazon.com', 'shopify.com', 'square.site', 'squareup.com',
+  'linktr.ee', 'linktree.com', 'bio.link', 'beacons.ai', 'carrd.co',
+  'google.com', 'sites.google.com', 'business.site', 'goo.gl', 'g.page',
+  'github.com', 'gitlab.com', 'medium.com', 'substack.com', 'patreon.com',
+  'kickstarter.com', 'indiegogo.com', 'gofundme.com', 'yelp.com', 'eventbrite.com',
+  'wix.com', 'squarespace.com', 'wordpress.com', 'weebly.com', 'godaddysites.com',
+  'notion.site', 'notion.so', 'canva.site', 'bit.ly',
+]);
+
+/**
+ * The `domain` worth storing on an org record for Tier-2 matching, from a
+ * domain or website value: normalized, a plausible hostname, and not a
+ * shared platform. Returns '' when nothing safe to store.
+ */
+export const storableDomain = (raw?: string): string => {
+  const domain = normalizeDomain(raw);
+  if (!domain || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return '';
+  return SHARED_PLATFORM_DOMAINS.has(domain) ? '' : domain;
 };
 
 const domainOfEmail = (email: string): string => {
@@ -116,6 +152,13 @@ const GENERIC_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
  * Look up an entity by external_ref via the external_ref_index collection.
  * Returns the document id and data if found and the underlying record still
  * exists, else null.
+ *
+ * `ref.owner_org_id` is passed straight through: an owned ref (an SSO
+ * provider's key mapped via `ref_sources` to its partner ID scheme) reads the
+ * owner's scoped entry first — where that organization's partner-API pushes
+ * are indexed — then an ownerless global one; a global entry owned by a
+ * different organization never matches. Ownerless refs read only the global
+ * key, as before.
  */
 const lookupByExternalRef = async (
   db: admin.firestore.Firestore,
@@ -129,6 +172,69 @@ const lookupByExternalRef = async (
   const collection = entityType === 'person' ? 'people' : 'organizations';
   const entityDoc = await db.collection(collection).doc(entityId).get();
   return entityDoc.exists ? entityDoc.id : null;
+};
+
+/**
+ * A person whose main email or one of whose extra emails (secondary_emails)
+ * is `email`, or null. The same lookup the inbound-email and invite paths use
+ * (index.ts findExistingPersonByEmail), so every path agrees on who an
+ * address belongs to.
+ */
+export const findPersonByAnyEmail = async (
+  db: admin.firestore.Firestore,
+  rawEmail: string
+): Promise<{ id: string; via: 'email' | 'secondary_email' } | null> => {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return null;
+  const [primary, secondary] = await Promise.all([
+    db.collection('people').where('email', '==', email).limit(1).get(),
+    db.collection('people').where('secondary_emails', 'array-contains', email).limit(1).get(),
+  ]);
+  // `via` names which field matched, never the address itself: it ends up in
+  // audit logs, and an extra email is something the person added privately.
+  if (!primary.empty) return { id: primary.docs[0].id, via: 'email' };
+  if (!secondary.empty) return { id: secondary.docs[0].id, via: 'secondary_email' };
+  return null;
+};
+
+/**
+ * Full name reduced to letters and digits only, so "J.R. Logan", "JR Logan"
+ * and "jr  logan" compare equal. Empty when either part is missing.
+ */
+export const compactFullName = (first?: string, last?: string): string => {
+  const squash = (v?: string) => (v || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '');
+  const f = squash(first);
+  const l = squash(last);
+  return f && l ? `${f}${l}` : '';
+};
+
+/**
+ * Another person with the same full name, for a human to review — never an
+ * automatic merge: two people can share a name, and one person can use two
+ * unrelated emails (work and personal). Looks up by last name (as written,
+ * then title-cased) and compares the compacted full name.
+ */
+export const findSameNamePerson = async (
+  db: admin.firestore.Firestore,
+  signals: { first_name?: string; last_name?: string; exclude_id?: string; ecosystem_id?: string }
+): Promise<string | null> => {
+  const target = compactFullName(signals.first_name, signals.last_name);
+  const last = (signals.last_name || '').trim();
+  if (!target || !last) return null;
+  const variants = Array.from(new Set([last, last.charAt(0).toUpperCase() + last.slice(1).toLowerCase(), last.toLowerCase()]));
+  const snap = await db.collection('people').where('last_name', 'in', variants).limit(200).get();
+  // With an ecosystem, only people in it count. A partner learns from the
+  // response whether a flag was raised, so an unscoped lookup would tell it
+  // that someone of that name exists somewhere else in the network.
+  const inScope = (d: admin.firestore.QueryDocumentSnapshot) => {
+    if (!signals.ecosystem_id) return true;
+    const ids = d.get('ecosystem_ids');
+    return (Array.isArray(ids) && ids.includes(signals.ecosystem_id)) || d.get('ecosystem_id') === signals.ecosystem_id;
+  };
+  const hit = snap.docs.find((d) => d.id !== signals.exclude_id
+    && inScope(d)
+    && compactFullName(d.get('first_name') as string, d.get('last_name') as string) === target);
+  return hit ? hit.id : null;
 };
 
 /**
@@ -152,56 +258,64 @@ export const matchPerson = async (
   const email = normalizeEmail(signals.email);
   if (!email) return { tier: 'none' };
 
-  // Tier 2: exact email match.
-  const emailSnap = await db.collection('people').where('email', '==', email).limit(1).get();
-  if (!emailSnap.empty) {
-    return { tier: 'email_exact', person_id: emailSnap.docs[0].id, via: email };
+  // Tier 2: exact email match — the person's main email or any extra email
+  // they (or an admin) added to their record. Partners never add extra
+  // emails, so this matches only addresses the person themself claims.
+  const byEmail = await findPersonByAnyEmail(db, email);
+  if (byEmail) {
+    return { tier: 'email_exact', person_id: byEmail.id, via: byEmail.via };
   }
 
-  // Tier 3: weak signal — same email domain + name similarity above threshold.
+  // Tier 3: weak signals, for review only — never an automatic link.
+  // 3a: same (non-generic) email domain + similar name.
   const name = normalizeName(signals.display_name);
-  if (!name) return { tier: 'none' };
-
   const domain = domainOfEmail(email);
-  if (!domain || GENERIC_EMAIL_DOMAINS.has(domain)) return { tier: 'none' };
+  if (name && domain && !GENERIC_EMAIL_DOMAINS.has(domain)) {
+    // Firestore cannot do substring / prefix matches inside an email string, so
+    // weak-signal matching scans a bounded slice of recent people and filters
+    // in-memory. v1 trade-off: misses older records, but a miss just means a
+    // duplicate is created (flagged elsewhere or caught on a later upsert) —
+    // the failure mode is "extra record" not "wrong link." Proper fix is a
+    // denormalized `email_domain` indexed field on writes; do it later if
+    // dup volume warrants.
+    const candidates = await db.collection('people')
+      .orderBy('updated_at', 'desc')
+      .limit(200)
+      .get();
 
-  // Firestore cannot do substring / prefix matches inside an email string, so
-  // weak-signal matching scans a bounded slice of recent people and filters
-  // in-memory. v1 trade-off: misses older records, but a miss just means a
-  // duplicate is created (flagged elsewhere or caught on a later upsert) —
-  // the failure mode is "extra record" not "wrong link." Proper fix is a
-  // denormalized `email_domain` indexed field on writes; do it later if
-  // dup volume warrants.
-  const candidates = await db.collection('people')
-    .orderBy('updated_at', 'desc')
-    .limit(200)
-    .get();
+    const domainMatches = candidates.docs.filter(d => {
+      const e = ((d.get('email') as string) || '').toLowerCase();
+      return domainOfEmail(e) === domain;
+    });
 
-  const domainMatches = candidates.docs.filter(d => {
-    const e = ((d.get('email') as string) || '').toLowerCase();
-    return domainOfEmail(e) === domain;
-  });
+    let best: { id: string; score: number } | null = null;
+    const nameTokens = tokenize(name);
+    for (const candidate of domainMatches) {
+      const cdName = normalizeName(
+        `${candidate.get('first_name') || ''} ${candidate.get('last_name') || ''}`.trim()
+        || (candidate.get('display_name') as string) || ''
+      );
+      const score = jaccard(nameTokens, tokenize(cdName));
+      if (score >= WEAK_NAME_THRESHOLD && (!best || score > best.score)) {
+        best = { id: candidate.id, score };
+      }
+    }
 
-  let best: { id: string; score: number } | null = null;
-  const nameTokens = tokenize(name);
-  for (const candidate of domainMatches) {
-    const cdName = normalizeName(
-      `${candidate.get('first_name') || ''} ${candidate.get('last_name') || ''}`.trim()
-      || (candidate.get('display_name') as string) || ''
-    );
-    const score = jaccard(nameTokens, tokenize(cdName));
-    if (score >= WEAK_NAME_THRESHOLD && (!best || score > best.score)) {
-      best = { id: candidate.id, score };
+    if (best) {
+      return {
+        tier: 'weak_signal',
+        candidate_person_id: best.id,
+        confidence: best.score,
+        reason: `domain=${domain}, name_jaccard=${best.score.toFixed(2)}`,
+      };
     }
   }
 
-  if (best) {
-    return {
-      tier: 'weak_signal',
-      candidate_person_id: best.id,
-      confidence: best.score,
-      reason: `domain=${domain}, name_jaccard=${best.score.toFixed(2)}`,
-    };
+  // 3b: the same full name under a different email (work vs personal, or a
+  // second account). Flagged for an admin, who can merge or dismiss it.
+  const sameName = await findSameNamePerson(db, { first_name: signals.first_name, last_name: signals.last_name });
+  if (sameName) {
+    return { tier: 'weak_signal', candidate_person_id: sameName, confidence: 0.6, reason: 'same_name_different_email' };
   }
 
   return { tier: 'none' };
@@ -226,7 +340,9 @@ export const matchOrganization = async (
   // Tier 2: exact domain match. We match on either `domain` (normalized) or
   // `url` (parsed). Nexus org schema today stores URL; new writes should also
   // store a normalized `domain` field (added as part of this phase).
-  const domain = normalizeDomain(signals.domain || signals.website || '');
+  // storableDomain: a shared platform host (etsy.com, instagram.com, …) is
+  // never a match signal, even if an older record stored it.
+  const domain = storableDomain(signals.domain || signals.website || '');
   if (domain) {
     const domainSnap = await db.collection('organizations')
       .where('domain', '==', domain)
@@ -286,7 +402,12 @@ export const attachExternalRef = async (
   if (!snap.exists) return { added: false };
 
   const existing = (snap.get('external_refs') || []) as ExternalRef[];
-  const already = existing.some(r => r.source === ref.source && r.id === ref.id);
+  // Same source + id + owner. An owner-scoped ref is a different claim from
+  // an ownerless one with the same source string (another provider may use
+  // it), so it is recorded alongside rather than treated as present.
+  const already = existing.some(
+    r => r.source === ref.source && r.id === ref.id && (r.owner_org_id || '') === (ref.owner_org_id || '')
+  );
   if (!already) {
     await ref_doc.update({
       external_refs: [...existing, ref],
@@ -294,8 +415,24 @@ export const attachExternalRef = async (
     });
   }
 
-  // Index write is idempotent (deterministic doc id).
-  await db.collection('external_ref_index').doc(externalRefIndexId(entityType, ref)).set({
+  // Index write is idempotent (deterministic doc id). A ref with an owner is
+  // written under that owner's scoped key, so it lands next to the entries
+  // the same organization's partner-API pushes made. Mirror the guard in
+  // partnerApi indexExternalRef: never re-point an entry another
+  // organization owns (an ownerless ref on a global key that a partner
+  // already owns is exactly that case).
+  const indexRef = db.collection('external_ref_index').doc(externalRefIndexId(entityType, ref));
+  const existingIndex = await indexRef.get();
+  if (existingIndex.exists) {
+    const owner = existingIndex.get('owner_org_id') as string | undefined;
+    if (owner && owner !== ref.owner_org_id) {
+      console.warn(
+        `external_ref_index owner mismatch for ${indexRef.id}: owned by ${owner}, attach attempted by ${ref.owner_org_id || '(no owner)'}`
+      );
+      return { added: !already };
+    }
+  }
+  await indexRef.set({
     ref_key: `${ref.source}:${ref.id}`,
     source: ref.source,
     external_id: ref.id,

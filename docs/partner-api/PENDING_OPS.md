@@ -1,0 +1,126 @@
+# Pending ops: MakeHaven venture linking
+
+Configuration steps owed after the `makehaven-venture-linking` change
+(founder_ref on `partnerUpsertOrganization`; owner-scoped SSO refs) is
+deployed. Nothing here is done by the code. Remove each item when it is done
+and verified.
+
+## 1. Order of operations
+
+1. **Deploy the functions** (this change). Safe on its own: the new request
+   fields are optional, and providers without `ref_sources` behave as before.
+2. **MakeHaven's Drupal side** sends `founder_ref` on business pushes and
+   changes userinfo `ventures[].id` to the **CiviCRM organization contact id**
+   (the id the bridge pushes the business under).
+3. **Only then** add `venture_id` to the provider's `ref_sources` (step 2
+   below). Mapping it while userinfo still sends Drupal node ids would look
+   node id N up as CiviCRM contact N and could attach a founder to someone
+   else's business.
+
+## 2. Set MakeHaven's provider `ref_sources`
+
+Target value on `oidc_providers/oidc_<MakeHaven org id>`:
+
+```json
+"ref_sources": { "civi_contact_id": "makehaven_civicrm", "venture_id": "makehaven_civicrm" }
+```
+
+First read what is there now (public, no secret returned):
+
+```bash
+curl -s "$FUNCTIONS_BASE/oidcGetProvider?provider_id=oidc_<MakeHaven org id>"
+```
+
+Then either:
+
+- **Firestore console (simplest, keeps the client secret):** edit the
+  `ref_sources` map field on that document to the value above. Change nothing
+  else.
+- **Or re-register through the API** with MakeHaven's API key.
+  `partnerRegisterOidcProvider` **replaces the whole record**, so resend every
+  current value from the read above, plus `client_secret` if the Drupal
+  consumer is confidential (omit it for a public PKCE client):
+
+  ```bash
+  curl -s -X POST "$FUNCTIONS_BASE/partnerRegisterOidcProvider" \
+    -H "X-Nexus-API-Key: $MAKEHAVEN_KEY" -H "Content-Type: application/json" \
+    -d '{
+      "display_name": "<current>",
+      "authorization_endpoint": "<current>",
+      "token_endpoint": "<current>",
+      "userinfo_endpoint": "<current>",
+      "client_id": "<current>",
+      "scopes": ["<current>"],
+      "logo_url": "<current, if any>",
+      "ref_sources": { "civi_contact_id": "makehaven_civicrm", "venture_id": "makehaven_civicrm" }
+    }'
+  ```
+
+If the current `ref_sources` already maps other keys (e.g. `drupal_uid`), keep
+or drop them deliberately: every mapped key is now treated as MakeHaven's own
+partner ID (owner-scoped). Existing ownerless index entries still resolve, so
+nothing already linked breaks; the first sign-in after the change records the
+scoped ref alongside the old one, which fires one more `person.linked` webhook
+for that person.
+
+## 3. Verify (staging first, then production)
+
+- Re-push one member business with `founder_ref`; the response should say
+  `founder_linked: true`. Its `org_type` is stored as `small_business` (the
+  bridge's `member_business`), with no `warnings`.
+- A business whose name exactly matches an organization **another** partner
+  created comes back `action: "created"`, `possible_duplicate_flagged: true`
+  and a `dedup_flags` entry (`entity_type: organization`, `reason:
+  same_name_other_manager`). The other organization's record is unchanged and
+  carries no MakeHaven ref. Review those flags after the first bulk push.
+- A record found by MakeHaven's ref that someone else created (production
+  linked by name before this change) is no longer overwritten; its founder
+  push answers `founder_link_reason: "venture_not_managed_by_you"`. Find such
+  records before the bulk push: `organizations` whose `external_refs` include
+  `owner_org_id: <MakeHaven org id>` but whose `created_by_org_id` is not
+  MakeHaven. Merge or relink them by hand if they are really MakeHaven
+  businesses.
+- With the founder listed in the directory, the venture appears on another
+  signed partner's directory page.
+- That founder signs in with MakeHaven: no new `oidc_shell` organization with
+  the venture's name, no new `dedup_flags` entry with `source:
+  "oidc:oidc_<MakeHaven org id>"`.
+
+## 4. Existing duplicates
+
+Ventures created by earlier MakeHaven sign-ins (`source: "oidc_shell"`,
+refs `oidc_<org>:venture_id`) are not merged by this change. Merge each into
+the bridge-pushed venture with the admin record merge, once the bridge has
+re-pushed businesses with `founder_ref`.
+
+## 5. One person, several emails
+
+Since `makehaven-venture-linking` (2026-10-01), a partner push and an SSO
+sign-in match a person by their main email **or any email on their
+`secondary_emails`**, the same rule the inbound-email and invite paths use.
+
+- **Partners never add emails to someone's record.** Only a platform admin or
+  ecosystem manager adds extra emails (`firestore.rules` treats
+  `secondary_emails` as privileged; the person cannot edit it themself). Otherwise any partner could attach itself
+  to someone else's account by sending their address.
+- **A push changes name and main email only on records that partner created.**
+  A self-signup person matched through an extra email keeps the name and address
+  they sign in with.
+- **A same-name person under another email is flagged, never merged.** It
+  appears in `dedup_flags` with `reason: same_name_different_email`, `status:
+  pending_review`. An admin merges the pair (`mergeRecords`) or dismisses the
+  flag. Only people in the push's ecosystem are compared, so the response
+  (`possible_duplicate_flagged`) does not reveal names elsewhere in Nexus.
+- **Audit logs never record the matched address.** `partner_person_linked`
+  stores `via: "email"` or `via: "secondary_email"`.
+
+Before a founder whose MakeHaven email differs from their Nexus email is pushed:
+an admin adds the MakeHaven address as an extra email on their Nexus profile.
+The first push then links to their existing account. Because MakeHaven did not
+create that account, a business pushed with `founder_ref` gets a **pending**
+founder link (`awaiting_founder_confirmation`); it turns active the next time
+they sign in to Nexus with MakeHaven (once `ref_sources` is set), or when an
+admin confirms it. Example: JR — Nexus account
+jrlogan@makehaven.org; MakeHaven member account johnrichardlogan@gmail.com.
+Rehearsed end to end against the emulator on 2026-10-01: one person, the
+business linked, no flags.

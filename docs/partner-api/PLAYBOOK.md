@@ -199,6 +199,16 @@ Response:
 { "ok": true, "nexus_id": "abc123xyz", "action": "created" }
 ```
 
+### When the person is already in Nexus
+
+A push matches an existing person by their main email **or any extra email an
+admin has recorded on them**, and answers `action: "linked"`. On a person your
+organization did not create, a push adds your ref and tags but **does not change
+their name or main email**. The response still says `"updated"` on later
+pushes, so don't read it as "my name change landed". Someone with the same name
+under a different email is never merged: the response carries
+`possible_duplicate_flagged: true` and an admin reviews the pair.
+
 ### People added without consent attached
 
 If you push someone without a `consent` object — say a staff member adds them by
@@ -233,12 +243,55 @@ X-Nexus-API-Key: nxk_live_...
   "email": "hello@lovelaceanalytics.com",
   "url": "https://lovelaceanalytics.com",
   "tax_status": "for_profit",
-  "tags": ["tech", "ai"]
+  "tags": ["tech", "ai"],
+  "founder_ref": { "id": "42" },
+  "logo_url": "https://lovelaceanalytics.com/logo.png",
+  "industry_tags": ["Analytics", "AI"],
+  "stage": "early revenue",
+  "org_type": "startup"
 }
 ```
 
 Resolution follows the same three-step pattern: ExternalRef index → name match
 within ecosystem → create.
+
+- **`founder_ref`** links the venture to its founder — **your own** person ref
+  (`source` defaults to the venture's `external_ref.source`), so push the person
+  first. If your organization created that person's Nexus record, the founder
+  gets an active `founder` affiliation with the venture. This is what makes the
+  venture appear in the network directory: a venture is listed only through a
+  founder who chose to be listed. If the person already had a Nexus account
+  (they signed up themselves, came in through SSO, or another partner created
+  them) and your push linked to it by email, the affiliation is **pending**: it
+  is hidden until they sign in through your SSO with that venture in their
+  userinfo, or an admin confirms it. Their primary organization is never
+  changed by a push. The response says `founder_linked: true`, or `false` with a
+  `founder_link_reason`: `founder_not_found` (push the person, then re-push the
+  venture), `awaiting_founder_confirmation` (pending, as above),
+  `venture_not_managed_by_you` or `affiliation_inactive`. The venture upsert
+  itself never fails on this. Only refs your organization owns resolve.
+- **`url`** is also stored as a normalized `domain`. On SSO, a website match
+  links a founder only to a venture **your own organization** pushed (or an
+  unmanaged sign-in shell). A website that matches another organization's
+  record creates a separate record and an admin review flag, so no provider can
+  attach its users to someone else's venture by asserting their website.
+  Shared hosts (Etsy, Instagram, Linktree, …) are never used as a domain.
+- **`logo_url`** must be a public https URL; **`org_type`** one of `startup`,
+  `small_business`, `business`, `nonprofit`, `government_agency`, `other`
+  (`member_business` is accepted as `small_business`). An invalid value is
+  ignored and named in `warnings` — the rest goes through.
+- **`industry_tags`** merge into the venture's industry tags (≤20, ≤40 chars
+  each); **`stage`** is free text (≤40 chars).
+- **A name is not proof of identity.** A name match links your ref only to a
+  record **your organization created** (`action: "linked"`). If the matching
+  record belongs to someone else, Nexus creates **your own** record
+  (`action: "created"`, `possible_duplicate_flagged: true`), links the founder
+  to it, and flags the pair for an admin to review. You never take over
+  another manager's record.
+- Your values replace stored ones only on records you created. A record found
+  by your ref that someone else created (an older name link) gets your ref,
+  tags and empty-field fills only, and the founder is never newly linked to it
+  (`founder_link_reason: "venture_not_managed_by_you"`).
 
 ---
 
