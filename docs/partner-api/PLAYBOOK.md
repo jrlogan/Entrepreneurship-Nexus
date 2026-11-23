@@ -199,6 +199,16 @@ Response:
 { "ok": true, "nexus_id": "abc123xyz", "action": "created" }
 ```
 
+### When the person is already in Nexus
+
+A push matches an existing person by their main email **or any extra email an
+admin has recorded on them**, and answers `action: "linked"`. On a person your
+organization did not create, a push adds your ref and tags but **does not change
+their name or main email**. The response still says `"updated"` on later
+pushes, so don't read it as "my name change landed". Someone with the same name
+under a different email is never merged: the response carries
+`possible_duplicate_flagged: true` and an admin reviews the pair.
+
 ### People added without consent attached
 
 If you push someone without a `consent` object — say a staff member adds them by
@@ -247,16 +257,25 @@ within ecosystem → create.
 
 - **`founder_ref`** links the venture to its founder — **your own** person ref
   (`source` defaults to the venture's `external_ref.source`), so push the person
-  first. The founder gets an active `founder` affiliation with the venture. This
-  is what makes the venture appear in the network directory: a venture is listed
-  only through a founder who chose to be listed. The response says
-  `founder_linked: true`, or `false` with `founder_link_reason:
-  "founder_not_found"` (push the person, then re-push the venture) — the
-  venture upsert itself never fails on this. Only refs your organization owns
-  resolve.
-- **`url`** is also stored as a normalized `domain`, so a founder who signs in
-  with SSO can be matched to the venture by website. Shared hosts (Etsy,
-  Instagram, Linktree, …) are not used as a domain.
+  first. If your organization created that person's Nexus record, the founder
+  gets an active `founder` affiliation with the venture. This is what makes the
+  venture appear in the network directory: a venture is listed only through a
+  founder who chose to be listed. If the person already had a Nexus account
+  (they signed up themselves, came in through SSO, or another partner created
+  them) and your push linked to it by email, the affiliation is **pending**: it
+  is hidden until they sign in through your SSO with that venture in their
+  userinfo, or an admin confirms it. Their primary organization is never
+  changed by a push. The response says `founder_linked: true`, or `false` with a
+  `founder_link_reason`: `founder_not_found` (push the person, then re-push the
+  venture), `awaiting_founder_confirmation` (pending, as above),
+  `venture_not_managed_by_you` or `affiliation_inactive`. The venture upsert
+  itself never fails on this. Only refs your organization owns resolve.
+- **`url`** is also stored as a normalized `domain`. On SSO, a website match
+  links a founder only to a venture **your own organization** pushed (or an
+  unmanaged sign-in shell). A website that matches another organization's
+  record creates a separate record and an admin review flag, so no provider can
+  attach its users to someone else's venture by asserting their website.
+  Shared hosts (Etsy, Instagram, Linktree, …) are never used as a domain.
 - **`logo_url`** must be a public https URL; **`org_type`** one of `startup`,
   `small_business`, `business`, `nonprofit`, `government_agency`, `other`
   (`member_business` is accepted as `small_business`). An invalid value is

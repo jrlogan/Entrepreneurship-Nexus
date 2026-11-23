@@ -105,7 +105,7 @@ export const parseFounderRef = (
 export interface FounderAffiliation {
   organization_id: string;
   relationship_type: 'founder';
-  status: 'active';
+  status: 'active' | 'pending';
   ecosystem_ids: string[];
   joined_at: string;
 }

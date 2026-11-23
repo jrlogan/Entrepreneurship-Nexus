@@ -998,9 +998,38 @@ export const partnerUpsertPerson = onRequest({ invoker: 'public' }, async (req, 
  * it is empty. Idempotent: an existing affiliation with the venture is left
  * alone (an ended one stays ended — reported as `affiliation_inactive`).
  */
+/**
+ * A website domain is something any provider's userinfo can assert, so on SSO
+ * it only auto-links to a record nobody else manages: a bare sign-in shell, or
+ * a record the signing-in provider's own organization created. A domain match
+ * on anything else (another partner's pushed venture, a self-managed org)
+ * becomes a new shell plus an admin dedup flag — the same treatment as a
+ * same-name match — so no provider can attach its users to another
+ * partner's records by claiming their website.
+ */
+export const ssoDomainMatchIsTrusted = (
+  org: FirebaseFirestore.DocumentData,
+  provider: { organization_id: string; ecosystem_id: string },
+): boolean => {
+  const managers = (org.managed_by_ids || []) as string[];
+  if (org.source === 'oidc_shell' && managers.length === 0) return true;
+  return !!provider.organization_id && org.created_by_org_id === provider.organization_id;
+};
+
+const trustSsoOrgMatch = async (
+  db: FirebaseFirestore.Firestore,
+  match: Awaited<ReturnType<typeof matchOrganization>>,
+  provider: { organization_id: string; ecosystem_id: string },
+): Promise<Awaited<ReturnType<typeof matchOrganization>>> => {
+  if (match.tier !== 'domain_exact') return match;
+  const snap = await db.collection('organizations').doc(match.org_id).get();
+  if (snap.exists && ssoDomainMatchIsTrusted(snap.data() || {}, provider)) return match;
+  return { tier: 'weak_signal', candidate_org_id: match.org_id, confidence: 0.6, reason: `sso_${match.via}_other_manager` };
+};
+
 type FounderLinkResult = {
   founder_linked: boolean;
-  founder_link_reason?: 'founder_not_found' | 'affiliation_inactive' | 'venture_not_managed_by_you';
+  founder_link_reason?: 'founder_not_found' | 'affiliation_inactive' | 'venture_not_managed_by_you' | 'awaiting_founder_confirmation';
 };
 
 const linkFounderToVenture = async (
@@ -1027,16 +1056,25 @@ const linkFounderToVenture = async (
   }
 
   const personRef = db.collection('people').doc(found.id);
+  let pendingOnly = false;
   const linked = await db.runTransaction(async (tx): Promise<boolean | null> => {
     const snap = await tx.get(personRef);
     if (!snap.exists) return null;
     const person = snap.data() || {};
+    // Only on a person this partner created does a push make them a founder
+    // outright. Anyone else (a self-signup, an SSO account, another partner's
+    // record) that this partner reached by email gets a pending affiliation —
+    // hidden from the directory until the person or an admin confirms it — and
+    // their primary organization is never touched.
+    const partnerOwned = person.source === 'partner_api' && person.created_by_org_id === callerOrgId;
+    pendingOnly = !partnerOwned;
     const existing = (person.organization_affiliations || []) as Array<{ organization_id?: string; status?: string }>;
     const now = new Date().toISOString();
-    const additions = newFounderAffiliations(existing, [ventureId], ecosystemId, now);
+    const additions = newFounderAffiliations(existing, [ventureId], ecosystemId, now)
+      .map((a) => (partnerOwned ? a : { ...a, status: 'pending' as const }));
     const updates: Record<string, unknown> = {};
     if (additions.length > 0) updates.organization_affiliations = [...existing, ...additions];
-    if (!person.organization_id) updates.organization_id = ventureId;
+    if (partnerOwned && !person.organization_id) updates.organization_id = ventureId;
     if (Object.keys(updates).length > 0) {
       tx.update(personRef, { ...updates, updated_at: now });
     }
@@ -1049,7 +1087,8 @@ const linkFounderToVenture = async (
     );
   });
   if (linked === null) return { founder_linked: false, founder_link_reason: 'founder_not_found' };
-  return linked ? { founder_linked: true } : { founder_linked: false, founder_link_reason: 'affiliation_inactive' };
+  if (linked) return { founder_linked: true };
+  return { founder_linked: false, founder_link_reason: pendingOnly ? 'awaiting_founder_confirmation' : 'affiliation_inactive' };
 };
 
 /**
@@ -3020,12 +3059,12 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
     if (employerInfo.id) {
       orgRefs.push(refFor('employer_org_id', employerInfo.id));
     }
-    const orgMatch = await matchOrganization(db, {
+    const orgMatch = await trustSsoOrgMatch(db, await matchOrganization(db, {
       external_refs: orgRefs,
       name: employerInfo.name,
       domain: employerInfo.domain,
       website: employerInfo.website,
-    });
+    }), provider);
 
     let resolvedOrgId: string | null = null;
 
@@ -3103,12 +3142,12 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
       if (venture.id) {
         ventureRefs.push(refFor('venture_id', venture.id));
       }
-      const ventureMatch = await matchOrganization(db, {
+      const ventureMatch = await trustSsoOrgMatch(db, await matchOrganization(db, {
         external_refs: ventureRefs,
         name: venture.name,
         domain: venture.domain,
         website: venture.website,
-      });
+      }), provider);
 
       let ventureOrgId: string | null = null;
       if (ventureMatch.tier === 'external_ref' || ventureMatch.tier === 'domain_exact') {
@@ -3176,9 +3215,21 @@ export const oidcExchangeToken = onRequest({ invoker: 'public' }, async (req, re
         new Date().toISOString(),
       );
 
+      // The person signing in themself, through a provider that lists this
+      // venture as theirs, confirms a founder link a partner push left pending.
+      const resolvedSet = new Set(resolvedVentureOrgIds);
+      let confirmed = false;
+      const current = existingAffiliations.map((a) => {
+        if (a.status === 'pending' && a.relationship_type === 'founder' && resolvedSet.has(a.organization_id)) {
+          confirmed = true;
+          return { ...a, status: 'active', confirmed_at: new Date().toISOString(), confirmed_via: `oidc:${providerId}` };
+        }
+        return a;
+      });
+
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (additions.length > 0) {
-        updates.organization_affiliations = [...existingAffiliations, ...additions];
+      if (additions.length > 0 || confirmed) {
+        updates.organization_affiliations = [...current, ...additions];
       }
       // Set primary organization_id to the first venture if none was set above
       // by the employer_org branch. Doesn't overwrite an existing assignment.

@@ -375,9 +375,13 @@ components:
           description: True when `founder_ref` resolved and the founder is linked to this venture. False when no founder_ref was sent.
         founder_link_reason:
           type: string
-          enum: [founder_not_found, affiliation_inactive, venture_not_managed_by_you]
+          enum: [founder_not_found, affiliation_inactive, venture_not_managed_by_you, awaiting_founder_confirmation]
           description: |
             Present when founder_ref was sent but not linked.
+            `awaiting_founder_confirmation` — the person's record was not
+            created by your organization (self-signup, SSO, another partner);
+            a pending affiliation was recorded, hidden until the person signs in
+            through your SSO with this venture, or an admin confirms it.
             `venture_not_managed_by_you` — the record was created by another
             organization; a push never makes someone its founder.
             `founder_not_found` — push the person first (with your own ref).

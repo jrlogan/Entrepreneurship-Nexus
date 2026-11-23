@@ -99,8 +99,9 @@ Since `makehaven-venture-linking` (2026-10-01), a partner push and an SSO
 sign-in match a person by their main email **or any email on their
 `secondary_emails`**, the same rule the inbound-email and invite paths use.
 
-- **Partners never add emails to someone's record.** Only the person (profile
-  page) or an admin adds extra emails. Otherwise any partner could attach itself
+- **Partners never add emails to someone's record.** Only a platform admin or
+  ecosystem manager adds extra emails (`firestore.rules` treats
+  `secondary_emails` as privileged; the person cannot edit it themself). Otherwise any partner could attach itself
   to someone else's account by sending their address.
 - **A push changes name and main email only on records that partner created.**
   A self-signup person matched through an extra email keeps the name and address
@@ -114,8 +115,12 @@ sign-in match a person by their main email **or any email on their
   stores `via: "email"` or `via: "secondary_email"`.
 
 Before a founder whose MakeHaven email differs from their Nexus email is pushed:
-add the MakeHaven address as an extra email on their Nexus profile. The first
-push then links to their existing account. Example: JR — Nexus account
+an admin adds the MakeHaven address as an extra email on their Nexus profile.
+The first push then links to their existing account. Because MakeHaven did not
+create that account, a business pushed with `founder_ref` gets a **pending**
+founder link (`awaiting_founder_confirmation`); it turns active the next time
+they sign in to Nexus with MakeHaven (once `ref_sources` is set), or when an
+admin confirms it. Example: JR — Nexus account
 jrlogan@makehaven.org; MakeHaven member account johnrichardlogan@gmail.com.
 Rehearsed end to end against the emulator on 2026-10-01: one person, the
 business linked, no flags.

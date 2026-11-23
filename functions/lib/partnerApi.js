@@ -68,7 +68,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerLogActivity = exports.partnerListReferrals = exports.partnerUpdateReferral = exports.partnerCreateReferral = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.partnerUpsertPerson = exports.ensureConsentNotice = void 0;
+exports.oidcLinkAccount = exports.oidcExchangeToken = exports.oidcGetProvider = exports.oidcGetProviders = exports.partnerRegisterOidcProvider = exports.partnerLogActivity = exports.partnerListReferrals = exports.partnerUpdateReferral = exports.partnerCreateReferral = exports.consentAccept = exports.getConsentSession = exports.partnerCreateConsentLink = exports.getConsentTerms = exports.onReferralWrittenDeliverWebhooks = exports.onInteractionCreatedDeliverWebhooks = exports.partnerUpsertParticipation = exports.partnerRegisterWebhook = exports.partnerGetPerson = exports.partnerUpsertOrganization = exports.ssoDomainMatchIsTrusted = exports.partnerUpsertPerson = exports.ensureConsentNotice = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -788,6 +788,41 @@ exports.partnerUpsertPerson = (0, https_1.onRequest)({ invoker: 'public' }, asyn
         ...outdated,
     });
 });
+/**
+ * Links a founder — resolved ONLY through the calling partner's own external
+ * ref — to a venture, so the privacy policy can list the venture in the
+ * directory through that founder (ventureOrgIdsFor: organization_id or an
+ * active organization_affiliations entry).
+ *
+ * Writes the same founder affiliation the OIDC venture path writes
+ * (newFounderAffiliations), and sets the person's primary organization_id if
+ * it is empty. Idempotent: an existing affiliation with the venture is left
+ * alone (an ended one stays ended — reported as `affiliation_inactive`).
+ */
+/**
+ * A website domain is something any provider's userinfo can assert, so on SSO
+ * it only auto-links to a record nobody else manages: a bare sign-in shell, or
+ * a record the signing-in provider's own organization created. A domain match
+ * on anything else (another partner's pushed venture, a self-managed org)
+ * becomes a new shell plus an admin dedup flag — the same treatment as a
+ * same-name match — so no provider can attach its users to another
+ * partner's records by claiming their website.
+ */
+const ssoDomainMatchIsTrusted = (org, provider) => {
+    const managers = (org.managed_by_ids || []);
+    if (org.source === 'oidc_shell' && managers.length === 0)
+        return true;
+    return !!provider.organization_id && org.created_by_org_id === provider.organization_id;
+};
+exports.ssoDomainMatchIsTrusted = ssoDomainMatchIsTrusted;
+const trustSsoOrgMatch = async (db, match, provider) => {
+    if (match.tier !== 'domain_exact')
+        return match;
+    const snap = await db.collection('organizations').doc(match.org_id).get();
+    if (snap.exists && (0, exports.ssoDomainMatchIsTrusted)(snap.data() || {}, provider))
+        return match;
+    return { tier: 'weak_signal', candidate_org_id: match.org_id, confidence: 0.6, reason: `sso_${match.via}_other_manager` };
+};
 const linkFounderToVenture = async (db, callerOrgId, founderRef, ventureId, ecosystemId, options = { mayWrite: true }) => {
     // Owner-scoped: another partner's ref scheme never resolves here.
     const found = await findByExternalRef(db, { ...founderRef, owner_org_id: callerOrgId }, 'person', callerOrgId);
@@ -805,18 +840,27 @@ const linkFounderToVenture = async (db, callerOrgId, founderRef, ventureId, ecos
             : { founder_linked: false, founder_link_reason: 'venture_not_managed_by_you' };
     }
     const personRef = db.collection('people').doc(found.id);
+    let pendingOnly = false;
     const linked = await db.runTransaction(async (tx) => {
         const snap = await tx.get(personRef);
         if (!snap.exists)
             return null;
         const person = snap.data() || {};
+        // Only on a person this partner created does a push make them a founder
+        // outright. Anyone else (a self-signup, an SSO account, another partner's
+        // record) that this partner reached by email gets a pending affiliation —
+        // hidden from the directory until the person or an admin confirms it — and
+        // their primary organization is never touched.
+        const partnerOwned = person.source === 'partner_api' && person.created_by_org_id === callerOrgId;
+        pendingOnly = !partnerOwned;
         const existing = (person.organization_affiliations || []);
         const now = new Date().toISOString();
-        const additions = (0, partnerOrgFields_1.newFounderAffiliations)(existing, [ventureId], ecosystemId, now);
+        const additions = (0, partnerOrgFields_1.newFounderAffiliations)(existing, [ventureId], ecosystemId, now)
+            .map((a) => (partnerOwned ? a : { ...a, status: 'pending' }));
         const updates = {};
         if (additions.length > 0)
             updates.organization_affiliations = [...existing, ...additions];
-        if (!person.organization_id)
+        if (partnerOwned && !person.organization_id)
             updates.organization_id = ventureId;
         if (Object.keys(updates).length > 0) {
             tx.update(personRef, { ...updates, updated_at: now });
@@ -828,7 +872,9 @@ const linkFounderToVenture = async (db, callerOrgId, founderRef, ventureId, ecos
     });
     if (linked === null)
         return { founder_linked: false, founder_link_reason: 'founder_not_found' };
-    return linked ? { founder_linked: true } : { founder_linked: false, founder_link_reason: 'affiliation_inactive' };
+    if (linked)
+        return { founder_linked: true };
+    return { founder_linked: false, founder_link_reason: pendingOnly ? 'awaiting_founder_confirmation' : 'affiliation_inactive' };
 };
 /**
  * POST /partnerUpsertOrganization
@@ -2656,12 +2702,12 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
         if (employerInfo.id) {
             orgRefs.push(refFor('employer_org_id', employerInfo.id));
         }
-        const orgMatch = await (0, federationDedup_1.matchOrganization)(db, {
+        const orgMatch = await trustSsoOrgMatch(db, await (0, federationDedup_1.matchOrganization)(db, {
             external_refs: orgRefs,
             name: employerInfo.name,
             domain: employerInfo.domain,
             website: employerInfo.website,
-        });
+        }), provider);
         let resolvedOrgId = null;
         if (orgMatch.tier === 'external_ref' || orgMatch.tier === 'domain_exact') {
             resolvedOrgId = orgMatch.org_id;
@@ -2735,12 +2781,12 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
             if (venture.id) {
                 ventureRefs.push(refFor('venture_id', venture.id));
             }
-            const ventureMatch = await (0, federationDedup_1.matchOrganization)(db, {
+            const ventureMatch = await trustSsoOrgMatch(db, await (0, federationDedup_1.matchOrganization)(db, {
                 external_refs: ventureRefs,
                 name: venture.name,
                 domain: venture.domain,
                 website: venture.website,
-            });
+            }), provider);
             let ventureOrgId = null;
             if (ventureMatch.tier === 'external_ref' || ventureMatch.tier === 'domain_exact') {
                 ventureOrgId = ventureMatch.org_id;
@@ -2798,9 +2844,20 @@ exports.oidcExchangeToken = (0, https_1.onRequest)({ invoker: 'public' }, async 
             const existingAffiliations = personSnap.get('organization_affiliations') || [];
             // Same shape the partner API writes for founder_ref (partnerOrgFields.ts).
             const additions = (0, partnerOrgFields_1.newFounderAffiliations)(existingAffiliations, resolvedVentureOrgIds, provider.ecosystem_id, new Date().toISOString());
+            // The person signing in themself, through a provider that lists this
+            // venture as theirs, confirms a founder link a partner push left pending.
+            const resolvedSet = new Set(resolvedVentureOrgIds);
+            let confirmed = false;
+            const current = existingAffiliations.map((a) => {
+                if (a.status === 'pending' && a.relationship_type === 'founder' && resolvedSet.has(a.organization_id)) {
+                    confirmed = true;
+                    return { ...a, status: 'active', confirmed_at: new Date().toISOString(), confirmed_via: `oidc:${providerId}` };
+                }
+                return a;
+            });
             const updates = { updated_at: new Date().toISOString() };
-            if (additions.length > 0) {
-                updates.organization_affiliations = [...existingAffiliations, ...additions];
+            if (additions.length > 0 || confirmed) {
+                updates.organization_affiliations = [...current, ...additions];
             }
             // Set primary organization_id to the first venture if none was set above
             // by the employer_org branch. Doesn't overwrite an existing assignment.

@@ -833,3 +833,99 @@ describe('one person, several emails', () => {
     assert.equal((match as any).reason, 'same_name_different_email');
   });
 });
+
+describe('cross-partner safety: domain matches and founder links on people a partner did not create', () => {
+  const stamp = Date.now();
+  const PROVIDER_ID = `oidc_test_safety_${stamp}`;
+  let server: Server;
+  let userinfo: Record<string, unknown> = {};
+
+  before(async () => {
+    await seed();
+    await signOrg(ORG_A);
+    await signOrg(ORG_B);
+    server = createServer((req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.url?.startsWith('/token')) res.end(JSON.stringify({ access_token: 'test-access-token' }));
+      else if (req.url?.startsWith('/userinfo')) res.end(JSON.stringify(userinfo));
+      else { res.statusCode = 404; res.end('{}'); }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${port}`;
+    await db.collection('oidc_providers').doc(PROVIDER_ID).set({
+      id: PROVIDER_ID, organization_id: ORG_A, ecosystem_id: ECO_ID, display_name: 'Sign in with Test A',
+      authorization_endpoint: `${base}/authorize`, token_endpoint: `${base}/token`, userinfo_endpoint: `${base}/userinfo`,
+      client_id: 'test-client', client_secret: '', scopes: ['openid'],
+      ref_sources: { civi_contact_id: MH_SOURCE, venture_id: MH_SOURCE },
+      status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    });
+  });
+
+  after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const signIn = () => call('POST', 'oidcExchangeToken', {
+    provider_id: PROVIDER_ID, code: 'code', code_verifier: 'verifier', redirect_uri: 'http://localhost:3000/sso/callback',
+  });
+
+  it('SSO never attaches a user to another partner\'s venture by claiming its website', async () => {
+    const theirs = await pushVenture(KEY_B, ORG_B, `b-site-${stamp}`, { url: `https://b-owned-${stamp}.example.com` });
+    assert.equal(theirs.status, 201, JSON.stringify(theirs.body));
+    userinfo = {
+      email: `claimer-${stamp}@example.com`, given_name: 'Claire', family_name: `Claimer ${stamp}`,
+      ventures: [{ name: `Claimed ${stamp}`, website: `https://b-owned-${stamp}.example.com` }],
+    };
+    const res = await signIn();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const person = (await db.collection('people').doc(res.body.nexus_id).get()).data()!;
+    const linkedIds = [person.organization_id, ...(person.organization_affiliations || []).map((a: any) => a.organization_id)];
+    assert.ok(!linkedIds.includes(theirs.body.nexus_id), 'not linked to partner B\'s venture');
+    const ref = (await db.collection('organizations').doc(theirs.body.nexus_id).get()).get('external_refs') || [];
+    assert.equal(ref.length, 1, 'no SSO ref written onto partner B\'s record');
+    const flags = await db.collection('dedup_flags').where('candidate_entity_id', '==', theirs.body.nexus_id).get();
+    assert.equal(flags.size, 1, 'the pair goes to admin review instead');
+  });
+
+  it('SSO still links by website to a venture the same provider\'s organization pushed', async () => {
+    const ours = await pushVenture(KEY_A, ORG_A, `a-site-${stamp}`, { url: `https://a-owned-${stamp}.example.com` });
+    userinfo = {
+      email: `owner-${stamp}@example.com`, given_name: 'Olu', family_name: `Owner ${stamp}`,
+      ventures: [{ name: `Other Name ${stamp}`, website: `https://a-owned-${stamp}.example.com` }],
+    };
+    const res = await signIn();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const person = (await db.collection('people').doc(res.body.nexus_id).get()).data()!;
+    assert.equal(person.organization_id, ours.body.nexus_id);
+  });
+
+  it('founder_ref on someone the partner did not create is pending until they sign in themselves', async () => {
+    const pid = `selfsignup_${stamp}`;
+    const email = `self-${stamp}@example.com`;
+    await db.collection('people').doc(pid).set({
+      id: pid, first_name: 'Sam', last_name: `Self ${stamp}`, email, system_role: 'entrepreneur',
+      organization_id: '', ecosystem_id: ECO_ID, ecosystem_ids: [ECO_ID], source: 'self_signup', status: 'active',
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    });
+    const linked = await pushMhPerson(KEY_A, ORG_A, `self-p-${stamp}`, email);
+    assert.equal(linked.body.nexus_id, pid, JSON.stringify(linked.body));
+
+    const venture = await pushVenture(KEY_A, ORG_A, `self-v-${stamp}`, { founder_ref: { id: `self-p-${stamp}` } });
+    assert.equal(venture.body.founder_linked, false, JSON.stringify(venture.body));
+    assert.equal(venture.body.founder_link_reason, 'awaiting_founder_confirmation');
+    let person = (await db.collection('people').doc(pid).get()).data()!;
+    assert.equal(person.organization_id, '', 'primary organization untouched');
+    const aff = (person.organization_affiliations || []).find((a: any) => a.organization_id === venture.body.nexus_id);
+    assert.equal(aff?.status, 'pending');
+
+    userinfo = {
+      email, given_name: 'Sam', family_name: `Self ${stamp}`, civi_contact_id: `self-p-${stamp}`,
+      ventures: [{ id: `self-v-${stamp}`, name: `Venture self-v-${stamp}` }],
+    };
+    const res = await signIn();
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    person = (await db.collection('people').doc(pid).get()).data()!;
+    const after = (person.organization_affiliations || []).filter((a: any) => a.organization_id === venture.body.nexus_id);
+    assert.equal(after.length, 1);
+    assert.equal(after[0].status, 'active', 'their own sign-in confirms it');
+  });
+});
